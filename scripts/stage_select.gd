@@ -63,7 +63,9 @@ func _process(delta: float) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED:
+	# NOTIFICATION_RESIZED 會在 _ready() 前先觸發一次（剛加入場景樹被撐到 viewport 大小），
+	# 這時 _build_ui() 尚未執行，UI 節點都還是 null；先過濾掉。
+	if what == NOTIFICATION_RESIZED and title_label != null:
 		_apply_layout()
 
 
@@ -156,6 +158,8 @@ func _build_ui() -> void:
 
 
 func _apply_layout() -> void:
+	if title_label == null:
+		return
 	var vp: Vector2 = get_viewport_rect().size
 
 	title_label.position = Vector2((vp.x - 600) * 0.5, 28)
