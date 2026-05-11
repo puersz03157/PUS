@@ -13,3 +13,6 @@ export_credentials.cfg
 /Screenshot*.png
 /Screenshot*.png.import
 
+# Temp commit message files used by the agent on PowerShell (no heredoc).
+/.git_commit_msg.tmp
+
