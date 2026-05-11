@@ -238,9 +238,9 @@ const CHARACTERS: Array[Dictionary] = [
 
 # 武器升級 (對單一武器)
 const WEAPON_UPGRADES: Array[Dictionary] = [
-	{"id": "w_damage",  "name": "傷害增加",   "name_key": "WUP_W_DAMAGE_NAME",  "max": 5, "value": 0.20, "field": "damage_mult"},
-	{"id": "w_range",   "name": "範圍增加",   "name_key": "WUP_W_RANGE_NAME",   "max": 5, "value": 0.15, "field": "range_mult"},
-	{"id": "w_rate",    "name": "攻擊頻率",   "name_key": "WUP_W_RATE_NAME",    "max": 5, "value": 0.15, "field": "rate_mult"},
+	{"id": "w_damage",  "name": "傷害增加",   "name_key": "WUP_W_DAMAGE_NAME",  "max": 3, "value": 0.20, "field": "damage_mult"},
+	{"id": "w_range",   "name": "範圍增加",   "name_key": "WUP_W_RANGE_NAME",   "max": 2, "value": 0.15, "field": "range_mult"},
+	{"id": "w_rate",    "name": "攻擊頻率",   "name_key": "WUP_W_RATE_NAME",    "max": 2, "value": 0.15, "field": "rate_mult"},
 	{"id": "w_count",   "name": "投射物增加", "name_key": "WUP_W_COUNT_NAME",   "max": 2, "value": 1,    "field": "count_add"},
 ]
 
@@ -255,6 +255,37 @@ const COMMON_UPGRADES: Array[Dictionary] = [
 	{"id": "c_regen",    "name": "回復術",   "name_key": "CUP_C_REGEN_NAME",    "desc": "每秒回復 +0.5", "desc_key": "CUP_C_REGEN_DESC",    "max": 3, "value": 0.5,  "field": "regen_add"},
 	{"id": "c_atk",      "name": "力量強化", "name_key": "CUP_C_ATK_NAME",      "desc": "全武器傷害 +10%","desc_key": "CUP_C_ATK_DESC",      "max": 5, "value": 0.10, "field": "damage_mult"},
 ]
+
+
+func get_weapon_upgrade_def(id: String) -> Dictionary:
+	for u in WEAPON_UPGRADES:
+		if u["id"] == id:
+			return u
+	return {}
+
+
+func get_common_upgrade_def(id: String) -> Dictionary:
+	for u in COMMON_UPGRADES:
+		if u["id"] == id:
+			return u
+	return {}
+
+
+## 四項武器升級（w_damage / w_range / w_rate / w_count）皆達上限
+func is_weapon_upgrades_maxed(upgrades: Dictionary) -> bool:
+	for u in WEAPON_UPGRADES:
+		var have: int = int(upgrades.get(u["id"], 0))
+		if have < int(u["max"]):
+			return false
+	return true
+
+
+## 已實裝「滿級額外效果」的武器 id（其餘武器全滿時不彈解鎖視窗，直到實裝為止）
+const WEAPON_MAX_BONUS_IMPLEMENTED: Array[String] = ["bow", "shard", "holy"]
+
+
+func weapon_max_bonus_is_implemented(weapon_id: String) -> bool:
+	return weapon_id in WEAPON_MAX_BONUS_IMPLEMENTED
 
 
 func get_weapon_def(id: String) -> Dictionary:

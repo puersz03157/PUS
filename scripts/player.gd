@@ -736,19 +736,19 @@ func _skill_energy_wave_combat(s: Dictionary) -> void:
 	play_attack_anim()
 
 
-func add_weapon(weapon_id: String) -> void:
+func add_weapon(weapon_id: String) -> Dictionary:
 	for w in weapons:
 		if w["id"] == weapon_id:
-			_apply_random_weapon_upgrade(w)
-			return
+			var ur: Dictionary = _apply_random_weapon_upgrade(w)
+			return _weapon_reward_result(String(w["id"]), ur)
 	# 武器格滿了 → 改強化等級最低的一把（總是有點益處），不再悄悄落空
 	if weapons.size() >= WEAPON_SLOT_MAX:
 		var lowest: Dictionary = weapons[0]
 		for w in weapons:
 			if int(w["level"]) < int(lowest["level"]):
 				lowest = w
-		_apply_random_weapon_upgrade(lowest)
-		return
+		var ur2: Dictionary = _apply_random_weapon_upgrade(lowest)
+		return _weapon_reward_result(String(lowest["id"]), ur2)
 	var entry := {
 		"id": weapon_id,
 		"level": 1,
@@ -761,21 +761,87 @@ func add_weapon(weapon_id: String) -> void:
 		entry["node"] = node
 		weapons_root.add_child(node)
 		node.setup(self, entry)
+	return {"kind": "weapon_new", "weapon_id": weapon_id}
 
 
-func _apply_random_weapon_upgrade(entry: Dictionary) -> void:
+func _weapon_reward_result(weapon_id: String, ur: Dictionary) -> Dictionary:
+	if ur.get("ok", false):
+		return {
+			"kind": "weapon_upgrade",
+			"weapon_id": weapon_id,
+			"upgrade_id": ur["upgrade_id"],
+			"current": ur["current"],
+			"max": ur["max"],
+		}
+	return {"kind": "weapon_upgrade_max", "weapon_id": weapon_id}
+
+
+func _apply_random_weapon_upgrade(entry: Dictionary) -> Dictionary:
 	var picks: Array = []
 	for u in GameData.WEAPON_UPGRADES:
 		var have: int = entry["upgrades"].get(u["id"], 0)
 		if have < u["max"]:
 			picks.append(u["id"])
 	if picks.is_empty():
-		return
+		return {"ok": false}
+	var ups_before: Dictionary = entry["upgrades"].duplicate()
 	var pick: String = picks.pick_random()
 	entry["upgrades"][pick] = entry["upgrades"].get(pick, 0) + 1
 	entry["level"] += 1
 	if entry["node"]:
 		entry["node"].refresh()
+	if GameData.is_weapon_upgrades_maxed(entry["upgrades"]) \
+			and not GameData.is_weapon_upgrades_maxed(ups_before):
+		_try_show_weapon_max_bonus_unlock(String(entry["id"]))
+	var max_lv: int = 0
+	for u in GameData.WEAPON_UPGRADES:
+		if u["id"] == pick:
+			max_lv = int(u["max"])
+			break
+	return {"ok": true, "upgrade_id": pick, "current": int(entry["upgrades"][pick]), "max": max_lv}
+
+
+func _try_show_weapon_max_bonus_unlock(weapon_id: String) -> void:
+	if village_mode:
+		return
+	if not GameData.weapon_max_bonus_is_implemented(weapon_id):
+		return
+	call_deferred("_show_weapon_max_bonus_unlock_impl", weapon_id)
+
+
+func _show_weapon_max_bonus_unlock_impl(weapon_id: String) -> void:
+	var wdef: Dictionary = GameData.get_weapon_def(weapon_id)
+	if wdef.is_empty():
+		return
+	var pname: String = tr("PINBALL_PNAME_FMT") % (int(slot_index) + 1)
+	var wn: String = GameData.tr_weapon_name(weapon_id)
+	var mx: String = GameData.tr_max_effect(wdef)
+	var body: String = tr("WEAPON_MAX_UNLOCK_BODY_FMT") % [pname, wn, mx]
+	var dlg := AcceptDialog.new()
+	dlg.title = tr("WEAPON_MAX_UNLOCK_TITLE")
+	dlg.dialog_text = body + "\n\n" + tr("PINBALL_REWARD_HINT")
+	dlg.ok_button_text = tr("PINBALL_REWARD_OK")
+	dlg.process_mode = Node.PROCESS_MODE_ALWAYS
+	dlg.unresizable = true
+	dlg.min_size = Vector2i(440, 160)
+	var host := CanvasLayer.new()
+	host.layer = 200
+	host.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(host)
+	host.add_child(dlg)
+	dlg.popup_centered()
+	var ok_btn: Button = dlg.get_ok_button()
+	if ok_btn:
+		ok_btn.call_deferred("grab_focus")
+	var closer := func() -> void:
+		if not is_instance_valid(dlg) or dlg.get_meta("weapon_max_dlg_done", false):
+			return
+		dlg.set_meta("weapon_max_dlg_done", true)
+		dlg.queue_free()
+		if is_instance_valid(host):
+			host.queue_free()
+	dlg.confirmed.connect(closer)
+	dlg.popup_hide.connect(closer)
 
 
 func _spawn_weapon_node(weapon_id: String) -> Node:
@@ -796,8 +862,9 @@ func _spawn_weapon_node(weapon_id: String) -> Node:
 	return null
 
 
-func apply_common_upgrade(id: String) -> void:
+func apply_common_upgrade(id: String) -> Dictionary:
 	common_upgrade_log[id] = int(common_upgrade_log.get(id, 0)) + 1
+	var cur: int = int(common_upgrade_log.get(id, 0))
 	for u in GameData.COMMON_UPGRADES:
 		if u["id"] != id:
 			continue
@@ -826,7 +893,9 @@ func apply_common_upgrade(id: String) -> void:
 				damage_mult += v
 				for ww in weapons:
 					if ww["node"]: ww["node"].refresh()
-		return
+		return {"kind": "common_upgrade", "upgrade_id": id, "current": cur, "max": int(u["max"])}
+	var u0: Dictionary = GameData.get_common_upgrade_def(id)
+	return {"kind": "common_upgrade", "upgrade_id": id, "current": cur, "max": int(u0.get("max", 0))}
 
 
 func _on_pickup_area_body_entered(_body: Node) -> void:

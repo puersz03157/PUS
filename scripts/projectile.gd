@@ -23,6 +23,10 @@ func setup(w: Node, vel: Vector2, col: Color) -> void:
 	color = col
 	var def: Dictionary = w.def
 	pierce_left = int(def["params"].get("pierce", 0))
+	if w is WeaponBase:
+		var wb: WeaponBase = w as WeaponBase
+		if wb.weapon_upgrades_maxed() and String(def.get("id", "")) == "bow":
+			pierce_left += 2
 	explode_radius = float(def["params"].get("explode_radius", 0.0))
 	wave = bool(def["params"].get("wave", false))
 	wave_seed = randf() * TAU

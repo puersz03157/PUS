@@ -1,26 +1,11 @@
 [gd_resource type="Theme" load_steps=2 format=3]
 
-; 全域預設 Theme：套用一個會自動 fallback 到系統 CJK 字型的 SystemFont。
-; 之後若要打包發行可改成內嵌 res://theme/fonts/NotoSansCJK.ttf 之類的字型。
-;
-; font_names 由前往後依序嘗試命中：
-;   Windows: Microsoft YaHei UI / Microsoft JhengHei
-;   macOS:   PingFang SC / PingFang TC / Heiti TC / Hiragino Sans GB
-;   Linux:   Noto Sans CJK / Source Han Sans / WenQuanYi Micro Hei
-;   英文補位: Segoe UI / Arial（避免英文字也跟著走中文字型）
-; allow_system_fallback=true 會讓 Godot 在任何字符找不到時自動再向作業系統借字型。
+; 全域 Theme：default_font 會套到所有未單獨指定字型的 Control，
+; 並作為 ThemeDB.fallback_font（draw_string 等）的來源。
+; 字型檔請放在 res://assets/font/，若要換字體改下方 ext_resource path 即可。
 
-[sub_resource type="SystemFont" id="SystemFont_cjk"]
-font_names = PackedStringArray("Microsoft YaHei UI", "Microsoft YaHei", "Microsoft JhengHei", "Microsoft JhengHei UI", "PingFang TC", "PingFang SC", "Heiti TC", "Hiragino Sans GB", "Noto Sans CJK TC", "Noto Sans CJK SC", "Source Han Sans TC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Segoe UI", "Arial")
-font_italic = false
-font_weight = 400
-allow_system_fallback = true
-force_autohinter = false
-hinting = 1
-subpixel_positioning = 1
-multichannel_signed_distance_field = false
-oversampling = 0.0
+[ext_resource type="FontFile" path="res://assets/font/jf-openhuninn-2.1.ttf" id="1_main_font"]
 
 [resource]
-default_font = SubResource("SystemFont_cjk")
+default_font = ExtResource("1_main_font")
 default_font_size = 16

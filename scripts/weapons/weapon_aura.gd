@@ -38,11 +38,10 @@ func fire() -> bool:
 	for e in owner_player.get_tree().get_nodes_in_group("enemies"):
 		if owner_player.global_position.distance_to(e.global_position) <= eff_range:
 			damage_enemy(e)
-	# 治療效果
+	# 治療效果（聖光：滿級前僅自回；滿級後額外治療附近隊友）
 	if def["params"].get("heal", 0.0) > 0.0:
 		owner_player._heal(float(def["params"]["heal"]))
-		# 支援同隊
-		if def["id"] == "holy":
+		if def["id"] == "holy" and weapon_upgrades_maxed():
 			for p in owner_player.get_tree().get_nodes_in_group("players"):
 				if p != owner_player and p.global_position.distance_to(owner_player.global_position) < 220.0:
 					p._heal(float(def["params"]["heal"]) * 0.6)

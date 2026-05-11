@@ -49,6 +49,10 @@ var touch_skill_buttons: Array = []
 
 var _closing := false
 
+# 獎勵確認視窗：佇列顯示，顯示期間暫停彈珠物理以免在讀完前關閉場景
+var _reward_modal_block: bool = false
+var _reward_queue: Array[String] = []
+
 
 func setup(_levelers: Array) -> void:
 	levelers = _levelers
@@ -375,6 +379,10 @@ func _build_balls() -> void:
 
 
 func _process(delta: float) -> void:
+	if _reward_modal_block:
+		_update_instructions()
+		balls_node.queue_redraw()
+		return
 	for b in player_balls:
 		if b["finished"]:
 			continue
@@ -723,75 +731,87 @@ func _apply_reward_to_player(p: Node, slot_idx: int) -> void:
 	if slot.get("destroyed", false):
 		return
 	var reward: Dictionary = slot["reward"]
+	var info: Dictionary = {"kind": "noop"}
 	match reward.get("type", "noop"):
 		"weapon", "weapon_up":
-			# 既有武器就升級；沒有的話，看武器格是否還有空位：
-			#   有空 → 加入新武器
-			#   滿格 → 把獎勵轉成「強化等級最低的武器」並提示玩家
 			var wid: String = String(reward["id"])
-			var has_it: bool = false
-			for w in p.weapons:
-				if String(w["id"]) == wid:
-					has_it = true
-					break
-			var cap: int = int(p.WEAPON_SLOT_MAX)
-			if not has_it and p.weapons.size() >= cap:
-				_substitute_weapon_full(p, wid)
-			else:
-				p.add_weapon(wid)
+			info = p.add_weapon(wid)
 		"common":
-			p.apply_common_upgrade(reward["id"])
+			info = p.apply_common_upgrade(reward["id"])
 		_:
-			pass
+			info = {"kind": "noop"}
+	_enqueue_pinball_reward_dialog(p, slot, info)
 	var lbl: Label = slot_labels[slot_idx]
 	lbl.modulate = Color(1.6, 1.4, 0.8)
 	var t := lbl.create_tween()
 	t.tween_property(lbl, "modulate", Color(1, 1, 1), 0.6)
 
 
-# 滿格玩家落到「新武器」格 → 自動把該武器轉成「強化等級最低的武器」，並彈跳提示
-func _substitute_weapon_full(p: Node, _new_weapon_id: String) -> void:
-	if p.weapons.is_empty():
+func _format_pinball_reward_line(p: Node, slot: Dictionary, info: Dictionary) -> String:
+	var pname: String = tr("PINBALL_PNAME_FMT") % (int(p.slot_index) + 1)
+	match String(info.get("kind", "")):
+		"weapon_new":
+			return tr("PINBALL_REWARD_WEAPON_NEW_FMT") % [
+				pname, GameData.tr_weapon_name(String(info.get("weapon_id", "")))]
+		"weapon_upgrade":
+			var udef: Dictionary = GameData.get_weapon_upgrade_def(String(info.get("upgrade_id", "")))
+			var up_name: String = GameData.tr_name(udef) if not udef.is_empty() else String(info.get("upgrade_id", ""))
+			return tr("PINBALL_REWARD_WEAPON_UP_FMT") % [
+				pname,
+				GameData.tr_weapon_name(String(info.get("weapon_id", ""))),
+				up_name,
+				int(info.get("current", 0)),
+				int(info.get("max", 0)),
+			]
+		"weapon_upgrade_max":
+			return tr("PINBALL_REWARD_WEAPON_MAX_FMT") % [
+				pname, GameData.tr_weapon_name(String(info.get("weapon_id", "")))]
+		"common_upgrade":
+			var cdef: Dictionary = GameData.get_common_upgrade_def(String(info.get("upgrade_id", "")))
+			var cname: String = GameData.tr_name(cdef) if not cdef.is_empty() else String(info.get("upgrade_id", ""))
+			return tr("PINBALL_REWARD_COMMON_FMT") % [
+				pname, cname, int(info.get("current", 0)), int(info.get("max", 0))]
+		_:
+			return tr("PINBALL_REWARD_NOOP_FMT") % [
+				pname, String(slot.get("name", "")), String(slot.get("desc", ""))]
+
+
+func _enqueue_pinball_reward_dialog(p: Node, slot: Dictionary, info: Dictionary) -> void:
+	_reward_queue.append(_format_pinball_reward_line(p, slot, info))
+	if not _reward_modal_block:
+		_show_next_pinball_reward_modal()
+
+
+func _close_pinball_reward_dialog(dlg: Node) -> void:
+	if not is_instance_valid(dlg) or dlg.get_meta("pb_reward_done", false):
 		return
-	# 找等級最低的武器，與 player.add_weapon 滿格時的處理一致
-	var lowest: Dictionary = p.weapons[0]
-	for w in p.weapons:
-		if int(w["level"]) < int(lowest["level"]):
-			lowest = w
-	var sub_id: String = String(lowest["id"])
-	p.add_weapon(sub_id)   # 同 id → 走 _apply_random_weapon_upgrade
-	var wname: String = GameData.tr_weapon_name(sub_id)
-	_show_pinball_notice(tr("PINBALL_NOTICE_FULL_FMT") % [
-		int(p.slot_index) + 1, wname], Color(1.0, 0.7, 0.4))
+	dlg.set_meta("pb_reward_done", true)
+	dlg.queue_free()
+	_reward_modal_block = false
+	call_deferred("_show_next_pinball_reward_modal")
 
 
-# 在彈珠台板的上方顯示一段短暫提示文字（約 2 秒淡出）
-func _show_pinball_notice(text: String, c: Color) -> void:
-	var lbl := Label.new()
-	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", 20)
-	lbl.add_theme_color_override("font_color", c)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	lbl.add_theme_constant_override("outline_size", 4)
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.size = Vector2(board_rect.size.x, 28.0)
-	# 從現有所有提示往下排，讓多筆通知不會疊在一起
-	var stack_idx: int = 0
-	for ch in get_children():
-		if ch is Label and ch.has_meta("pb_notice"):
-			stack_idx += 1
-	lbl.position = Vector2(board_rect.position.x,
-		board_rect.position.y - 40.0 - stack_idx * 26.0)
-	lbl.set_meta("pb_notice", true)
-	lbl.process_mode = Node.PROCESS_MODE_ALWAYS
-	add_child(lbl)
-	var tw := lbl.create_tween()
-	tw.tween_interval(2.0)
-	tw.tween_property(lbl, "modulate", Color(1, 1, 1, 0), 0.45)
-	tw.tween_callback(func():
-		if is_instance_valid(lbl):
-			lbl.queue_free()
-	)
+func _show_next_pinball_reward_modal() -> void:
+	if _reward_modal_block or _reward_queue.is_empty():
+		return
+	_reward_modal_block = true
+	var body: String = _reward_queue.pop_front()
+	var dlg := AcceptDialog.new()
+	dlg.title = tr("PINBALL_REWARD_TITLE")
+	dlg.dialog_text = body + "\n\n" + tr("PINBALL_REWARD_HINT")
+	dlg.ok_button_text = tr("PINBALL_REWARD_OK")
+	dlg.process_mode = Node.PROCESS_MODE_ALWAYS
+	dlg.unresizable = true
+	dlg.min_size = Vector2i(440, 160)
+	add_child(dlg)
+	dlg.popup_centered()
+	var ok_btn: Button = dlg.get_ok_button()
+	if ok_btn:
+		ok_btn.call_deferred("grab_focus")
+	var closer := func() -> void:
+		_close_pinball_reward_dialog(dlg)
+	dlg.confirmed.connect(closer)
+	dlg.popup_hide.connect(closer)
 
 
 func _draw_balls(node: Node2D) -> void:

@@ -50,6 +50,8 @@ func _process(delta: float) -> void:
 		return
 	var spin_speed: float = float(def["params"].get("spin_speed", 3.0))
 	spin_speed *= (1.0 + 0.15 * int(entry.get("upgrades", {}).get("w_rate", 0)))
+	if weapon_upgrades_maxed() and String(def.get("id", "")) == "shard":
+		spin_speed *= 1.45
 	spin += spin_speed * delta
 	var n: int = orbiters.size()
 	if n == 0:

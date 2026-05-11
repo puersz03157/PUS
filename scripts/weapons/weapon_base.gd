@@ -27,6 +27,10 @@ func _on_setup() -> void:
 	pass
 
 
+func weapon_upgrades_maxed() -> bool:
+	return GameData.is_weapon_upgrades_maxed(entry.get("upgrades", {}))
+
+
 func refresh() -> void:
 	if def.is_empty():
 		return

@@ -41,6 +41,7 @@ enabled=PackedStringArray("res://addons/YATI/plugin.cfg")
 [gui]
 
 theme/custom="res://theme/default.tres"
+theme/custom_font="uid://5nq71l5mf07b"
 
 [input]
 
@@ -112,7 +113,6 @@ ui_back={
 
 [internationalization]
 
-locale/translations=PackedStringArray()
 locale/fallback="zh_TW"
 
 [layer_names]
