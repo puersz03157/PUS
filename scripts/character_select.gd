@@ -70,12 +70,48 @@ func _ready() -> void:
 	p2_panel.visible = GameState.two_players
 	p1_index = 0
 	p2_index = 1 % GameData.CHARACTERS.size()
+	# 從 GameState 還原玩家上次的選擇（從 StageSelect 返回時保留選角）
+	_restore_selection_from_state()
 	if title_label:
 		title_label.text = tr("CSEL_TITLE_VILLAGE") if GameState.next_scene == "village" else tr("CSEL_TITLE_BATTLE")
 	_apply_panel_layout()
 	_build_touch_controls()
 	_update_panels()
 	_apply_touch_visibility()
+
+
+# 把 GameState 中先前儲存的角色 / 被動 / 技能還原成本畫面的索引（找不到時退回 0）
+func _restore_selection_from_state() -> void:
+	var idx_p1: int = _find_char_index(String(GameState.p1_character))
+	if idx_p1 >= 0:
+		p1_index = idx_p1
+	var idx_p2: int = _find_char_index(String(GameState.p2_character))
+	if idx_p2 >= 0:
+		p2_index = idx_p2
+	# 被動 / 技能：以該角色的 options 清單為主
+	p1_passive_idx = _find_in(GameData.character_passive_options(_current_char_id("p1")),
+		String(GameState.p1_passive))
+	p1_skill_idx = _find_in(GameData.character_skill_options(_current_char_id("p1")),
+		String(GameState.p1_skill))
+	if GameState.two_players:
+		p2_passive_idx = _find_in(GameData.character_passive_options(_current_char_id("p2")),
+			String(GameState.p2_passive))
+		p2_skill_idx = _find_in(GameData.character_skill_options(_current_char_id("p2")),
+			String(GameState.p2_skill))
+
+
+func _find_char_index(id: String) -> int:
+	for i in range(GameData.CHARACTERS.size()):
+		if String(GameData.CHARACTERS[i]["id"]) == id:
+			return i
+	return -1
+
+
+func _find_in(options: Array, value: String) -> int:
+	for i in range(options.size()):
+		if String(options[i]) == value:
+			return i
+	return 0
 
 
 func _notification(what: int) -> void:
@@ -156,7 +192,8 @@ func _process(delta: float) -> void:
 		# await 後節點可能已被切走，先確認還活著
 		if not is_inside_tree():
 			return
-		var path: String = "res://scenes/Game.tscn"
+		# 戰鬥路線：先進 StageSelect 讓玩家挑關卡；村莊路線維持直接進村莊
+		var path: String = "res://scenes/StageSelect.tscn"
 		if GameState.next_scene == "village":
 			path = "res://scenes/Village.tscn"
 		get_tree().change_scene_to_file(path)

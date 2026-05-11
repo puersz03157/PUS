@@ -6,7 +6,6 @@ extends Control
 @onready var btn_village: Button = $Center/VBox/VillageButton
 @onready var btn_quit: Button = $Center/VBox/QuitButton
 @onready var gold_label: Label = $GoldLabel
-@onready var stage_label: Label = $StageLabel
 
 @onready var village_picker: Control = $VillagePicker
 @onready var btn_village_solo: Button = $VillagePicker/Box/Margin/VBox/VillageSoloButton
@@ -37,9 +36,6 @@ func _process(_delta: float) -> void:
 func _refresh_meta() -> void:
 	if gold_label:
 		gold_label.text = tr("MAIN_GOLD_FMT") % GameState.gold
-	if stage_label:
-		var stage_name: String = GameData.tr_stage_name(GameState.current_stage_id)
-		stage_label.text = tr("MAIN_NEXT_STAGE_FMT") % stage_name
 
 
 func _on_solo() -> void:
