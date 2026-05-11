@@ -27,6 +27,9 @@ var current_stage_id: String = "slime_forest"
 # 受支援：zh_TW（預設）／zh_CN／en；新語系加在 strings.csv 後可動態切換。
 var language: String = ""
 
+# 觸控介面開關（給手機 / 網頁版用；桌機平台仍可手動開啟測試）
+var touch_controls_enabled: bool = false
+
 # 結束畫面用
 var last_result: Dictionary = {
 	"won": false,
@@ -48,6 +51,11 @@ func set_language(lang: String) -> void:
 	language = String(lang).strip_edges()
 	var loc: String = language if language != "" else "zh_TW"
 	TranslationServer.set_locale(loc)
+	save_to_disk()
+
+
+func set_touch_controls_enabled(v: bool) -> void:
+	touch_controls_enabled = v
 	save_to_disk()
 
 
@@ -76,13 +84,24 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "gold", gold)
 	cfg.set_value("meta", "current_stage_id", current_stage_id)
 	cfg.set_value("meta", "language", language)
+	cfg.set_value("meta", "touch_controls_enabled", touch_controls_enabled)
 	cfg.save(SAVE_PATH)
 
 
 func load_from_disk() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SAVE_PATH) != OK:
+		touch_controls_enabled = _default_touch_controls()
 		return
 	gold = int(cfg.get_value("meta", "gold", 0))
 	current_stage_id = String(cfg.get_value("meta", "current_stage_id", "slime_forest"))
 	language = String(cfg.get_value("meta", "language", ""))
+	touch_controls_enabled = bool(cfg.get_value(
+		"meta", "touch_controls_enabled", _default_touch_controls()))
+
+
+# 沒有存檔時的預設值：網頁／手機自動開啟觸控介面，桌機預設關閉。
+func _default_touch_controls() -> bool:
+	if OS.has_feature("mobile") or OS.has_feature("web"):
+		return true
+	return DisplayServer.is_touchscreen_available()

@@ -26,6 +26,7 @@ RegisterGamepadInputs="*res://scripts/register_gamepad_inputs.gd"
 GameData="*res://scripts/game_data.gd"
 GameState="*res://scripts/game_state.gd"
 TranslationLoader="*res://scripts/translation_loader.gd"
+SettingsOverlay="*res://scripts/settings_overlay.gd"
 
 [display]
 
