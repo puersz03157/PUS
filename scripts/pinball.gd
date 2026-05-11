@@ -43,8 +43,9 @@ var slots_node: DrawerNode2D
 const SKILL_ICON_SCRIPT := preload("res://scripts/skill_icon.gd")
 var skill_icons: Array = []
 
-# 觸控介面：每位玩家一顆「發球」按鈕（與 player_balls 對齊；未發射時顯示）
+# 觸控介面：每位玩家一組「發球 / 技能」按鈕（與 player_balls 對齊）
 var touch_launch_buttons: Array = []
+var touch_skill_buttons: Array = []
 
 var _closing := false
 
@@ -399,7 +400,7 @@ func _process(delta: float) -> void:
 			_step_ball(b, delta)
 	_update_instructions()
 	balls_node.queue_redraw()
-	_refresh_touch_launch_visibility()
+	_refresh_touch_buttons_visibility()
 	if _all_main_balls_finished() and _all_energy_balls_finished():
 		_close_in(0.7)
 
@@ -940,45 +941,77 @@ func _build_skill_icons() -> void:
 		skill_icons.append(icon)
 
 
-# ---------------- 觸控發球按鈕 ----------------
-# 每位玩家一顆大按鈕，未發射 / 未結束時顯示，按下注入 b["action"]（p1_action / p2_action）。
+# ---------------- 觸控按鈕（發球 / 技能） ----------------
+# 每位玩家一組大按鈕：左「發球」（未發射時顯示），右「技能」（未結束時顯示）。
+# 按下時注入 p?_action / p?_skill 動作一幀；既有的 _process 偵測 just_pressed 接手。
 # Buttons 都掛 PROCESS_MODE_ALWAYS，因為彈珠台會把整棵 Tree paused。
+const _PB_BTN_W := 200.0
+const _PB_BTN_H := 56.0
+
+
 func _build_touch_launch_buttons() -> void:
-	for i in player_balls.size():
+	var n: int = player_balls.size()
+	if n == 0:
+		return
+	var pair_w: float = _PB_BTN_W * 2.0 + 16.0
+	var below_y: float = board_rect.end.y + slot_h + 24.0
+	var center_x: float = board_rect.position.x + board_rect.size.x * 0.5
+
+	for i in n:
 		var b: Dictionary = player_balls[i]
-		var btn := Button.new()
-		btn.text = tr("PINBALL_TOUCH_LAUNCH_FMT") % (int(b["player"].slot_index) + 1)
-		btn.add_theme_font_size_override("font_size", 22)
-		btn.size = Vector2(260.0, 56.0)
-		btn.process_mode = Node.PROCESS_MODE_ALWAYS
-		btn.focus_mode = Control.FOCUS_NONE
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.12, 0.16, 0.28, 0.92)
-		sb.border_color = Color(0.95, 0.7, 0.3)
-		sb.border_width_left = 3
-		sb.border_width_right = 3
-		sb.border_width_top = 3
-		sb.border_width_bottom = 3
-		sb.corner_radius_top_left = 10
-		sb.corner_radius_top_right = 10
-		sb.corner_radius_bottom_left = 10
-		sb.corner_radius_bottom_right = 10
-		btn.add_theme_stylebox_override("normal", sb)
-		btn.add_theme_stylebox_override("hover", sb)
-		btn.add_theme_stylebox_override("pressed", sb)
-		# 排版：solo 在板下方置中；雙人左右並排
-		var center_x: float = board_rect.position.x + board_rect.size.x * 0.5
-		var below_y: float = board_rect.end.y + slot_h + 24.0
-		if player_balls.size() <= 1:
-			btn.position = Vector2(center_x - btn.size.x * 0.5, below_y)
+		var p: Node = b["player"]
+		var pair_x: float
+		if n <= 1:
+			pair_x = center_x - pair_w * 0.5
 		else:
-			var off: float = (float(i) - 0.5) * (btn.size.x + 24.0)
-			btn.position = Vector2(center_x - btn.size.x * 0.5 + off, below_y)
-		var captured: int = i
-		btn.pressed.connect(func() -> void: _on_touch_launch(captured))
-		add_child(btn)
-		touch_launch_buttons.append(btn)
-	_refresh_touch_launch_visibility()
+			var off: float = (float(i) - 0.5) * (pair_w + 28.0)
+			pair_x = center_x - pair_w * 0.5 + off
+
+		# 發球
+		var launch_btn := _make_pinball_touch_button(
+			tr("PINBALL_TOUCH_LAUNCH_FMT") % (int(p.slot_index) + 1))
+		launch_btn.size = Vector2(_PB_BTN_W, _PB_BTN_H)
+		launch_btn.position = Vector2(pair_x, below_y)
+		var captured_idx: int = i
+		launch_btn.pressed.connect(func() -> void: _on_touch_launch(captured_idx))
+		add_child(launch_btn)
+		touch_launch_buttons.append(launch_btn)
+
+		# 技能（未結束的回合都可按）
+		var skill_btn := _make_pinball_touch_button(
+			tr("PINBALL_TOUCH_SKILL_FMT") % (int(p.slot_index) + 1))
+		skill_btn.size = Vector2(_PB_BTN_W, _PB_BTN_H)
+		skill_btn.position = Vector2(pair_x + _PB_BTN_W + 16.0, below_y)
+		var skill_action: String = "p1_skill" if p.slot_index == 0 else "p2_skill"
+		skill_btn.button_down.connect(func() -> void: Input.action_press(skill_action))
+		skill_btn.button_up.connect(func() -> void: Input.action_release(skill_action))
+		add_child(skill_btn)
+		touch_skill_buttons.append(skill_btn)
+
+	_refresh_touch_buttons_visibility()
+
+
+func _make_pinball_touch_button(text: String) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.add_theme_font_size_override("font_size", 22)
+	btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	btn.focus_mode = Control.FOCUS_NONE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.12, 0.16, 0.28, 0.92)
+	sb.border_color = Color(0.95, 0.7, 0.3)
+	sb.border_width_left = 3
+	sb.border_width_right = 3
+	sb.border_width_top = 3
+	sb.border_width_bottom = 3
+	sb.corner_radius_top_left = 10
+	sb.corner_radius_top_right = 10
+	sb.corner_radius_bottom_left = 10
+	sb.corner_radius_bottom_right = 10
+	btn.add_theme_stylebox_override("normal", sb)
+	btn.add_theme_stylebox_override("hover", sb)
+	btn.add_theme_stylebox_override("pressed", sb)
+	return btn
 
 
 func _on_touch_launch(idx: int) -> void:
@@ -993,10 +1026,9 @@ func _on_touch_launch(idx: int) -> void:
 	Input.action_release(b["action"])
 
 
-func _refresh_touch_launch_visibility() -> void:
-	if touch_launch_buttons.is_empty():
-		return
+func _refresh_touch_buttons_visibility() -> void:
 	var on: bool = bool(GameState.touch_controls_enabled)
+	# 發球：未發射 + 未結束才顯示
 	for i in touch_launch_buttons.size():
 		if i >= player_balls.size():
 			continue
@@ -1007,6 +1039,17 @@ func _refresh_touch_launch_visibility() -> void:
 		var show: bool = on and not b["launched"] and not b["finished"]
 		if btn.visible != show:
 			btn.visible = show
+	# 技能：本回合尚未結束都可按（彈珠台中彈未發射也允許先觸發技能；和鍵盤行為一致）
+	for j in touch_skill_buttons.size():
+		if j >= player_balls.size():
+			continue
+		var sb_btn: Button = touch_skill_buttons[j]
+		if sb_btn == null:
+			continue
+		var bb: Dictionary = player_balls[j]
+		var show2: bool = on and not bb["finished"]
+		if sb_btn.visible != show2:
+			sb_btn.visible = show2
 
 
 func _close_in(seconds: float) -> void:

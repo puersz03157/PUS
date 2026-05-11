@@ -16,6 +16,8 @@ const KEY_H := 14.0
 @export var show_header: bool = true
 @export var show_name: bool = true
 @export var show_key: bool = true
+# 是否在圖示中顯示被動「skill_meter」累積數字。觸控版的大圖示通常關掉，避免干擾。
+@export var show_meter: bool = true
 
 var player: Node = null
 var label_text: String = "P1"
@@ -184,9 +186,10 @@ func _process(_delta: float) -> void:
 		_icon.modulate = Color(0.4, 0.4, 0.45, 0.85)
 		_cd_lbl.add_theme_font_size_override("font_size", int(icon_dim * 0.36))
 		var cd_txt: String = "%d" % int(ceil(player.skill_cooldown))
-		var sm: float = float(player.skill_meter)
-		if sm > 0.5:
-			cd_txt += "\n%.0f" % sm
+		if show_meter:
+			var sm: float = float(player.skill_meter)
+			if sm > 0.5:
+				cd_txt += "\n%.0f" % sm
 		_cd_lbl.text = cd_txt
 		_cd_lbl.modulate = Color(1, 1, 0.85)
 		modulate = Color(0.85, 0.85, 0.9, 1.0)
@@ -196,7 +199,7 @@ func _process(_delta: float) -> void:
 		_icon.modulate = Color(1, 1, 1, 1)
 		var sm2: float = float(player.skill_meter)
 		if has_image:
-			if sm2 > 0.5:
+			if show_meter and sm2 > 0.5:
 				_cd_lbl.add_theme_font_size_override("font_size", int(icon_dim * 0.28))
 				_cd_lbl.text = "%.0f" % sm2
 			else:
@@ -204,7 +207,7 @@ func _process(_delta: float) -> void:
 		else:
 			_cd_lbl.add_theme_font_size_override("font_size", int(icon_dim * 0.18))
 			var nm: String = GameData.tr_name(s_def)
-			if sm2 > 0.5:
+			if show_meter and sm2 > 0.5:
 				_cd_lbl.text = "%s\n%.0f" % [nm, sm2]
 			else:
 				_cd_lbl.text = nm

@@ -51,6 +51,7 @@ var _joy_vec: Vector2 = Vector2.ZERO
 var _action_pressed: Dictionary = {}
 
 var _last_touch_enabled: bool = false
+var _last_paused: bool = false
 
 
 func setup(p1: Node) -> void:
@@ -73,8 +74,30 @@ func _exit_tree() -> void:
 
 
 func _process(_delta: float) -> void:
-	if bool(GameState.touch_controls_enabled) != _last_touch_enabled:
+	var on: bool = bool(GameState.touch_controls_enabled)
+	if on != _last_touch_enabled:
 		_refresh_visibility()
+		return
+	# 樹被暫停時（彈珠台 / 暫停選單 / 設定面板）整批隱藏，
+	# 避免和那些情境自帶的按鈕互踩，也不會讓搖桿在停格時還亮著。
+	if on:
+		var paused: bool = get_tree().paused if is_inside_tree() else false
+		if paused != _last_paused:
+			_last_paused = paused
+			_apply_paused_visibility(paused)
+
+
+func _apply_paused_visibility(paused: bool) -> void:
+	if joy_visual:
+		joy_visual.visible = not paused
+		if paused:
+			_end_joystick()
+	if skill_widget:
+		skill_widget.visible = not paused
+	if skill_button:
+		skill_button.visible = not paused
+	if pause_button:
+		pause_button.visible = not paused
 
 
 # ============================================================================
@@ -89,11 +112,14 @@ func _build_ui() -> void:
 	add_child(joy_visual)
 
 	# 技能視覺：沿用既有的 SkillIcon widget，純展示
+	# show_meter 關掉 — 觸控大圖示上不再疊被動充能數字（會看起來像是壞掉的累積數字）。
+	# 玩家若想看 skill_meter，左上 HUD 的小圖示仍保留顯示。
 	skill_widget = SKILL_ICON_SCRIPT.new()
 	skill_widget.icon_dim = SKILL_DIM
 	skill_widget.show_header = false
 	skill_widget.show_name = false
 	skill_widget.show_key = false
+	skill_widget.show_meter = false
 	skill_widget.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(skill_widget)
 
@@ -166,17 +192,20 @@ func _apply_layout() -> void:
 func _refresh_visibility() -> void:
 	var on: bool = bool(GameState.touch_controls_enabled)
 	_last_touch_enabled = on
+	var paused: bool = get_tree().paused if is_inside_tree() else false
+	_last_paused = paused
+	var should_show: bool = on and not paused
 	if joy_visual:
-		joy_visual.visible = on
-		if not on:
+		joy_visual.visible = should_show
+		if not should_show:
 			joy_visual.on = false
 			joy_visual.queue_redraw()
 	if skill_widget:
-		skill_widget.visible = on
+		skill_widget.visible = should_show
 	if skill_button:
-		skill_button.visible = on
+		skill_button.visible = should_show
 	if pause_button:
-		pause_button.visible = on
+		pause_button.visible = should_show
 	if not on:
 		_end_joystick()
 		_release_all_actions()
