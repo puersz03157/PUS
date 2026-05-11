@@ -1,0 +1,23 @@
+[remap]
+
+importer="YATI"
+type="PackedScene"
+uid="uid://d3dj57702fuh2"
+path="res://.godot/imported/Farm Shore.tmx-9a96fd71b0f904db544ae33ba7e9b30c.tscn"
+
+[deps]
+
+source_file="res://assets/Maps/Tiled/Tilemaps/Farm Shore.tmx"
+dest_files=["res://.godot/imported/Farm Shore.tmx-9a96fd71b0f904db544ae33ba7e9b30c.tscn"]
+
+[params]
+
+use_default_filter=false
+add_class_as_metadata=false
+add_id_as_metadata=false
+no_alternative_tiles=false
+map_wangset_to_terrain=false
+custom_data_prefix="data_"
+tiled_project_file=""
+post_processor=""
+save_tileset_to=""

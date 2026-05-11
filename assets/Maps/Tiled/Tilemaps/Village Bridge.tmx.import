@@ -1,0 +1,23 @@
+[remap]
+
+importer="YATI"
+type="PackedScene"
+uid="uid://e5nx7e5yf0ma"
+path="res://.godot/imported/Village Bridge.tmx-5077e994e6e160733f2ff215cc46b5a8.tscn"
+
+[deps]
+
+source_file="res://assets/Maps/Tiled/Tilemaps/Village Bridge.tmx"
+dest_files=["res://.godot/imported/Village Bridge.tmx-5077e994e6e160733f2ff215cc46b5a8.tscn"]
+
+[params]
+
+use_default_filter=false
+add_class_as_metadata=false
+add_id_as_metadata=false
+no_alternative_tiles=false
+map_wangset_to_terrain=false
+custom_data_prefix="data_"
+tiled_project_file=""
+post_processor=""
+save_tileset_to=""

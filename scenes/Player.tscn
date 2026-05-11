@@ -1,0 +1,37 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/player.gd" id="1_main"]
+
+[sub_resource type="CircleShape2D" id="cs_body"]
+radius = 42.0
+
+[sub_resource type="CircleShape2D" id="cs_pickup"]
+radius = 210.0
+
+[node name="Player" type="CharacterBody2D"]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_main")
+
+[node name="Body" type="CollisionShape2D" parent="."]
+shape = SubResource("cs_body")
+
+[node name="Sprite" type="Polygon2D" parent="."]
+polygon = PackedVector2Array(16, 0, -10, -12, -6, 0, -10, 12)
+color = Color(1, 1, 1, 1)
+
+[node name="CharSprite" type="Sprite2D" parent="."]
+texture_filter = 1
+centered = true
+visible = false
+
+[node name="PickupArea" type="Area2D" parent="."]
+collision_layer = 0
+collision_mask = 64
+
+[node name="Shape" type="CollisionShape2D" parent="PickupArea"]
+shape = SubResource("cs_pickup")
+
+[node name="Weapons" type="Node2D" parent="."]
+
+[connection signal="area_entered" from="PickupArea" to="." method="_on_pickup_area_area_entered"]

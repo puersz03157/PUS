@@ -1,0 +1,93 @@
+{
+    "activeFile": "map00.tmx",
+    "expandedProjectPaths": [
+        ".",
+        "Cute_Fantasy"
+    ],
+    "file.lastUsedOpenFilter": "全部檔案 (*)",
+    "fileStates": {
+        "Berries.tsx": {
+            "dynamicWrapping": true,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "Cute_Fantasy/Bridge_Stone_Horizontal.tsx": {
+            "dynamicWrapping": false,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "Cute_Fantasy/Cobble_Road_1.tsx": {
+            "scaleInDock": 1
+        },
+        "Cute_Fantasy/Grass_Tiles_1.tsx": {
+            "dynamicWrapping": false,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "Cute_Fantasy/Grass_Tiles_1_Blob_TEST.tsx": {
+            "dynamicWrapping": false,
+            "scaleInDock": 1,
+            "scaleInEditor": 4
+        },
+        "Cute_Fantasy/Water_Stone_Tile_1.tsx": {
+            "dynamicWrapping": false,
+            "scaleInDock": 1,
+            "scaleInEditor": 5.5
+        },
+        "Cute_Fantasy/Waterfall_1.tsx": {
+            "scaleInDock": 1
+        },
+        "Oak_Tree.tsx": {
+            "dynamicWrapping": true,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "Stone.tsx": {
+            "dynamicWrapping": true,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "map00.tmx": {
+            "scale": 2,
+            "selectedLayer": 3,
+            "viewCenter": {
+                "x": 923,
+                "y": 255.75
+            }
+        }
+    },
+    "last.externalTilesetPath": "C:/Users/User/Desktop/Maps",
+    "last.imagePath": "C:/Users/User/Desktop/Maps",
+    "map.height": 45,
+    "map.lastUsedFormat": "tmx",
+    "map.tileHeight": 16,
+    "map.tileWidth": 16,
+    "map.width": 80,
+    "openFiles": [
+        "map00.tmx",
+        "Stone.tsx",
+        "Berries.tsx",
+        "Oak_Tree.tsx",
+        "Cute_Fantasy/Water_Stone_Tile_1.tsx",
+        "Cute_Fantasy/Bridge_Stone_Horizontal.tsx",
+        "Cute_Fantasy/Grass_Tiles_1.tsx"
+    ],
+    "project": "MF.tiled-project",
+    "recentFiles": [
+        "Cute_Fantasy/Grass_Tiles_1.tsx",
+        "Cute_Fantasy/Bridge_Stone_Horizontal.tsx",
+        "Cute_Fantasy/Water_Stone_Tile_1.tsx",
+        "Oak_Tree.tsx",
+        "Berries.tsx",
+        "Stone.tsx",
+        "map00.tmx",
+        "Cute_Fantasy/Grass_Tiles_1_Blob_TEST.tsx"
+    ],
+    "tileset.lastUsedFilter": "Tiled tileset files (*.tsx *.xml)",
+    "tileset.lastUsedFormat": "tsx",
+    "tileset.tileSize": {
+        "height": 16,
+        "width": 16
+    },
+    "tileset.type": 1
+}

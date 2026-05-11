@@ -1,0 +1,665 @@
+extends Node
+## 全域資料表（武器、角色、能力升級）— 依據設計表 Excel
+##
+## 多語言：每張表都同時存在
+##   "name" / "desc" / "rarity" / "max_effect" → zh_TW 預設值（沒翻譯時的後備）
+##   "name_key" / "desc_key" / ...           → 翻譯系統的穩定 ID（如 WEAPON_SWORD_NAME）
+## UI 端請呼叫底部的 tr_name(def) / tr_desc(def) / ...，不要直接讀 def["name"]，
+## 這樣切換 locale 時才會自動跟著翻譯。
+##
+## WeaponDef:
+##   id, name, kind, damage, rate, range, params(Dictionary), max_effect
+## kind:
+##   "melee_fan"     近戰扇形（前方扇形）
+##   "projectile"    投射物（前方直線）
+##   "orbit"         環繞玩家
+##   "aura"          周圍光環/區域
+
+const WEAPONS: Array[Dictionary] = [
+	{
+		"id": "sword",
+		"name": "利劍", "name_key": "WEAPON_SWORD_NAME",
+		"kind": "melee_fan",
+		"damage": 24.0,
+		"rate": 1.2,
+		"range": 110.0,
+		"params": {"angle_deg": 60.0, "color": Color(0.85, 0.85, 1.0)},
+		"max_effect": "目標越少傷害提升", "max_effect_key": "WEAPON_SWORD_MAX",
+	},
+	{
+		"id": "spear",
+		"name": "長槍", "name_key": "WEAPON_SPEAR_NAME",
+		"kind": "melee_fan",
+		"damage": 30.0,
+		"rate": 1.0,
+		"range": 230.0,
+		"params": {"angle_deg": 20.0, "color": Color(1.0, 0.95, 0.5)},
+		"max_effect": "目標越多傷害提升", "max_effect_key": "WEAPON_SPEAR_MAX",
+	},
+	{
+		"id": "magic_bullet",
+		"name": "魔彈", "name_key": "WEAPON_MAGIC_BULLET_NAME",
+		"kind": "projectile",
+		"damage": 18.0,
+		"rate": 0.8,
+		"range": 500.0,       # 20 米
+		"params": {"speed": 520.0, "count": 1, "explode_radius": 50.0, "color": Color(0.9, 0.4, 1.0)},
+		"max_effect": "爆炸範圍受到攻擊範圍影響", "max_effect_key": "WEAPON_MAGIC_BULLET_MAX",
+	},
+	{
+		"id": "bow",
+		"name": "弓箭", "name_key": "WEAPON_BOW_NAME",
+		"kind": "projectile",
+		"damage": 12.0,
+		"rate": 1.5,
+		"range": 380.0,       # 15 米
+		"params": {"speed": 700.0, "count": 2, "spread_deg": 18.0, "pierce": 0, "color": Color(0.8, 1.0, 0.6)},
+		"max_effect": "投射物附加貫穿", "max_effect_key": "WEAPON_BOW_MAX",
+	},
+	{
+		"id": "melody",
+		"name": "旋律", "name_key": "WEAPON_MELODY_NAME",
+		"kind": "projectile",
+		"damage": 10.0,
+		"rate": 1.3,
+		"range": 190.0,
+		"params": {"speed": 280.0, "count": 3, "wave": true, "color": Color(0.6, 0.9, 1.0)},
+		"max_effect": "擊中敵人附加易傷", "max_effect_key": "WEAPON_MELODY_MAX",
+	},
+	{
+		"id": "claw",
+		"name": "爪擊", "name_key": "WEAPON_CLAW_NAME",
+		"kind": "melee_fan",
+		"damage": 17.0,
+		"rate": 1.8,
+		"range": 110.0,
+		"params": {"angle_deg": 180.0, "double_hit": true, "color": Color(1.0, 0.6, 0.4)},
+		"max_effect": "擊中敵人附加流血", "max_effect_key": "WEAPON_CLAW_MAX",
+	},
+	{
+		"id": "shard",
+		"name": "碎刃", "name_key": "WEAPON_SHARD_NAME",
+		"kind": "orbit",
+		"damage": 8.0,
+		"rate": 2.0,
+		"range": 50.0,        # 半徑 2 米
+		"params": {"count": 3, "spin_speed": 3.0, "color": Color(0.7, 0.95, 1.0)},
+		"max_effect": "環繞速度增加", "max_effect_key": "WEAPON_SHARD_MAX",
+	},
+	{
+		"id": "flame",
+		"name": "火焰", "name_key": "WEAPON_FLAME_NAME",
+		"kind": "aura",
+		"damage": 7.0,
+		"rate": 1.0,
+		"range": 75.0,        # 3 米
+		"params": {"color": Color(1.0, 0.55, 0.1), "burn": true},
+		"max_effect": "燃燒傷害加倍", "max_effect_key": "WEAPON_FLAME_MAX",
+	},
+	{
+		"id": "lightning",
+		"name": "閃電", "name_key": "WEAPON_LIGHTNING_NAME",
+		"kind": "projectile",
+		"damage": 14.0,
+		"rate": 1.2,
+		"range": 190.0,
+		"params": {"speed": 900.0, "count": 1, "chain": 1, "color": Color(0.6, 0.9, 1.0)},
+		"max_effect": "反彈次數+2", "max_effect_key": "WEAPON_LIGHTNING_MAX",
+	},
+	{
+		"id": "ice",
+		"name": "寒冰", "name_key": "WEAPON_ICE_NAME",
+		"kind": "projectile",
+		"damage": 10.0,
+		"rate": 1.1,
+		"range": 380.0,
+		"params": {"speed": 560.0, "count": 1, "slow": true, "color": Color(0.6, 0.95, 1.0)},
+		"max_effect": "對緩速敵人增傷", "max_effect_key": "WEAPON_ICE_MAX",
+	},
+	{
+		"id": "poison",
+		"name": "毒素", "name_key": "WEAPON_POISON_NAME",
+		"kind": "puddle",
+		"damage": 14.0,
+		"rate": 0.7,
+		"range": 200.0,             # 投擲距離
+		"params": {
+			"color": Color(0.5, 1.0, 0.4),
+			"puddle_radius": 80.0,  # 毒池半徑
+			"lifetime": 3.5,        # 停留秒數
+			"tick_interval": 0.5,   # 每次傷害間隔
+			"count": 1,             # 一次丟幾灘（吃 w_count 升級）
+		},
+		"max_effect": "擊中敵人附加中毒", "max_effect_key": "WEAPON_POISON_MAX",
+	},
+	{
+		"id": "holy",
+		"name": "聖光", "name_key": "WEAPON_HOLY_NAME",
+		"kind": "aura",
+		"damage": 8.0,
+		"rate": 1.0,
+		"range": 75.0,
+		"params": {"color": Color(1.0, 0.95, 0.6), "heal": 1.0},
+		"max_effect": "回血效果支援隊友", "max_effect_key": "WEAPON_HOLY_MAX",
+	},
+]
+
+# 角色定義 — 依 Excel
+# 動畫格式：32x32 sprite sheet，列 0=待機/1=行走/2=跳躍(未用)/3=攻擊/4=受擊/5=死亡
+# rarity 改為穩定 ID（"common"/"rare"/"epic"/"legend"），UI 端用 tr_rarity 翻譯
+const CHARACTERS: Array[Dictionary] = [
+	{
+		"id": "swordsman",
+		"name": "劍士", "name_key": "CHAR_SWORDSMAN_NAME",
+		"rarity": "common",
+		"weapon": "sword", "hp": 120.0, "atk": 12.0, "def": 10.0, "spd": 5.5,
+		"desc": "均衡型：近戰素質標準，血量稍高以支撐近距離戰鬥。",
+		"desc_key": "CHAR_SWORDSMAN_DESC",
+		"color": Color(0.95, 0.85, 0.55),
+		"sprite": "res://assets/characters/MiniSwordMan.png",
+		"hframes": 6, "vframes": 6, "scale": 1.8, "offset_y": -7,
+		"frames_per_row": [4, 6, 3, 6, 3, 4],
+		"skill_options": ["none", "whirl_slash"],
+		"passive_options": ["none", "fighting_spirit"],
+	},
+	{
+		"id": "knight",
+		"name": "騎士", "name_key": "CHAR_KNIGHT_NAME",
+		"rarity": "common",
+		"weapon": "spear", "hp": 150.0, "atk": 10.0, "def": 15.0, "spd": 4.5,
+		"skill_options": ["none", "heavy_armor"],
+		"passive_options": ["none", "unyielding"],
+		"desc": "坦克型：極高的生存能力，雖然移速較慢，但能承受大量傷害。",
+		"desc_key": "CHAR_KNIGHT_DESC",
+		"color": Color(0.7, 0.85, 1.0),
+		"sprite": "res://assets/characters/MiniSpearMan.png",
+		"hframes": 7, "vframes": 6, "scale": 1.8, "offset_y": -7,
+		"frames_per_row": [4, 6, 3, 7, 3, 5],
+	},
+	{
+		"id": "wizard",
+		"name": "巫師", "name_key": "CHAR_WIZARD_NAME",
+		"rarity": "rare",
+		"weapon": "magic_bullet", "hp": 80.0, "atk": 20.0, "def": 5.0, "spd": 5.0,
+		"desc": "玻璃大砲：生存能力極低，但擁有最高攻擊力。",
+		"desc_key": "CHAR_WIZARD_DESC",
+		"color": Color(0.85, 0.55, 1.0),
+		"sprite": "res://assets/characters/MiniMage.png",
+		"hframes": 11, "vframes": 8, "scale": 1.8, "offset_y": -7,
+		"frames_per_row": [4, 6, 3, 11, 9, 9, 2, 9],
+		"skill_options": ["none", "energy_wave"],
+		"passive_options": ["none", "arcane_mastery"],
+	},
+	{
+		"id": "ranger",
+		"name": "遊俠", "name_key": "CHAR_RANGER_NAME",
+		"rarity": "rare",
+		"weapon": "bow", "hp": 90.0, "atk": 14.0, "def": 7.0, "spd": 6.5,
+		"desc": "遠程拉打：較高的移動速度補足血量弱點，適合遠距離狙擊。",
+		"desc_key": "CHAR_RANGER_DESC",
+		"color": Color(0.6, 1.0, 0.7),
+		"sprite": "res://assets/characters/MiniArcherMan.png",
+		"hframes": 11, "vframes": 7, "scale": 1.8, "offset_y": -7,
+		"frames_per_row": [4, 6, 3, 11, 6, 3, 4],
+		"skill_options": ["none", "agile_tactics"],
+		"passive_options": ["none", "quick_step"],
+	},
+	{
+		"id": "bard",
+		"name": "詩人", "name_key": "CHAR_BARD_NAME",
+		"rarity": "epic",
+		"weapon": "melody", "hp": 100.0, "atk": 10.0, "def": 8.0, "spd": 6.0,
+		"desc": "輔助/功能：素質平庸但靈活度高，依賴武器易傷特效輔助。",
+		"desc_key": "CHAR_BARD_DESC",
+		"color": Color(1.0, 0.7, 0.85),
+		"sprite": "res://assets/characters/MiniSatyr.png",
+		"hframes": 11, "vframes": 7, "scale": 1.8, "offset_y": -7,
+		"frames_per_row": [4, 6, 3, 5, 11, 2, 5],
+		# Satyr 攻擊在第 5 列（index 4）；受擊/死亡由程式依 vframes 最後兩列自動指定
+		"row_attack": 4,
+	},
+	{
+		"id": "werewolf",
+		"name": "狼人", "name_key": "CHAR_WEREWOLF_NAME",
+		"rarity": "common",
+		"weapon": "claw", "hp": 110.0, "atk": 16.0, "def": 7.0, "spd": 7.0,
+		"desc": "敏捷近戰：高攻擊、極高移速，透過快速切入與流血造成威脅。",
+		"desc_key": "CHAR_WEREWOLF_DESC",
+		"color": Color(0.85, 0.55, 0.45),
+		"sprite": "res://assets/characters/MiniWerewolf-Sheet.png",
+		"hframes": 15, "vframes": 8, "scale": 1.8, "offset_y": -7,
+		"frames_per_row": [4, 6, 3, 7, 6, 15, 2, 5],
+		# Werewolf 攻擊在第 4 列（index 3）；受擊/死亡為最後兩列；預覽 = 變身列最後一格（人類）
+		"row_attack": 3,
+		"preview_row": 5, "preview_col": 14,
+		# 沿用預設裁切（trim_top 14, left/right 4），讓人類型態的視覺大小與其他角色一致
+	},
+]
+
+# 武器升級 (對單一武器)
+const WEAPON_UPGRADES: Array[Dictionary] = [
+	{"id": "w_damage",  "name": "傷害增加",   "name_key": "WUP_W_DAMAGE_NAME",  "max": 5, "value": 0.20, "field": "damage_mult"},
+	{"id": "w_range",   "name": "範圍增加",   "name_key": "WUP_W_RANGE_NAME",   "max": 5, "value": 0.15, "field": "range_mult"},
+	{"id": "w_rate",    "name": "攻擊頻率",   "name_key": "WUP_W_RATE_NAME",    "max": 5, "value": 0.15, "field": "rate_mult"},
+	{"id": "w_count",   "name": "投射物增加", "name_key": "WUP_W_COUNT_NAME",   "max": 2, "value": 1,    "field": "count_add"},
+]
+
+# 通用能力升級
+const COMMON_UPGRADES: Array[Dictionary] = [
+	{"id": "c_hp",       "name": "強健體魄", "name_key": "CUP_C_HP_NAME",       "desc": "血量上限 +20%", "desc_key": "CUP_C_HP_DESC",       "max": 5, "value": 0.20, "field": "hp_mult"},
+	{"id": "c_speed",    "name": "疾風步",   "name_key": "CUP_C_SPEED_NAME",    "desc": "移動速度 +10%", "desc_key": "CUP_C_SPEED_DESC",    "max": 3, "value": 0.10, "field": "speed_mult"},
+	{"id": "c_cooldown", "name": "急速冷卻", "name_key": "CUP_C_COOLDOWN_NAME", "desc": "全武器攻速 +10%","desc_key": "CUP_C_COOLDOWN_DESC", "max": 3, "value": 0.10, "field": "rate_mult"},
+	{"id": "c_pickup",   "name": "吸取範圍", "name_key": "CUP_C_PICKUP_NAME",   "desc": "拾取範圍 +25%", "desc_key": "CUP_C_PICKUP_DESC",   "max": 5, "value": 0.25, "field": "pickup_mult"},
+	{"id": "c_xp",       "name": "智慧之心", "name_key": "CUP_C_XP_NAME",       "desc": "經驗值 +15%",   "desc_key": "CUP_C_XP_DESC",       "max": 5, "value": 0.15, "field": "xp_mult"},
+	{"id": "c_armor",    "name": "鋼鐵肌膚", "name_key": "CUP_C_ARMOR_NAME",    "desc": "受傷減少 10%",  "desc_key": "CUP_C_ARMOR_DESC",    "max": 3, "value": 0.10, "field": "dmg_reduce"},
+	{"id": "c_regen",    "name": "回復術",   "name_key": "CUP_C_REGEN_NAME",    "desc": "每秒回復 +0.5", "desc_key": "CUP_C_REGEN_DESC",    "max": 3, "value": 0.5,  "field": "regen_add"},
+	{"id": "c_atk",      "name": "力量強化", "name_key": "CUP_C_ATK_NAME",      "desc": "全武器傷害 +10%","desc_key": "CUP_C_ATK_DESC",      "max": 5, "value": 0.10, "field": "damage_mult"},
+]
+
+
+func get_weapon_def(id: String) -> Dictionary:
+	for w in WEAPONS:
+		if w["id"] == id:
+			return w
+	return {}
+
+
+func get_character_def(id: String) -> Dictionary:
+	for c in CHARACTERS:
+		if c["id"] == id:
+			return c
+	return {}
+
+
+# ====================================================
+# 被動與技能 — 目前只有占位「無」，留好框架供日後擴充
+# ====================================================
+# 被動：戰鬥時生效的常駐效果（如：每秒回血、對 Boss 增傷…）
+# 之後丟 res://assets/icons/passives/<id>.png 進去就會自動顯示，無圖則自動 fallback
+const PASSIVES: Array[Dictionary] = [
+	{"id": "none",
+		"name": "無", "name_key": "PASSIVE_NONE_NAME",
+		"desc": "尚未選擇被動。", "desc_key": "PASSIVE_NONE_DESC",
+		"params": {}, "icon": ""},
+	{
+		"id": "fighting_spirit",
+		"name": "鬥志高昂", "name_key": "PASSIVE_FIGHTING_SPIRIT_NAME",
+		"desc": "每擊殺 5 名敵人，為自身技能量表填充一小段；觸發後 5 秒內不會再次因本被動充能。",
+		"desc_key": "PASSIVE_FIGHTING_SPIRIT_DESC",
+		"icon": "res://assets/icons/passives/fighting_spirit.png",
+		"params": {
+			"kills_per_fill": 5,
+			"meter_fill": 22.0,
+			"passive_fill_cd": 5.0,
+		},
+	},
+	{
+		"id": "unyielding",
+		"name": "堅忍不屈", "name_key": "PASSIVE_UNYIELDING_NAME",
+		"desc": "受到傷害時（含格擋擋下的攻擊）為自身技能量表填充一段；觸發後 5 秒內不會再次因本被動充能。",
+		"desc_key": "PASSIVE_UNYIELDING_DESC",
+		"icon": "res://assets/icons/passives/unyielding.png",
+		"params": {
+			"meter_fill": 40.0,
+			"passive_fill_cd": 5.0,
+		},
+	},
+	{
+		"id": "arcane_mastery",
+		"name": "奧術精通", "name_key": "PASSIVE_ARCANE_MASTERY_NAME",
+		"desc": "技能命中敵人或彈針時，為自身技能量表填充一段；觸發後 5 秒內不會再次因本被動充能。",
+		"desc_key": "PASSIVE_ARCANE_MASTERY_DESC",
+		"icon": "res://assets/icons/passives/arcane_mastery.png",
+		"params": {
+			"meter_fill": 30.0,
+			"passive_fill_cd": 5.0,
+		},
+	},
+	{
+		"id": "quick_step",
+		"name": "快射節奏", "name_key": "PASSIVE_QUICK_STEP_NAME",
+		"desc": "每累積 8 次武器命中為自身技能量表填充一段；觸發後 5 秒內不會再次因本被動充能。",
+		"desc_key": "PASSIVE_QUICK_STEP_DESC",
+		"icon": "res://assets/icons/passives/quick_step.png",
+		"params": {
+			"hits_per_fill": 8,
+			"meter_fill": 25.0,
+			"passive_fill_cd": 5.0,
+		},
+	},
+]
+
+# 技能：玩家按技能鍵（Q／RShift／手把 X）發動，可在戰鬥與彈珠台中使用
+const SKILLS: Array[Dictionary] = [
+	{"id": "none",
+		"name": "無", "name_key": "SKILL_NONE_NAME",
+		"desc": "尚未選擇技能。", "desc_key": "SKILL_NONE_DESC",
+		"cooldown": 0.0, "icon": ""},
+	{
+		"id": "whirl_slash",
+		"name": "迴旋斬", "name_key": "SKILL_WHIRL_SLASH_NAME",
+		"desc": "戰鬥：對自身周圍 15 米範圍造成大威力傷害。\n彈珠台：摧毀 1 格獎勵（變成 3 選 1）。",
+		"desc_key": "SKILL_WHIRL_SLASH_DESC",
+		"cooldown": 12.0,
+		"icon": "res://assets/icons/skills/whirl_slash.png",
+		"params": {
+			"combat_radius": 360.0,        # 約 15 個 tile（1 tile ≈ 1 米）
+			"combat_damage_mult": 6.0,     # 玩家 ATK × damage_mult × 6
+			"combat_min_damage": 80.0,     # 即使 ATK 很低也能達到的最小傷害
+		},
+	},
+	{
+		"id": "heavy_armor",
+		"name": "重裝防禦", "name_key": "SKILL_HEAVY_ARMOR_NAME",
+		"desc": "戰鬥：賦予自身 2 次格擋（無視該次傷害）。\n彈珠台：彈珠變重（重力上升），碰 2 次會破壞彈針。",
+		"desc_key": "SKILL_HEAVY_ARMOR_DESC",
+		"cooldown": 15.0,
+		"icon": "res://assets/icons/skills/heavy_armor.png",
+		"params": {
+			"combat_block_count": 2,
+			"pinball_gravity_mult": 1.45,
+			"pinball_peg_hits_to_break": 2,
+		},
+	},
+	{
+		"id": "agile_tactics",
+		"name": "靈敏戰技", "name_key": "SKILL_AGILE_TACTICS_NAME",
+		"desc": "戰鬥：朝前方發射 3 道擴散箭，每持有一支箭矢額外多 1 道；釋放後清空箭矢。\n彈珠台：使自身彈珠變輕盈；每撞 3 次彈針，獲得 1 支箭矢（最多 5）。",
+		"desc_key": "SKILL_AGILE_TACTICS_DESC",
+		"cooldown": 10.0,
+		"icon": "res://assets/icons/skills/agile_tactics.png",
+		"params": {
+			"combat_base_arrows": 3,
+			"combat_spread_deg": 14.0,
+			"combat_speed": 720.0,
+			"combat_range": 520.0,
+			"combat_damage_mult": 1.6,
+			"combat_min_damage": 18.0,
+			"arrow_max": 5,
+			"arrows_per_3_pegs": 1,
+			"pinball_gravity_mult": 0.65,
+			"pinball_peg_bounce_mult": 1.05,
+			"pinball_hits_per_arrow": 3,
+		},
+	},
+	{
+		"id": "energy_wave",
+		"name": "能量波動", "name_key": "SKILL_ENERGY_WAVE_NAME",
+		"desc": "戰鬥：朝前方發射寬 5 米、長 30 米的直線光束砲擊。\n彈珠台：額外發射一顆能量炮彈珠（非自身彈珠），同一彈針被其碰撞 3 次會破壞；落進獎勵區時 50% 雙倍獎勵、50% 摧毀該格獎勵。",
+		"desc_key": "SKILL_ENERGY_WAVE_DESC",
+		"cooldown": 14.0,
+		"icon": "res://assets/icons/skills/energy_wave.png",
+		"params": {
+			"combat_length": 720.0,
+			"combat_half_width": 60.0,
+			"combat_start_offset": 72.0,
+			"combat_damage_mult": 5.5,
+			"combat_min_damage": 60.0,
+			"pinball_peg_hits_break": 3,
+		},
+	},
+]
+
+
+func get_passive_def(id: String) -> Dictionary:
+	for p in PASSIVES:
+		if p["id"] == id:
+			return p
+	return PASSIVES[0]
+
+
+func get_skill_def(id: String) -> Dictionary:
+	for s in SKILLS:
+		if s["id"] == id:
+			return s
+	return SKILLS[0]
+
+
+# 安全載入技能 / 被動圖示：路徑空 / 檔案不存在 → 直接回 null，不會在 console 噴錯
+func load_skill_icon(skill_id: String) -> Texture2D:
+	var s: Dictionary = get_skill_def(skill_id)
+	return _load_icon_safe(String(s.get("icon", "")))
+
+
+func load_passive_icon(passive_id: String) -> Texture2D:
+	var p: Dictionary = get_passive_def(passive_id)
+	return _load_icon_safe(String(p.get("icon", "")))
+
+
+func _load_icon_safe(path: String) -> Texture2D:
+	if path == "":
+		return null
+	if not ResourceLoader.exists(path, "Texture2D"):
+		return null
+	return load(path) as Texture2D
+
+
+# 取得角色可用的被動／技能 ID 清單；未指定時預設只有「無」，由各角色顯式列出可選項
+func character_passive_options(cid: String) -> Array:
+	var c: Dictionary = get_character_def(cid)
+	return c.get("passive_options", ["none"])
+
+
+func character_skill_options(cid: String) -> Array:
+	var c: Dictionary = get_character_def(cid)
+	return c.get("skill_options", ["none"])
+
+
+# ====================================================
+# 多語言 helpers — UI 端統一透過這些函式取「顯示用文字」
+# ====================================================
+# 共通邏輯：
+#   1) 若 def 有 <field>_key 就走 TranslationServer，未命中時退回 <field>。
+#   2) 對 desc 等多行欄位處理 CSV 內的字面 "\n" → 真正換行。
+func tr_field(def: Dictionary, field: String, multiline: bool = false) -> String:
+	var key: String = String(def.get(field + "_key", ""))
+	var fallback: String = String(def.get(field, ""))
+	var out: String = fallback
+	if key != "":
+		var translated: String = tr(key)
+		if translated != key and translated != "":
+			out = translated
+	if multiline:
+		out = out.replace("\\n", "\n")
+	return out
+
+
+func tr_name(def: Dictionary) -> String:
+	if def == null or def.is_empty():
+		return ""
+	return tr_field(def, "name", false)
+
+
+func tr_desc(def: Dictionary) -> String:
+	if def == null or def.is_empty():
+		return ""
+	return tr_field(def, "desc", true)
+
+
+func tr_max_effect(def: Dictionary) -> String:
+	return tr_field(def, "max_effect", false)
+
+
+# rarity 欄位現在存 ID（"common"/"rare"/"epic"/"legend"），翻成顯示文字
+const RARITY_KEYS: Dictionary = {
+	"common": "RARITY_COMMON",
+	"rare":   "RARITY_RARE",
+	"epic":   "RARITY_EPIC",
+	"legend": "RARITY_LEGEND",
+}
+
+
+func tr_rarity(rarity_id: String) -> String:
+	if RARITY_KEYS.has(rarity_id):
+		var key: String = String(RARITY_KEYS[rarity_id])
+		var t: String = tr(key)
+		if t != key and t != "":
+			return t
+	return rarity_id
+
+
+# 給 ID 直接拿名稱（讓 caller 不用先呼叫 get_*_def）
+func tr_weapon_name(id: String) -> String:
+	return tr_name(get_weapon_def(id))
+
+
+func tr_character_name(id: String) -> String:
+	return tr_name(get_character_def(id))
+
+
+func tr_skill_name(id: String) -> String:
+	return tr_name(get_skill_def(id))
+
+
+func tr_passive_name(id: String) -> String:
+	return tr_name(get_passive_def(id))
+
+
+func tr_slime_name(id: String) -> String:
+	return tr_name(get_slime_def(id))
+
+
+func tr_stage_name(id: String) -> String:
+	return tr_name(get_stage_def(id))
+
+
+# ====================================================
+# 史萊姆敵人資料
+# ====================================================
+# 顏色由弱到強：Green → Blue → Light Blue → Dark → Orange → Red
+# 變體：普通 / 刺刺 (Spiked, 菁英) / 大型 (Boss)
+const SLIMES: Array[Dictionary] = [
+	# 一般史萊姆 (32x32 sprite, 5x4 sheet) — 各列實際幀數: [3,5,2,5]
+	{"id":"slime_green",     "tex":"res://assets/enemy/Slime/Green/MiniSlime.png",
+		"tier":0, "elite":false, "boss":false, "hframes":5, "vframes":4,
+		"frames_per_row":[3,5,2,5],
+		"scale":1.5, "radius":24.0, "offset_y":-11,
+		"hp_mult":1.0, "dmg_mult":1.0, "speed_mult":1.0, "xp_mult":1.0},
+	{"id":"slime_blue",      "tex":"res://assets/enemy/Slime/Blue/MiniSlimeB.png",
+		"tier":1, "elite":false, "boss":false, "hframes":5, "vframes":4,
+		"frames_per_row":[3,5,2,5],
+		"scale":1.5, "radius":24.0, "offset_y":-11,
+		"hp_mult":1.25, "dmg_mult":1.05, "speed_mult":1.0, "xp_mult":1.1},
+	{"id":"slime_lightblue", "tex":"res://assets/enemy/Slime/Light Blue/MiniSlimeLB.png",
+		"tier":2, "elite":false, "boss":false, "hframes":5, "vframes":4,
+		"frames_per_row":[3,5,2,5],
+		"scale":1.5, "radius":24.0, "offset_y":-11,
+		"hp_mult":1.5, "dmg_mult":1.1, "speed_mult":1.05, "xp_mult":1.25},
+	{"id":"slime_dark",      "tex":"res://assets/enemy/Slime/Dark/MiniSlimeD.png",
+		"tier":3, "elite":false, "boss":false, "hframes":5, "vframes":4,
+		"frames_per_row":[3,5,2,5],
+		"scale":1.5, "radius":24.0, "offset_y":-11,
+		"hp_mult":1.8, "dmg_mult":1.2, "speed_mult":1.1, "xp_mult":1.5},
+
+	# 刺刺史萊姆 (32x32 sprite, 5x5 sheet) — 各列實際幀數: [3,5,5,2,5]
+	{"id":"spike_green",     "tex":"res://assets/enemy/Slime/Green/MiniSpikedSlime.png",
+		"tier":1, "elite":true, "boss":false, "hframes":5, "vframes":5,
+		"frames_per_row":[3,5,5,2,5],
+		"scale":1.5, "radius":27.0, "offset_y":-11,
+		"hp_mult":1.7, "dmg_mult":1.4, "speed_mult":1.0, "xp_mult":1.6},
+	{"id":"spike_blue",      "tex":"res://assets/enemy/Slime/Blue/MiniSpikedSlimeB.png",
+		"tier":2, "elite":true, "boss":false, "hframes":5, "vframes":5,
+		"frames_per_row":[3,5,5,2,5],
+		"scale":1.5, "radius":27.0, "offset_y":-11,
+		"hp_mult":2.0, "dmg_mult":1.5, "speed_mult":1.0, "xp_mult":1.8},
+	{"id":"spike_lightblue", "tex":"res://assets/enemy/Slime/Light Blue/MiniSpikedSlimeLB.png",
+		"tier":3, "elite":true, "boss":false, "hframes":5, "vframes":5,
+		"frames_per_row":[3,5,5,2,5],
+		"scale":1.5, "radius":27.0, "offset_y":-11,
+		"hp_mult":2.4, "dmg_mult":1.7, "speed_mult":1.05, "xp_mult":2.0},
+	{"id":"spike_dark",      "tex":"res://assets/enemy/Slime/Dark/MiniSpikedSlimeD.png",
+		"tier":4, "elite":true, "boss":false, "hframes":5, "vframes":5,
+		"frames_per_row":[3,5,5,2,5],
+		"scale":1.5, "radius":27.0, "offset_y":-11,
+		"hp_mult":2.8, "dmg_mult":1.9, "speed_mult":1.1, "xp_mult":2.5},
+	{"id":"spike_orange",    "tex":"res://assets/enemy/Slime/Orange/MiniSpikedSlimeO.png",
+		"tier":5, "elite":true, "boss":false, "hframes":5, "vframes":5,
+		"frames_per_row":[3,5,5,2,5],
+		"scale":1.5, "radius":27.0, "offset_y":-11,
+		"hp_mult":3.2, "dmg_mult":2.1, "speed_mult":1.1, "xp_mult":3.0},
+	{"id":"spike_red",       "tex":"res://assets/enemy/Slime/Red/MiniSpikedSlimeR.png",
+		"tier":6, "elite":true, "boss":false, "hframes":5, "vframes":5,
+		"frames_per_row":[3,5,5,2,5],
+		"scale":1.5, "radius":27.0, "offset_y":-11,
+		"hp_mult":3.6, "dmg_mult":2.4, "speed_mult":1.15, "xp_mult":3.5},
+
+	# 大型史萊姆 (50x40 sprite, 8x7 sheet) — Boss
+	# 橘色 sheet 部分列實際幀數略少，採用保守值避免空白幀
+	{"id":"boss_orange", "tex":"res://assets/enemy/Slime/Orange/MiniSlimeMonsterO.png",
+		"tier":4, "elite":true, "boss":true, "hframes":8, "vframes":7,
+		"frames_per_row":[2,4,4,4,4,2,4],
+		"scale":1.8, "radius":54.0, "offset_y":-9,
+		"hp_mult":5.0, "dmg_mult":2.8, "speed_mult":0.8, "xp_mult":6.0},
+	{"id":"boss_red",    "tex":"res://assets/enemy/Slime/Red/MiniSlimeMonsterR.png",
+		"tier":5, "elite":true, "boss":true, "hframes":8, "vframes":7,
+		"frames_per_row":[3,5,7,8,6,2,6],
+		"scale":1.8, "radius":54.0, "offset_y":-9,
+		"hp_mult":7.0, "dmg_mult":3.5, "speed_mult":0.8, "xp_mult":9.0},
+
+	# 關卡 Boss — 史萊姆王（取自橙色大型史萊姆紋理，更大、更慢、極厚血）
+	# frames_per_row 改成保守值，避免某些列尾段空白格被輪播到
+	{"id":"slime_king",
+		"name":"史萊姆王", "name_key": "SLIME_KING_NAME",
+		"tex":"res://assets/enemy/Slime/Orange/MiniSlimeMonsterO.png",
+		"tier":99, "elite":true, "boss":true, "stage_boss":true,
+		"hframes":8, "vframes":7,
+		"frames_per_row":[2,4,4,4,4,2,4],
+		"scale":2.6, "radius":80.0, "offset_y":-12,
+		"hp_mult":22.0, "dmg_mult":3.2, "speed_mult":0.55, "xp_mult":18.0},
+]
+
+
+# 關卡定義 — 由 GameState.current_stage_id 指向其中一筆
+const STAGES: Array[Dictionary] = [
+	{
+		"id": "slime_forest",
+		"name": "第一關 — 史萊姆之森",
+		"name_key": "STAGE_SLIME_FOREST_NAME",
+		"map_path": "res://assets/Maps/TEST.tmx",
+		"boss_id": "slime_king",
+		"boss_time": 600.0,        # 10 分鐘
+		"boss_warning_time": 30.0, # Boss 出現前 30 秒提示
+		"victory_gold": 250,
+	},
+]
+
+
+func get_slime_def(id: String) -> Dictionary:
+	for s in SLIMES:
+		if s["id"] == id:
+			return s
+	return {}
+
+
+func get_stage_def(id: String) -> Dictionary:
+	for s in STAGES:
+		if s["id"] == id:
+			return s
+	return STAGES[0]
+
+
+# 依難度挑選史萊姆（菁英較稀有，Boss 更稀有）
+func pick_slime(difficulty: float) -> Dictionary:
+	var tier: int = clamp(int(floor(difficulty)), 0, 6)
+	var candidates: Array = []
+	for s in SLIMES:
+		var t: int = int(s["tier"])
+		# 只取「等於或低 1 階」的 tier，營造漸進感
+		if t > tier or t < tier - 1:
+			continue
+		if s.get("boss", false) and tier < 4:
+			continue
+		candidates.append(s)
+	if candidates.is_empty():
+		return SLIMES[0]
+	# 加權：普通 6, 菁英 2, Boss 1
+	var pool: Array = []
+	for s in candidates:
+		var w: int = 6
+		if s.get("elite", false):
+			w = 2
+		if s.get("boss", false):
+			w = 1
+		for i in w:
+			pool.append(s)
+	return pool.pick_random()

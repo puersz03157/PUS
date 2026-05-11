@@ -1,0 +1,8 @@
+# Godot 4 editor cache (regenerated locally)
+.godot/
+
+# Optional: uncomment if you prefer not to track import sidecars
+# *.import
+
+export_presets.cfg
+export_credentials.cfg

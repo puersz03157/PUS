@@ -1,0 +1,77 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/village.gd" id="1_village"]
+[ext_resource type="Script" path="res://scripts/drawer_node.gd" id="2_drawer"]
+
+[node name="Village" type="Node2D"]
+script = ExtResource("1_village")
+
+[node name="Background" type="Node2D" parent="."]
+script = ExtResource("2_drawer")
+
+[node name="Camera" type="Camera2D" parent="."]
+zoom = Vector2(1, 1)
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Hint" type="Label" parent="HUD"]
+offset_left = 20.0
+offset_top = 16.0
+offset_right = 700.0
+offset_bottom = 50.0
+text = "VILLAGE_HINT"
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(1, 0.95, 0.6, 1)
+
+[node name="PauseDim" type="ColorRect" parent="HUD"]
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 1280.0
+offset_bottom = 720.0
+color = Color(0, 0, 0, 0.55)
+visible = false
+
+[node name="PausePanel" type="Panel" parent="HUD"]
+offset_left = 380.0
+offset_top = 200.0
+offset_right = 900.0
+offset_bottom = 520.0
+visible = false
+
+[node name="Title" type="Label" parent="HUD/PausePanel"]
+offset_left = 12.0
+offset_top = 24.0
+offset_right = 508.0
+offset_bottom = 76.0
+text = "VILLAGE_TITLE"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 36
+theme_override_colors/font_color = Color(1, 0.85, 0.4, 1)
+
+[node name="Sub" type="Label" parent="HUD/PausePanel"]
+offset_left = 12.0
+offset_top = 84.0
+offset_right = 508.0
+offset_bottom = 124.0
+text = "VILLAGE_SUBTITLE"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.85, 0.92, 1, 1)
+
+[node name="Resume" type="Button" parent="HUD/PausePanel"]
+offset_left = 80.0
+offset_top = 180.0
+offset_right = 240.0
+offset_bottom = 240.0
+text = "VILLAGE_RESUME"
+theme_override_font_sizes/font_size = 18
+
+[node name="Leave" type="Button" parent="HUD/PausePanel"]
+offset_left = 280.0
+offset_top = 180.0
+offset_right = 440.0
+offset_bottom = 240.0
+text = "VILLAGE_LEAVE"
+theme_override_font_sizes/font_size = 18

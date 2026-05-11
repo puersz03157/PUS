@@ -1,0 +1,203 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_menu"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.05, 0.07, 0.13, 1)
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 80.0
+offset_right = 300.0
+offset_bottom = 180.0
+grow_horizontal = 2
+text = "APP_TITLE"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 56
+theme_override_colors/font_color = Color(1, 0.85, 0.4, 1)
+
+[node name="Subtitle" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -350.0
+offset_top = 200.0
+offset_right = 350.0
+offset_bottom = 240.0
+grow_horizontal = 2
+text = "APP_SUBTITLE"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.85, 0.85, 1, 1)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 280.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="Center"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="SoloButton" type="Button" parent="Center/VBox"]
+custom_minimum_size = Vector2(280, 52)
+layout_mode = 2
+text = "MAIN_BTN_SOLO"
+theme_override_font_sizes/font_size = 22
+
+[node name="DuoButton" type="Button" parent="Center/VBox"]
+custom_minimum_size = Vector2(280, 52)
+layout_mode = 2
+text = "MAIN_BTN_DUO"
+theme_override_font_sizes/font_size = 22
+
+[node name="VillageButton" type="Button" parent="Center/VBox"]
+custom_minimum_size = Vector2(280, 52)
+layout_mode = 2
+text = "MAIN_BTN_VILLAGE"
+theme_override_font_sizes/font_size = 22
+
+[node name="QuitButton" type="Button" parent="Center/VBox"]
+custom_minimum_size = Vector2(280, 52)
+layout_mode = 2
+text = "MAIN_BTN_QUIT"
+theme_override_font_sizes/font_size = 22
+
+[node name="GoldLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -260.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = 60.0
+grow_horizontal = 0
+text = ""
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(1, 0.85, 0.35, 1)
+
+[node name="StageLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -360.0
+offset_top = 56.0
+offset_right = -24.0
+offset_bottom = 86.0
+grow_horizontal = 0
+text = ""
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.9, 0.92, 1, 1)
+
+[node name="VillagePicker" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Dim" type="ColorRect" parent="VillagePicker"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.55)
+
+[node name="Box" type="PanelContainer" parent="VillagePicker"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -150.0
+offset_right = 200.0
+offset_bottom = 150.0
+
+[node name="Margin" type="MarginContainer" parent="VillagePicker/Box"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_bottom = 20
+
+[node name="VBox" type="VBoxContainer" parent="VillagePicker/Box/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="VillagePicker/Box/Margin/VBox"]
+layout_mode = 2
+text = "VPICKER_TITLE"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(1, 0.9, 0.5, 1)
+
+[node name="VillageSoloButton" type="Button" parent="VillagePicker/Box/Margin/VBox"]
+custom_minimum_size = Vector2(280, 48)
+layout_mode = 2
+text = "VPICKER_SOLO"
+theme_override_font_sizes/font_size = 20
+
+[node name="VillageDuoButton" type="Button" parent="VillagePicker/Box/Margin/VBox"]
+custom_minimum_size = Vector2(280, 48)
+layout_mode = 2
+text = "VPICKER_DUO"
+theme_override_font_sizes/font_size = 20
+
+[node name="VillageCancelButton" type="Button" parent="VillagePicker/Box/Margin/VBox"]
+custom_minimum_size = Vector2(280, 44)
+layout_mode = 2
+text = "VPICKER_CANCEL"
+theme_override_font_sizes/font_size = 18
+
+[node name="Footer" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -400.0
+offset_top = -50.0
+offset_right = 400.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "MAIN_FOOTER"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.7, 0.75, 0.9, 1)
