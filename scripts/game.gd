@@ -40,8 +40,10 @@ const CAMERA_ZOOM := Vector2(2.0, 2.0)
 @onready var boss_hp_name: Label = $HUD/BossHPPanel/Name
 
 const SKILL_ICON_SCRIPT := preload("res://scripts/skill_icon.gd")
+const TOUCH_HUD_SCRIPT := preload("res://scripts/touch_hud.gd")
 var p1_skill_icon: Panel = null
 var p2_skill_icon: Panel = null
+var touch_hud: CanvasLayer = null
 
 var players: Array = []
 var run_time: float = 0.0
@@ -196,6 +198,16 @@ func _spawn_players() -> void:
 
 	_sync_team_progress_to_players()
 	_build_hud_skill_icons()
+	_build_touch_hud()
+
+
+# 建立浮動搖桿 / 技能 / 暫停的觸控 HUD —— 連接到 P1
+func _build_touch_hud() -> void:
+	if touch_hud != null or players.is_empty():
+		return
+	touch_hud = TOUCH_HUD_SCRIPT.new()
+	add_child(touch_hud)
+	touch_hud.setup(players[0])
 
 
 func _build_hud_skill_icons() -> void:

@@ -43,6 +43,9 @@ var slots_node: DrawerNode2D
 const SKILL_ICON_SCRIPT := preload("res://scripts/skill_icon.gd")
 var skill_icons: Array = []
 
+# 觸控介面：每位玩家一顆「發球」按鈕（與 player_balls 對齊；未發射時顯示）
+var touch_launch_buttons: Array = []
+
 var _closing := false
 
 
@@ -61,6 +64,7 @@ func _ready() -> void:
 	_build_balls()
 	_build_scoreboard()
 	_build_skill_icons()
+	_build_touch_launch_buttons()
 	_update_instructions()
 
 
@@ -395,6 +399,7 @@ func _process(delta: float) -> void:
 			_step_ball(b, delta)
 	_update_instructions()
 	balls_node.queue_redraw()
+	_refresh_touch_launch_visibility()
 	if _all_main_balls_finished() and _all_energy_balls_finished():
 		_close_in(0.7)
 
@@ -933,6 +938,75 @@ func _build_skill_icons() -> void:
 		else:
 			icon.position = Vector2(board_rect.end.x + 18.0, center_y)
 		skill_icons.append(icon)
+
+
+# ---------------- 觸控發球按鈕 ----------------
+# 每位玩家一顆大按鈕，未發射 / 未結束時顯示，按下注入 b["action"]（p1_action / p2_action）。
+# Buttons 都掛 PROCESS_MODE_ALWAYS，因為彈珠台會把整棵 Tree paused。
+func _build_touch_launch_buttons() -> void:
+	for i in player_balls.size():
+		var b: Dictionary = player_balls[i]
+		var btn := Button.new()
+		btn.text = tr("PINBALL_TOUCH_LAUNCH_FMT") % (int(b["player"].slot_index) + 1)
+		btn.add_theme_font_size_override("font_size", 22)
+		btn.size = Vector2(260.0, 56.0)
+		btn.process_mode = Node.PROCESS_MODE_ALWAYS
+		btn.focus_mode = Control.FOCUS_NONE
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.12, 0.16, 0.28, 0.92)
+		sb.border_color = Color(0.95, 0.7, 0.3)
+		sb.border_width_left = 3
+		sb.border_width_right = 3
+		sb.border_width_top = 3
+		sb.border_width_bottom = 3
+		sb.corner_radius_top_left = 10
+		sb.corner_radius_top_right = 10
+		sb.corner_radius_bottom_left = 10
+		sb.corner_radius_bottom_right = 10
+		btn.add_theme_stylebox_override("normal", sb)
+		btn.add_theme_stylebox_override("hover", sb)
+		btn.add_theme_stylebox_override("pressed", sb)
+		# 排版：solo 在板下方置中；雙人左右並排
+		var center_x: float = board_rect.position.x + board_rect.size.x * 0.5
+		var below_y: float = board_rect.end.y + slot_h + 24.0
+		if player_balls.size() <= 1:
+			btn.position = Vector2(center_x - btn.size.x * 0.5, below_y)
+		else:
+			var off: float = (float(i) - 0.5) * (btn.size.x + 24.0)
+			btn.position = Vector2(center_x - btn.size.x * 0.5 + off, below_y)
+		var captured: int = i
+		btn.pressed.connect(func() -> void: _on_touch_launch(captured))
+		add_child(btn)
+		touch_launch_buttons.append(btn)
+	_refresh_touch_launch_visibility()
+
+
+func _on_touch_launch(idx: int) -> void:
+	if idx < 0 or idx >= player_balls.size():
+		return
+	var b: Dictionary = player_balls[idx]
+	if b["launched"] or b["finished"]:
+		return
+	# 注入一幀的按下訊號，由 _process 內既有的 just_pressed 偵測接手 _launch_ball
+	Input.action_press(b["action"])
+	await get_tree().process_frame
+	Input.action_release(b["action"])
+
+
+func _refresh_touch_launch_visibility() -> void:
+	if touch_launch_buttons.is_empty():
+		return
+	var on: bool = bool(GameState.touch_controls_enabled)
+	for i in touch_launch_buttons.size():
+		if i >= player_balls.size():
+			continue
+		var btn: Button = touch_launch_buttons[i]
+		if btn == null:
+			continue
+		var b: Dictionary = player_balls[i]
+		var show: bool = on and not b["launched"] and not b["finished"]
+		if btn.visible != show:
+			btn.visible = show
 
 
 func _close_in(seconds: float) -> void:
