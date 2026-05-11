@@ -55,6 +55,16 @@ const P1_PANEL_WIDTH := 400.0  # 與 CharacterSelect.tscn 中 P1Panel 寬度一�
 const PANEL_OFFSET_TOP := -270.0
 const PANEL_OFFSET_BOTTOM := 250.0
 
+# ----- 觸控介面（手機 / 網頁版） -----
+var _touch_p1: Control = null
+var _touch_p2: Control = null
+var _touch_focus_btns_p1: Array[Button] = []
+var _touch_focus_btns_p2: Array[Button] = []
+var _touch_ready_btn_p1: Button = null
+var _touch_ready_btn_p2: Button = null
+var _touch_back_btn: Button = null
+var _last_touch_enabled: bool = false
+
 
 func _ready() -> void:
 	p2_panel.visible = GameState.two_players
@@ -63,7 +73,9 @@ func _ready() -> void:
 	if title_label:
 		title_label.text = tr("CSEL_TITLE_VILLAGE") if GameState.next_scene == "village" else tr("CSEL_TITLE_BATTLE")
 	_apply_panel_layout()
+	_build_touch_controls()
 	_update_panels()
+	_apply_touch_visibility()
 
 
 func _notification(what: int) -> void:
@@ -107,6 +119,9 @@ func _apply_panel_layout() -> void:
 func _process(delta: float) -> void:
 	if _transitioning:
 		return
+	# 設定面板切換觸控時，即時更新可見性
+	if bool(GameState.touch_controls_enabled) != _last_touch_enabled:
+		_apply_touch_visibility()
 	input_cooldown = max(0.0, input_cooldown - delta)
 	if input_cooldown > 0.0:
 		return
@@ -257,6 +272,8 @@ func _update_panels() -> void:
 			p2_passive_icon, p2_skill_icon,
 			p2_color, p2_preview, p2_panel)
 	hint_label.text = _hint_text()
+	if bool(GameState.touch_controls_enabled):
+		_refresh_touch_buttons()
 	# 副標題僅在「準備中／完成」時顯示，避免與 Title 重複同一句「選擇你的角色」
 	if ready_label:
 		if p1_ready and (not GameState.two_players or p2_ready):
@@ -413,3 +430,166 @@ func _hint_text() -> String:
 	if GameState.two_players:
 		return line1 + "\n" + tr("CSEL_HINT_DUO")
 	return line1 + "\n" + tr("CSEL_HINT_SOLO")
+
+
+# ============================================================================
+# 觸控介面（手機 / 網頁版）
+# - 每個面板下方一條觸控列：[角色][被動][技能] tab + ◀ ▶ 循環 + 出發 / 解除
+# - 左上角一顆「← 主選單」按鈕
+# - 與 GameState.touch_controls_enabled 連動，可在執行時開關
+# ============================================================================
+func _build_touch_controls() -> void:
+	if p1_panel:
+		_touch_p1 = _make_panel_touch_bar("p1")
+		p1_panel.add_child(_touch_p1)
+	if p2_panel:
+		_touch_p2 = _make_panel_touch_bar("p2")
+		p2_panel.add_child(_touch_p2)
+
+	_touch_back_btn = Button.new()
+	_touch_back_btn.text = tr("CSEL_TOUCH_BACK")
+	_touch_back_btn.size = Vector2(160, 44)
+	_touch_back_btn.position = Vector2(16, 16)
+	_touch_back_btn.add_theme_font_size_override("font_size", 16)
+	_touch_back_btn.focus_mode = Control.FOCUS_NONE
+	_touch_back_btn.pressed.connect(_on_touch_back)
+	add_child(_touch_back_btn)
+
+
+func _make_panel_touch_bar(prefix: String) -> Control:
+	# 面板寬 400、高 520（offset_top -270 ~ offset_bottom 250）；
+	# 我們把觸控列放在面板「正下方」(local y >= 525) — Panel 不裁切，子物件可超出。
+	var bar := Control.new()
+	bar.name = "TouchBar_" + prefix
+	bar.size = Vector2(P1_PANEL_WIDTH, 96)
+	bar.position = Vector2(0, 525)
+	bar.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	# Row 1：角色 / 被動 / 技能 tab
+	var tab_row := HBoxContainer.new()
+	tab_row.position = Vector2(8, 0)
+	tab_row.size = Vector2(P1_PANEL_WIDTH - 16, 38)
+	tab_row.add_theme_constant_override("separation", 6)
+	bar.add_child(tab_row)
+
+	var labels: Array = [
+		tr("CSEL_TOUCH_FOCUS_CHAR"),
+		tr("CSEL_TOUCH_FOCUS_PASSIVE"),
+		tr("CSEL_TOUCH_FOCUS_SKILL"),
+	]
+	var btns: Array[Button] = []
+	for i in range(3):
+		var b := Button.new()
+		b.text = String(labels[i])
+		b.custom_minimum_size = Vector2((P1_PANEL_WIDTH - 28) / 3.0, 38)
+		b.add_theme_font_size_override("font_size", 14)
+		b.focus_mode = Control.FOCUS_NONE
+		b.pressed.connect(_on_touch_focus.bind(prefix, i))
+		tab_row.add_child(b)
+		btns.append(b)
+	if prefix == "p1":
+		_touch_focus_btns_p1 = btns
+	else:
+		_touch_focus_btns_p2 = btns
+
+	# Row 2：◀ ▶ 與 出發
+	var op_row := HBoxContainer.new()
+	op_row.position = Vector2(8, 46)
+	op_row.size = Vector2(P1_PANEL_WIDTH - 16, 46)
+	op_row.add_theme_constant_override("separation", 8)
+	bar.add_child(op_row)
+
+	var btn_left := Button.new()
+	btn_left.text = "◀"
+	btn_left.custom_minimum_size = Vector2(72, 46)
+	btn_left.add_theme_font_size_override("font_size", 22)
+	btn_left.focus_mode = Control.FOCUS_NONE
+	btn_left.pressed.connect(_on_touch_cycle.bind(prefix, -1))
+	op_row.add_child(btn_left)
+
+	var btn_right := Button.new()
+	btn_right.text = "▶"
+	btn_right.custom_minimum_size = Vector2(72, 46)
+	btn_right.add_theme_font_size_override("font_size", 22)
+	btn_right.focus_mode = Control.FOCUS_NONE
+	btn_right.pressed.connect(_on_touch_cycle.bind(prefix, 1))
+	op_row.add_child(btn_right)
+
+	var ready_btn := Button.new()
+	ready_btn.text = tr("CSEL_TOUCH_READY")
+	ready_btn.custom_minimum_size = Vector2(P1_PANEL_WIDTH - 16 - 72 - 72 - 16, 46)
+	ready_btn.add_theme_font_size_override("font_size", 18)
+	ready_btn.focus_mode = Control.FOCUS_NONE
+	ready_btn.pressed.connect(_on_touch_ready.bind(prefix))
+	op_row.add_child(ready_btn)
+	if prefix == "p1":
+		_touch_ready_btn_p1 = ready_btn
+	else:
+		_touch_ready_btn_p2 = ready_btn
+
+	return bar
+
+
+func _apply_touch_visibility() -> void:
+	var on: bool = bool(GameState.touch_controls_enabled)
+	_last_touch_enabled = on
+	if _touch_p1:
+		_touch_p1.visible = on
+	if _touch_p2:
+		_touch_p2.visible = on and GameState.two_players
+	if _touch_back_btn:
+		_touch_back_btn.visible = on
+	if hint_label:
+		hint_label.visible = not on
+	if on:
+		_refresh_touch_buttons()
+
+
+func _refresh_touch_buttons() -> void:
+	_refresh_focus_btns(_touch_focus_btns_p1, p1_focus, p1_ready)
+	if _touch_ready_btn_p1:
+		_touch_ready_btn_p1.text = tr("CSEL_TOUCH_UNREADY") if p1_ready else tr("CSEL_TOUCH_READY")
+		_touch_ready_btn_p1.modulate = Color(0.85, 1.0, 0.85) if not p1_ready else Color(1.0, 0.85, 0.85)
+	if GameState.two_players:
+		_refresh_focus_btns(_touch_focus_btns_p2, p2_focus, p2_ready)
+		if _touch_ready_btn_p2:
+			_touch_ready_btn_p2.text = tr("CSEL_TOUCH_UNREADY") if p2_ready else tr("CSEL_TOUCH_READY")
+			_touch_ready_btn_p2.modulate = Color(0.85, 1.0, 0.85) if not p2_ready else Color(1.0, 0.85, 0.85)
+
+
+func _refresh_focus_btns(btns: Array[Button], focus: int, ready: bool) -> void:
+	for i in range(btns.size()):
+		var b: Button = btns[i]
+		if b == null:
+			continue
+		b.disabled = ready
+		b.modulate = Color(1, 0.92, 0.5) if (i == focus and not ready) else Color(0.85, 0.88, 0.95)
+
+
+func _on_touch_focus(prefix: String, idx: int) -> void:
+	if (prefix == "p1" and p1_ready) or (prefix == "p2" and p2_ready):
+		return
+	_set_focus(prefix, idx)
+	_update_panels()
+
+
+func _on_touch_cycle(prefix: String, dir: int) -> void:
+	if (prefix == "p1" and p1_ready) or (prefix == "p2" and p2_ready):
+		return
+	_cycle_focus(prefix, dir)
+	_update_panels()
+
+
+func _on_touch_ready(prefix: String) -> void:
+	if prefix == "p1":
+		p1_ready = not p1_ready
+	else:
+		p2_ready = not p2_ready
+	_update_panels()
+
+
+func _on_touch_back() -> void:
+	if _transitioning:
+		return
+	_transitioning = true
+	get_tree().change_scene_to_file("res://scenes/Main.tscn")
