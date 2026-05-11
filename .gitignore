@@ -6,3 +6,10 @@
 
 export_presets.cfg
 export_credentials.cfg
+
+# Stray screenshots in project root (Windows screen-clip default name)
+/螢幕擷取畫面*.png
+/螢幕擷取畫面*.png.import
+/Screenshot*.png
+/Screenshot*.png.import
+
