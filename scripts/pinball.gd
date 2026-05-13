@@ -13,6 +13,10 @@ const PEG_BOUNCE := 0.92
 const LAUNCHER_SPEED := 200.0
 const LAUNCHER_HALF_W := 18.0
 const LAUNCH_INITIAL_VY := 320.0
+## 彈針被撞「擊毀」時額外加分（撞擊本身的 +1 仍照舊）
+const PEG_DESTROY_EXTRA_SCORE := 5
+## 每位玩家彈針分每達此整數倍，隨機升級一個尚未摧毀的獎勵格
+const SCORE_SLOT_UPGRADE_EVERY := 20
 
 
 var board_rect: Rect2 = Rect2()
@@ -31,7 +35,7 @@ var title_label: Label
 var instructions_label: Label
 var slot_labels: Array = []
 
-# 計分板：每次彈珠（含能量彈）撞到彈針 +1 分，依球的擁有玩家結算。目前純裝飾。
+# 計分板：每次彈珠（含能量彈）撞到彈針 +1 分；擊毀彈針再加分。分數每達 20 的倍數會隨機升級一格獎勵。
 var player_scores: Dictionary = {}   # Node(player) -> int
 var scoreboard_label: Label
 
@@ -184,13 +188,59 @@ func _refresh_scoreboard() -> void:
 	scoreboard_label.text = tr("PINBALL_SCOREBOARD_PREFIX") + "　".join(parts)
 
 
-# 給球的擁有玩家加分（每撞 1 次彈針 = +1）
+# 給球的擁有玩家加分（每撞 1 次彈針 = +1；擊毀另計）
 func _grant_peg_score(b: Dictionary, amount: int = 1) -> void:
 	var p: Node = b.get("player", null)
-	if p == null:
+	if p == null or amount <= 0:
 		return
-	player_scores[p] = int(player_scores.get(p, 0)) + amount
+	var old_sc: int = int(player_scores.get(p, 0))
+	var new_sc: int = old_sc + amount
+	player_scores[p] = new_sc
 	_refresh_scoreboard()
+	var prev_bracket: int = old_sc / SCORE_SLOT_UPGRADE_EVERY
+	var new_bracket: int = new_sc / SCORE_SLOT_UPGRADE_EVERY
+	for _i in range(new_bracket - prev_bracket):
+		_upgrade_random_alive_reward_slot()
+
+
+func _pick_reward_for_slot_upgrade(replace_idx: int) -> Dictionary:
+	var pool: Array = _build_reward_pool()
+	pool.shuffle()
+	var used: Dictionary = {}
+	for i in SLOT_COUNT:
+		if i == replace_idx:
+			continue
+		if slots[i].get("destroyed", false):
+			continue
+		used[String(slots[i].get("name", ""))] = true
+	for r in pool:
+		if not used.has(String(r.get("name", ""))):
+			return (r as Dictionary).duplicate(true)
+	return {
+		"name": tr("PINBALL_SLOT_GOLD"),
+		"desc": tr("PINBALL_SLOT_GOLD_DESC"),
+		"color": Color(1, 0.85, 0.4),
+		"reward": {"type": "noop"},
+	}
+
+
+func _upgrade_random_alive_reward_slot() -> void:
+	var candidates: Array[int] = []
+	for i in SLOT_COUNT:
+		if not slots[i].get("destroyed", false):
+			candidates.append(i)
+	if candidates.is_empty():
+		return
+	var idx: int = candidates[randi() % candidates.size()]
+	var new_slot: Dictionary = _pick_reward_for_slot_upgrade(idx)
+	slots[idx] = new_slot
+	var lbl: Label = slot_labels[idx]
+	lbl.text = String(new_slot.get("name", ""))
+	lbl.add_theme_color_override("font_color", Color(1, 1, 1))
+	slots_node.queue_redraw()
+	var tw := lbl.create_tween()
+	lbl.modulate = Color(1.45, 1.35, 0.95)
+	tw.tween_property(lbl, "modulate", Color(1, 1, 1), 0.5)
 
 
 func _action_label(a: String) -> String:
@@ -319,19 +369,20 @@ func _build_reward_pool() -> Array:
 			"reward": {"type": "common", "id": u["id"]},
 		})
 	# 統計：每位升級玩家擁有的武器、是否還有空格
-	var weapon_cap: int = 5
-	if levelers.size() > 0:
-		weapon_cap = int(levelers[0].WEAPON_SLOT_MAX)
 	var anyone_has_room: bool = false
 	var owned: Dictionary = {}
 	for p in levelers:
+		var weapon_cap: int = p.get_weapon_slot_max() if p.has_method("get_weapon_slot_max") else int(p.WEAPON_SLOT_MAX)
 		if p.weapons.size() < weapon_cap:
 			anyone_has_room = true
 		for w in p.weapons:
 			owned[w["id"]] = true
 	for w in GameData.WEAPONS:
+		var wid: String = String(w["id"])
+		if not GameState.is_weapon_unlocked(wid):
+			continue
 		var w_name: String = GameData.tr_name(w)
-		if not owned.has(w["id"]):
+		if not owned.has(wid):
 			# 如果「全部升級玩家武器格都滿」→ 沒人能拿這把新武器，
 			# 把它降級成「強化既有武器」，避免出現「拿到也用不到」的格子
 			if not anyone_has_room:
@@ -340,14 +391,14 @@ func _build_reward_pool() -> Array:
 				"name": w_name,
 				"desc": tr("PINBALL_SLOT_NEW_WEAPON_DESC"),
 				"color": Color(0.95, 0.7, 0.5),
-				"reward": {"type": "weapon", "id": w["id"]},
+				"reward": {"type": "weapon", "id": wid},
 			})
 		else:
 			pool.append({
 				"name": tr("PINBALL_SLOT_UPGRADE_NAME_FMT") % w_name,
 				"desc": tr("PINBALL_SLOT_UPGRADE_DESC_FMT") % w_name,
 				"color": Color(0.95, 0.85, 0.45),
-				"reward": {"type": "weapon_up", "id": w["id"]},
+				"reward": {"type": "weapon_up", "id": wid},
 			})
 	pool.shuffle()
 	return pool
@@ -401,7 +452,9 @@ func _process(delta: float) -> void:
 			if p.has_method("try_consume_skill"):
 				var skd: Dictionary = p.call("try_consume_skill")
 				if not skd.is_empty():
-					if not _handle_pinball_skill(skd, b):
+					if _handle_pinball_skill(skd, b):
+						AudioManager.play_sfx("skill_cast", 0.03)
+					else:
 						# 技能未生效（目標格已摧毀／不能再降）→ 退還冷卻
 						p.skill_cooldown = 0.0
 		if b["launched"]:
@@ -409,7 +462,10 @@ func _process(delta: float) -> void:
 	_update_instructions()
 	balls_node.queue_redraw()
 	_refresh_touch_buttons_visibility()
-	if _all_main_balls_finished() and _all_energy_balls_finished():
+	# 必須等獎勵提示全部關閉（佇列清空且無 modal）才能結束彈珠台並解除暫停，否則最後一球落格後
+	# 仍會在同一幀觸發 _close_in，約 0.7s 後戰鬥已恢復、玩家還在看獎勵說明。
+	if _all_main_balls_finished() and _all_energy_balls_finished() \
+			and not _reward_modal_block and _reward_queue.is_empty():
 		_close_in(0.7)
 
 
@@ -530,6 +586,7 @@ func _step_launcher(b: Dictionary, delta: float) -> void:
 
 
 func _launch_ball(b: Dictionary) -> void:
+	AudioManager.play_sfx("pinball_launch", 0.03)
 	# 發射時繼承發射口的橫向速度（讓玩家可以靠時機改變角度）
 	var lateral: float = b["launcher_dir"] * LAUNCHER_SPEED * 0.6
 	b["vel"] = Vector2(lateral, LAUNCH_INITIAL_VY)
@@ -549,12 +606,15 @@ func _step_ball(b: Dictionary, delta: float) -> void:
 	if new_pos.x < board_rect.position.x + BALL_RADIUS:
 		new_pos.x = board_rect.position.x + BALL_RADIUS
 		b["vel"].x = -b["vel"].x * WALL_BOUNCE
+		AudioManager.play_sfx("pinball_bounce", 0.06)
 	elif new_pos.x > board_rect.end.x - BALL_RADIUS:
 		new_pos.x = board_rect.end.x - BALL_RADIUS
 		b["vel"].x = -b["vel"].x * WALL_BOUNCE
+		AudioManager.play_sfx("pinball_bounce", 0.06)
 	if new_pos.y < board_rect.position.y + BALL_RADIUS:
 		new_pos.y = board_rect.position.y + BALL_RADIUS
 		b["vel"].y = -b["vel"].y * WALL_BOUNCE
+		AudioManager.play_sfx("pinball_bounce", 0.06)
 
 	var pegs_changed: bool = false
 	for peg in pegs:
@@ -573,6 +633,7 @@ func _step_ball(b: Dictionary, delta: float) -> void:
 				if b.get("light", false):
 					bounce_k *= float(b.get("peg_bounce_mult", 1.0))
 				b["vel"] -= n * dot * (1.0 + bounce_k)
+			AudioManager.play_sfx("pinball_bounce", 0.06)
 			# 計分：每撞 1 次彈針 = +1（純裝飾）
 			_grant_peg_score(b, 1)
 			# 重裝彈珠：撞擊累計，達門檻直接破壞
@@ -581,6 +642,7 @@ func _step_ball(b: Dictionary, delta: float) -> void:
 				var threshold: int = int(b.get("peg_break_threshold", 2))
 				if peg["heavy_hits"] >= threshold:
 					peg["alive"] = false
+					_grant_peg_score(b, PEG_DESTROY_EXTRA_SCORE)
 				pegs_changed = true
 			# 輕盈彈珠：撞擊計數 → 每 N 次給玩家箭矢
 			elif b.get("light", false):
@@ -637,12 +699,15 @@ func _step_energy_wave_ball(b: Dictionary, delta: float) -> void:
 	if new_pos.x < board_rect.position.x + BALL_RADIUS:
 		new_pos.x = board_rect.position.x + BALL_RADIUS
 		b["vel"].x = -b["vel"].x * WALL_BOUNCE
+		AudioManager.play_sfx("pinball_bounce", 0.06)
 	elif new_pos.x > board_rect.end.x - BALL_RADIUS:
 		new_pos.x = board_rect.end.x - BALL_RADIUS
 		b["vel"].x = -b["vel"].x * WALL_BOUNCE
+		AudioManager.play_sfx("pinball_bounce", 0.06)
 	if new_pos.y < board_rect.position.y + BALL_RADIUS:
 		new_pos.y = board_rect.position.y + BALL_RADIUS
 		b["vel"].y = -b["vel"].y * WALL_BOUNCE
+		AudioManager.play_sfx("pinball_bounce", 0.06)
 
 	var pegs_changed: bool = false
 	var wave_need: int = int(b.get("peg_wave_break", 3))
@@ -660,11 +725,13 @@ func _step_energy_wave_ball(b: Dictionary, delta: float) -> void:
 			var dot: float = b["vel"].dot(n)
 			if dot < 0:
 				b["vel"] -= n * dot * (1.0 + PEG_BOUNCE)
+			AudioManager.play_sfx("pinball_bounce", 0.06)
 			# 計分（能量彈也算）
 			_grant_peg_score(b, 1)
 			peg["wave_hits"] = int(peg.get("wave_hits", 0)) + 1
 			if peg["wave_hits"] >= wave_need:
 				peg["alive"] = false
+				_grant_peg_score(b, PEG_DESTROY_EXTRA_SCORE)
 			pegs_changed = true
 			# 「奧術精通」：能量彈撞針視為技能命中
 			if owner_p and owner_p.has_method("passive_arcane_mastery_on_skill_hit"):
@@ -730,6 +797,7 @@ func _apply_reward_to_player(p: Node, slot_idx: int) -> void:
 	var slot: Dictionary = slots[slot_idx]
 	if slot.get("destroyed", false):
 		return
+	AudioManager.play_sfx("reward", 0.02)
 	var reward: Dictionary = slot["reward"]
 	var info: Dictionary = {"kind": "noop"}
 	match reward.get("type", "noop"):
@@ -782,36 +850,42 @@ func _enqueue_pinball_reward_dialog(p: Node, slot: Dictionary, info: Dictionary)
 		_show_next_pinball_reward_modal()
 
 
-func _close_pinball_reward_dialog(dlg: Node) -> void:
-	if not is_instance_valid(dlg) or dlg.get_meta("pb_reward_done", false):
-		return
-	dlg.set_meta("pb_reward_done", true)
-	dlg.queue_free()
+func _pinball_reward_notice_dismissed() -> void:
+	# 不可先同步清 block：同一幀稍後的 _process 可能在 deferred 前跑，queue 已空時會誤觸 _close_in。
+	call_deferred("_pinball_reward_notice_dismissed_impl")
+
+
+func _pinball_reward_notice_dismissed_impl() -> void:
 	_reward_modal_block = false
-	call_deferred("_show_next_pinball_reward_modal")
+	_show_next_pinball_reward_modal()
+	_maybe_close_pinball_after_rewards()
+
+
+func _maybe_close_pinball_after_rewards() -> void:
+	if _closing:
+		return
+	if not _all_main_balls_finished() or not _all_energy_balls_finished():
+		return
+	if _reward_modal_block or not _reward_queue.is_empty():
+		return
+	_close_in(0.7)
 
 
 func _show_next_pinball_reward_modal() -> void:
 	if _reward_modal_block or _reward_queue.is_empty():
 		return
 	_reward_modal_block = true
-	var body: String = _reward_queue.pop_front()
-	var dlg := AcceptDialog.new()
-	dlg.title = tr("PINBALL_REWARD_TITLE")
-	dlg.dialog_text = body + "\n\n" + tr("PINBALL_REWARD_HINT")
-	dlg.ok_button_text = tr("PINBALL_REWARD_OK")
-	dlg.process_mode = Node.PROCESS_MODE_ALWAYS
-	dlg.unresizable = true
-	dlg.min_size = Vector2i(440, 160)
-	add_child(dlg)
-	dlg.popup_centered()
-	var ok_btn: Button = dlg.get_ok_button()
-	if ok_btn:
-		ok_btn.call_deferred("grab_focus")
-	var closer := func() -> void:
-		_close_pinball_reward_dialog(dlg)
-	dlg.confirmed.connect(closer)
-	dlg.popup_hide.connect(closer)
+	var body_text: String = _reward_queue.pop_front()
+	# 不用 AcceptDialog：改掛在 root 的自訂 UI，只認按鈕 pressed，避免對話框自行關閉
+	BlockingNotice.present(
+		get_tree(),
+		tr("PINBALL_REWARD_TITLE"),
+		body_text,
+		tr("PINBALL_REWARD_HINT"),
+		tr("PINBALL_REWARD_OK"),
+		self,
+		"_pinball_reward_notice_dismissed",
+	)
 
 
 func _draw_balls(node: Node2D) -> void:

@@ -57,7 +57,7 @@ anchor_bottom = 0.5
 offset_left = 80.0
 offset_top = -270.0
 offset_right = 480.0
-offset_bottom = 250.0
+offset_bottom = 330.0
 grow_vertical = 2
 
 [node name="Header" type="Label" parent="P1Panel"]
@@ -181,7 +181,7 @@ layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
 offset_top = 358.0
-offset_bottom = 510.0
+offset_bottom = 446.0
 offset_left = 56.0
 offset_right = -16.0
 grow_horizontal = 2
@@ -193,6 +193,64 @@ vertical_alignment = 0
 theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(0.85, 0.95, 1, 1)
 
+[node name="EquipmentIcon" type="TextureRect" parent="P1Panel"]
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 0.0
+offset_left = 18.0
+offset_top = 450.0
+offset_right = 50.0
+offset_bottom = 482.0
+expand_mode = 1
+stretch_mode = 5
+texture_filter = 1
+
+[node name="Equipment" type="Label" parent="P1Panel"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 448.0
+offset_bottom = 484.0
+offset_left = 56.0
+offset_right = -16.0
+grow_horizontal = 2
+text = "裝備：—"
+autowrap_mode = 3
+horizontal_alignment = 0
+vertical_alignment = 0
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.55, 0.62, 0.72, 1)
+
+[node name="RuneIcon" type="TextureRect" parent="P1Panel"]
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 0.0
+offset_left = 18.0
+offset_top = 488.0
+offset_right = 50.0
+offset_bottom = 520.0
+expand_mode = 1
+stretch_mode = 5
+texture_filter = 1
+
+[node name="Rune" type="Label" parent="P1Panel"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 486.0
+offset_bottom = 522.0
+offset_left = 56.0
+offset_right = -16.0
+grow_horizontal = 2
+text = "符文：—"
+autowrap_mode = 3
+horizontal_alignment = 0
+vertical_alignment = 0
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.55, 0.62, 0.72, 1)
+
 [node name="P2Panel" type="Panel" parent="."]
 layout_mode = 1
 anchors_preset = -1
@@ -201,7 +259,7 @@ anchor_bottom = 0.5
 offset_left = 720.0
 offset_top = -270.0
 offset_right = 1120.0
-offset_bottom = 250.0
+offset_bottom = 330.0
 grow_vertical = 2
 
 [node name="Header" type="Label" parent="P2Panel"]
@@ -325,7 +383,7 @@ layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
 offset_top = 358.0
-offset_bottom = 510.0
+offset_bottom = 446.0
 offset_left = 56.0
 offset_right = -16.0
 grow_horizontal = 2
@@ -336,6 +394,64 @@ horizontal_alignment = 0
 vertical_alignment = 0
 theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(0.85, 0.95, 1, 1)
+
+[node name="EquipmentIcon" type="TextureRect" parent="P2Panel"]
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 0.0
+offset_left = 18.0
+offset_top = 450.0
+offset_right = 50.0
+offset_bottom = 482.0
+expand_mode = 1
+stretch_mode = 5
+texture_filter = 1
+
+[node name="Equipment" type="Label" parent="P2Panel"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 448.0
+offset_bottom = 484.0
+offset_left = 56.0
+offset_right = -16.0
+grow_horizontal = 2
+text = "裝備：—"
+autowrap_mode = 3
+horizontal_alignment = 0
+vertical_alignment = 0
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.55, 0.62, 0.72, 1)
+
+[node name="RuneIcon" type="TextureRect" parent="P2Panel"]
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 0.0
+offset_left = 18.0
+offset_top = 488.0
+offset_right = 50.0
+offset_bottom = 520.0
+expand_mode = 1
+stretch_mode = 5
+texture_filter = 1
+
+[node name="Rune" type="Label" parent="P2Panel"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 486.0
+offset_bottom = 522.0
+offset_left = 56.0
+offset_right = -16.0
+grow_horizontal = 2
+text = "符文：—"
+autowrap_mode = 3
+horizontal_alignment = 0
+vertical_alignment = 0
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.55, 0.62, 0.72, 1)
 
 [node name="HintLabel" type="Label" parent="."]
 layout_mode = 1

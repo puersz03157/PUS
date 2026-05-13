@@ -20,6 +20,7 @@ func _physics_process(delta: float) -> void:
 	var dir: Vector2 = target.global_position - global_position
 	var d: float = dir.length()
 	if d < 12.0:
+		AudioManager.play_sfx("pickup_xp", 0.08)
 		if target.has_method("add_xp"):
 			target.add_xp(value)
 		queue_free()

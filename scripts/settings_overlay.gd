@@ -2,10 +2,10 @@ extends CanvasLayer
 ## 全域設定覆蓋層（autoload）：
 ## - 永遠在右上角顯示一顆齒輪按鈕
 ## - 點擊後彈出設定面板（背景變暗、SceneTree 暫停）
-## - 目前設定項：觸控操作（為手機 / 網頁版預留）
+## - 目前設定項：觸控操作、全角色解鎖、武器解鎖、重置帳號
 
 const PANEL_W := 480.0
-const PANEL_H := 320.0
+const PANEL_H := 542.0
 const GEAR_TEXT := "⚙"
 const Z_LAYER := 100
 
@@ -19,7 +19,14 @@ var title_label: Label
 var touch_check: CheckButton
 var touch_label: Label
 var touch_hint: Label
+var account_label: Label
+var unlock_all_button: Button
+var unlock_weapons_button: Button
+var add_gold_button: Button
+var max_team_weapons_button: Button
+var reset_account_button: Button
 var close_button: Button
+var _reset_confirm_armed: bool = false
 
 
 func _ready() -> void:
@@ -120,11 +127,72 @@ func _build_ui() -> void:
 	touch_hint = Label.new()
 	touch_hint.text = tr("SETTINGS_TOUCH_HINT")
 	touch_hint.position = Vector2(28, 140)
-	touch_hint.size = Vector2(PANEL_W - 56, 90)
+	touch_hint.size = Vector2(PANEL_W - 56, 60)
 	touch_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	touch_hint.add_theme_font_size_override("font_size", 13)
 	touch_hint.add_theme_color_override("font_color", Color(0.7, 0.8, 0.95))
 	panel.add_child(touch_hint)
+
+	# 帳號 / 開發測試操作
+	account_label = Label.new()
+	account_label.text = tr("SETTINGS_ACCOUNT_TITLE")
+	account_label.position = Vector2(28, 218)
+	account_label.size = Vector2(PANEL_W - 56, 28)
+	account_label.add_theme_font_size_override("font_size", 16)
+	account_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+	panel.add_child(account_label)
+
+	var account_row := HBoxContainer.new()
+	account_row.position = Vector2(28, 254)
+	account_row.size = Vector2(PANEL_W - 56, 44)
+	account_row.add_theme_constant_override("separation", 12)
+	panel.add_child(account_row)
+
+	unlock_all_button = Button.new()
+	unlock_all_button.text = tr("SETTINGS_UNLOCK_ALL")
+	unlock_all_button.custom_minimum_size = Vector2((PANEL_W - 68) * 0.5, 44)
+	unlock_all_button.add_theme_font_size_override("font_size", 16)
+	unlock_all_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	unlock_all_button.pressed.connect(_on_unlock_all_pressed)
+	account_row.add_child(unlock_all_button)
+
+	unlock_weapons_button = Button.new()
+	unlock_weapons_button.text = tr("SETTINGS_UNLOCK_WEAPONS")
+	unlock_weapons_button.custom_minimum_size = Vector2((PANEL_W - 68) * 0.5, 44)
+	unlock_weapons_button.add_theme_font_size_override("font_size", 16)
+	unlock_weapons_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	unlock_weapons_button.pressed.connect(_on_unlock_weapons_pressed)
+	account_row.add_child(unlock_weapons_button)
+
+	add_gold_button = Button.new()
+	add_gold_button.text = tr("SETTINGS_ADD_GOLD")
+	add_gold_button.size = Vector2(PANEL_W - 56, 44)
+	add_gold_button.position = Vector2(28, 312)
+	add_gold_button.add_theme_font_size_override("font_size", 16)
+	add_gold_button.add_theme_color_override("font_color", Color(1.0, 0.86, 0.35))
+	add_gold_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_gold_button.pressed.connect(_on_add_gold_pressed)
+	panel.add_child(add_gold_button)
+
+	max_team_weapons_button = Button.new()
+	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS")
+	max_team_weapons_button.size = Vector2(PANEL_W - 56, 44)
+	max_team_weapons_button.position = Vector2(28, 364)
+	max_team_weapons_button.add_theme_font_size_override("font_size", 16)
+	max_team_weapons_button.add_theme_color_override("font_color", Color(0.65, 1.0, 0.72))
+	max_team_weapons_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	max_team_weapons_button.pressed.connect(_on_max_team_weapons_pressed)
+	panel.add_child(max_team_weapons_button)
+
+	reset_account_button = Button.new()
+	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT")
+	reset_account_button.size = Vector2(PANEL_W - 56, 44)
+	reset_account_button.position = Vector2(28, 416)
+	reset_account_button.add_theme_font_size_override("font_size", 16)
+	reset_account_button.add_theme_color_override("font_color", Color(1.0, 0.62, 0.55))
+	reset_account_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	reset_account_button.pressed.connect(_on_reset_account_pressed)
+	panel.add_child(reset_account_button)
 
 	# 關閉按鈕
 	close_button = Button.new()
@@ -152,6 +220,13 @@ func _refresh_from_state() -> void:
 	title_label.text = tr("SETTINGS_TITLE")
 	touch_label.text = tr("SETTINGS_TOUCH_CONTROLS")
 	touch_hint.text = tr("SETTINGS_TOUCH_HINT")
+	account_label.text = tr("SETTINGS_ACCOUNT_TITLE")
+	unlock_all_button.text = tr("SETTINGS_UNLOCK_ALL")
+	unlock_weapons_button.text = tr("SETTINGS_UNLOCK_WEAPONS")
+	add_gold_button.text = tr("SETTINGS_ADD_GOLD")
+	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS")
+	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT_CONFIRM") \
+		if _reset_confirm_armed else tr("SETTINGS_RESET_ACCOUNT")
 	close_button.text = tr("SETTINGS_CLOSE")
 
 
@@ -168,6 +243,7 @@ func _set_open(v: bool) -> void:
 	dim.visible = v
 	panel.visible = v
 	if v:
+		_reset_confirm_armed = false
 		_refresh_from_state()
 		_was_paused = get_tree().paused
 		get_tree().paused = true
@@ -180,3 +256,91 @@ func _set_open(v: bool) -> void:
 func _on_touch_toggled(pressed: bool) -> void:
 	if is_instance_valid(GameState):
 		GameState.set_touch_controls_enabled(pressed)
+
+
+func _on_unlock_all_pressed() -> void:
+	if not is_instance_valid(GameState):
+		return
+	GameState.unlock_all_characters()
+	_reset_confirm_armed = false
+	unlock_all_button.text = tr("SETTINGS_UNLOCK_ALL_DONE")
+	unlock_weapons_button.text = tr("SETTINGS_UNLOCK_WEAPONS")
+	add_gold_button.text = tr("SETTINGS_ADD_GOLD")
+	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS")
+	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT")
+	_notify_current_scene_account_changed()
+
+
+func _on_unlock_weapons_pressed() -> void:
+	if not is_instance_valid(GameState):
+		return
+	GameState.unlock_all_weapons_and_slots()
+	_reset_confirm_armed = false
+	unlock_all_button.text = tr("SETTINGS_UNLOCK_ALL")
+	unlock_weapons_button.text = tr("SETTINGS_UNLOCK_WEAPONS_DONE")
+	add_gold_button.text = tr("SETTINGS_ADD_GOLD")
+	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS")
+	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT")
+	_notify_current_scene_account_changed()
+
+
+func _on_add_gold_pressed() -> void:
+	if not is_instance_valid(GameState):
+		return
+	GameState.gold += 5000
+	GameState.save_to_disk()
+	_reset_confirm_armed = false
+	_refresh_from_state()
+	_notify_current_scene_account_changed()
+
+
+func _on_max_team_weapons_pressed() -> void:
+	var changed: bool = false
+	for p in get_tree().get_nodes_in_group("players"):
+		if p == null or not is_instance_valid(p):
+			continue
+		var weapons: Array = p.get("weapons")
+		for w in weapons:
+			if not (w is Dictionary):
+				continue
+			for u in GameData.WEAPON_UPGRADES:
+				w["upgrades"][String(u["id"])] = int(u["max"])
+			w["level"] = 1 + _weapon_upgrade_total(w["upgrades"])
+			if w.get("node", null) != null:
+				w["node"].refresh()
+			changed = true
+	_reset_confirm_armed = false
+	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS_DONE") if changed \
+		else tr("SETTINGS_MAX_TEAM_WEAPONS_NONE")
+	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT")
+	_notify_current_scene_account_changed()
+
+
+func _weapon_upgrade_total(upgrades: Dictionary) -> int:
+	var total: int = 0
+	for u in GameData.WEAPON_UPGRADES:
+		total += int(upgrades.get(String(u["id"]), 0))
+	return total
+
+
+func _on_reset_account_pressed() -> void:
+	if not _reset_confirm_armed:
+		_reset_confirm_armed = true
+		_refresh_from_state()
+		return
+	if not is_instance_valid(GameState):
+		return
+	GameState.reset_account()
+	_reset_confirm_armed = false
+	_refresh_from_state()
+	_notify_current_scene_account_changed()
+
+
+func _notify_current_scene_account_changed() -> void:
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return
+	if scene.has_method("_refresh_meta"):
+		scene.call("_refresh_meta")
+	if scene.has_method("_update_panels"):
+		scene.call("_update_panels")

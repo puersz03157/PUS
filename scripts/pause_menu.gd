@@ -37,6 +37,7 @@ func _process(_delta: float) -> void:
 			if game_ref and bool(game_ref.get("stage_completed")):
 				_transitioning = true
 				get_tree().paused = false
+				AudioManager.play_sfx("ui_back")
 				if is_inside_tree():
 					get_tree().change_scene_to_file("res://scenes/Main.tscn")
 				return
@@ -45,6 +46,7 @@ func _process(_delta: float) -> void:
 
 
 func toggle() -> void:
+	AudioManager.play_sfx("ui_back" if open_state else "ui_select")
 	_set_open(not open_state)
 
 
@@ -122,11 +124,13 @@ func _build_ui() -> void:
 
 
 func _on_resume() -> void:
+	AudioManager.play_sfx("ui_confirm")
 	_set_open(false)
 
 
 func _on_main_menu() -> void:
 	get_tree().paused = false
+	AudioManager.play_sfx("ui_back")
 	if is_inside_tree():
 		get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
@@ -222,13 +226,14 @@ func _build_player_section(p: Node) -> void:
 
 	# 武器格 — 標題 + 8 格陣列
 	var weapon_count: int = p.weapons.size()
+	var weapon_cap: int = p.get_weapon_slot_max() if p.has_method("get_weapon_slot_max") else WEAPON_SLOT_MAX
 	var w_caption := Label.new()
 	var cap_color: Color = Color(0.95, 0.85, 0.5)
-	if weapon_count >= WEAPON_SLOT_MAX:
+	if weapon_count >= weapon_cap:
 		cap_color = Color(1.0, 0.6, 0.5)
 	w_caption.text = tr("PAUSE_WEAPON_CAP_FMT") % [
-		weapon_count, WEAPON_SLOT_MAX,
-		tr("PAUSE_WEAPON_FULL_NOTE") if weapon_count >= WEAPON_SLOT_MAX else ""]
+		weapon_count, weapon_cap,
+		tr("PAUSE_WEAPON_FULL_NOTE") if weapon_count >= weapon_cap else ""]
 	w_caption.add_theme_font_size_override("font_size", 14)
 	w_caption.add_theme_color_override("font_color", cap_color)
 	inner.add_child(w_caption)
@@ -236,7 +241,7 @@ func _build_player_section(p: Node) -> void:
 	var w_row := HBoxContainer.new()
 	w_row.add_theme_constant_override("separation", 4)
 	inner.add_child(w_row)
-	for i in WEAPON_SLOT_MAX:
+	for i in weapon_cap:
 		if i < weapon_count:
 			var w: Dictionary = p.weapons[i]
 			var wdef: Dictionary = GameData.get_weapon_def(w["id"])

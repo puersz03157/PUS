@@ -11,6 +11,7 @@ extends Control
 const FOCUS_CHARACTER := 0
 const FOCUS_PASSIVE := 1
 const FOCUS_SKILL := 2
+const FOCUS_ARMAMENT := 3
 
 @onready var p1_panel: Panel = $P1Panel
 @onready var p2_panel: Panel = $P2Panel
@@ -19,8 +20,12 @@ const FOCUS_SKILL := 2
 @onready var p1_stats: Label = $P1Panel/Stats
 @onready var p1_passive: Label = $P1Panel/Passive
 @onready var p1_skill: Label = $P1Panel/Skill
+@onready var p1_equipment: Label = $P1Panel/Equipment
+@onready var p1_rune: Label = $P1Panel/Rune
 @onready var p1_passive_icon: TextureRect = $P1Panel/PassiveIcon
 @onready var p1_skill_icon: TextureRect = $P1Panel/SkillIcon
+@onready var p1_equipment_icon: TextureRect = $P1Panel/EquipmentIcon
+@onready var p1_rune_icon: TextureRect = $P1Panel/RuneIcon
 @onready var p1_color: ColorRect = $P1Panel/Color
 @onready var p1_preview: TextureRect = $P1Panel/Color/Preview
 @onready var p2_name: Label = $P2Panel/Name
@@ -28,8 +33,12 @@ const FOCUS_SKILL := 2
 @onready var p2_stats: Label = $P2Panel/Stats
 @onready var p2_passive: Label = $P2Panel/Passive
 @onready var p2_skill: Label = $P2Panel/Skill
+@onready var p2_equipment: Label = $P2Panel/Equipment
+@onready var p2_rune: Label = $P2Panel/Rune
 @onready var p2_passive_icon: TextureRect = $P2Panel/PassiveIcon
 @onready var p2_skill_icon: TextureRect = $P2Panel/SkillIcon
+@onready var p2_equipment_icon: TextureRect = $P2Panel/EquipmentIcon
+@onready var p2_rune_icon: TextureRect = $P2Panel/RuneIcon
 @onready var p2_color: ColorRect = $P2Panel/Color
 @onready var p2_preview: TextureRect = $P2Panel/Color/Preview
 @onready var hint_label: Label = $HintLabel
@@ -39,11 +48,13 @@ const FOCUS_SKILL := 2
 var p1_index: int = 0
 var p1_passive_idx: int = 0
 var p1_skill_idx: int = 0
+var p1_armament_idx: int = 0
 var p1_focus: int = FOCUS_CHARACTER
 
 var p2_index: int = 1
 var p2_passive_idx: int = 0
 var p2_skill_idx: int = 0
+var p2_armament_idx: int = 0
 var p2_focus: int = FOCUS_CHARACTER
 
 var p1_ready: bool = false
@@ -53,7 +64,9 @@ var _transitioning: bool = false  # 已開始切場景，避免重入導致 get_
 
 const P1_PANEL_WIDTH := 400.0  # 與 CharacterSelect.tscn 中 P1Panel 寬度一致 (480 - 80)
 const PANEL_OFFSET_TOP := -270.0
-const PANEL_OFFSET_BOTTOM := 250.0
+const PANEL_OFFSET_BOTTOM := 330.0  # 與 .tscn 面板高度一致（含裝備／符文列）
+const TOUCH_BAR_HEIGHT := 96.0
+const TOUCH_BAR_MARGIN := 8.0
 
 # ----- 觸控介面（手機 / 網頁版） -----
 var _touch_p1: Control = null
@@ -68,8 +81,8 @@ var _last_touch_enabled: bool = false
 
 func _ready() -> void:
 	p2_panel.visible = GameState.two_players
-	p1_index = 0
-	p2_index = 1 % GameData.CHARACTERS.size()
+	p1_index = _first_unlocked_char_index("swordsman")
+	p2_index = _first_unlocked_char_index("ranger")
 	# 從 GameState 還原玩家上次的選擇（從 StageSelect 返回時保留選角）
 	_restore_selection_from_state()
 	if title_label:
@@ -83,21 +96,23 @@ func _ready() -> void:
 # 把 GameState 中先前儲存的角色 / 被動 / 技能還原成本畫面的索引（找不到時退回 0）
 func _restore_selection_from_state() -> void:
 	var idx_p1: int = _find_char_index(String(GameState.p1_character))
-	if idx_p1 >= 0:
+	if idx_p1 >= 0 and _is_char_index_unlocked(idx_p1):
 		p1_index = idx_p1
 	var idx_p2: int = _find_char_index(String(GameState.p2_character))
-	if idx_p2 >= 0:
+	if idx_p2 >= 0 and _is_char_index_unlocked(idx_p2):
 		p2_index = idx_p2
 	# 被動 / 技能：以該角色的 options 清單為主
 	p1_passive_idx = _find_in(GameData.character_passive_options(_current_char_id("p1")),
 		String(GameState.p1_passive))
 	p1_skill_idx = _find_in(GameData.character_skill_options(_current_char_id("p1")),
 		String(GameState.p1_skill))
+	p1_armament_idx = _find_in(_armament_options(), String(GameState.p1_armament))
 	if GameState.two_players:
 		p2_passive_idx = _find_in(GameData.character_passive_options(_current_char_id("p2")),
 			String(GameState.p2_passive))
 		p2_skill_idx = _find_in(GameData.character_skill_options(_current_char_id("p2")),
 			String(GameState.p2_skill))
+		p2_armament_idx = _find_in(_armament_options(), String(GameState.p2_armament))
 
 
 func _find_char_index(id: String) -> int:
@@ -107,11 +122,35 @@ func _find_char_index(id: String) -> int:
 	return -1
 
 
+func _first_unlocked_char_index(preferred_id: String = "") -> int:
+	if preferred_id != "":
+		var preferred_idx: int = _find_char_index(preferred_id)
+		if _is_char_index_unlocked(preferred_idx):
+			return preferred_idx
+	for i in range(GameData.CHARACTERS.size()):
+		if _is_char_index_unlocked(i):
+			return i
+	return 0
+
+
+func _is_char_index_unlocked(idx: int) -> bool:
+	if idx < 0 or idx >= GameData.CHARACTERS.size():
+		return false
+	return GameState.is_character_unlocked(String(GameData.CHARACTERS[idx].get("id", "")))
+
+
 func _find_in(options: Array, value: String) -> int:
 	for i in range(options.size()):
 		if String(options[i]) == value:
 			return i
 	return 0
+
+
+func _armament_options() -> Array:
+	var opts: Array = GameState.unlocked_armaments.duplicate()
+	if opts.is_empty() or not opts.has("none"):
+		opts.insert(0, "none")
+	return opts
 
 
 func _notification(what: int) -> void:
@@ -150,6 +189,7 @@ func _apply_panel_layout() -> void:
 		p1_panel.offset_right = half_w
 		p1_panel.offset_top = PANEL_OFFSET_TOP
 		p1_panel.offset_bottom = PANEL_OFFSET_BOTTOM
+	_apply_touch_layout()
 
 
 func _process(delta: float) -> void:
@@ -166,9 +206,11 @@ func _process(delta: float) -> void:
 	if not p1_ready:
 		_handle_player_input("p1")
 		if Input.is_action_just_pressed("p1_action"):
+			AudioManager.play_sfx("ui_confirm")
 			p1_ready = true
 	else:
 		if Input.is_action_just_pressed("p1_skill"):
+			AudioManager.play_sfx("ui_back")
 			p1_ready = false
 
 	# P2
@@ -176,9 +218,11 @@ func _process(delta: float) -> void:
 		if not p2_ready:
 			_handle_player_input("p2")
 			if Input.is_action_just_pressed("p2_action"):
+				AudioManager.play_sfx("ui_confirm")
 				p2_ready = true
 		else:
 			if Input.is_action_just_pressed("p2_skill"):
+				AudioManager.play_sfx("ui_back")
 				p2_ready = false
 
 	_update_panels()
@@ -200,6 +244,7 @@ func _process(delta: float) -> void:
 		return
 
 	if Input.is_action_just_pressed("ui_back"):
+		AudioManager.play_sfx("ui_back")
 		_transitioning = true
 		get_tree().change_scene_to_file("res://scenes/Main.tscn")
 		return
@@ -229,7 +274,10 @@ func _focus_for(prefix: String) -> int:
 
 
 func _set_focus(prefix: String, new_focus: int) -> void:
-	new_focus = (new_focus + 3) % 3
+	var old_focus: int = _focus_for(prefix)
+	new_focus = (new_focus + 4) % 4
+	if new_focus != old_focus:
+		AudioManager.play_sfx("ui_select")
 	if prefix == "p1":
 		p1_focus = new_focus
 	else:
@@ -237,16 +285,11 @@ func _set_focus(prefix: String, new_focus: int) -> void:
 
 
 func _cycle_focus(prefix: String, dir: int) -> void:
+	AudioManager.play_sfx("ui_select")
 	var focus: int = _focus_for(prefix)
 	match focus:
 		FOCUS_CHARACTER:
-			var n: int = GameData.CHARACTERS.size()
-			if prefix == "p1":
-				p1_index = (p1_index + dir + n) % n
-				_clamp_options("p1")
-			else:
-				p2_index = (p2_index + dir + n) % n
-				_clamp_options("p2")
+			_cycle_character(prefix, dir)
 		FOCUS_PASSIVE:
 			var opts: Array = GameData.character_passive_options(_current_char_id(prefix))
 			if opts.size() > 0:
@@ -261,6 +304,30 @@ func _cycle_focus(prefix: String, dir: int) -> void:
 					p1_skill_idx = (p1_skill_idx + dir + opts.size()) % opts.size()
 				else:
 					p2_skill_idx = (p2_skill_idx + dir + opts.size()) % opts.size()
+		FOCUS_ARMAMENT:
+			var opts: Array = _armament_options()
+			if opts.size() > 0:
+				if prefix == "p1":
+					p1_armament_idx = (p1_armament_idx + dir + opts.size()) % opts.size()
+				else:
+					p2_armament_idx = (p2_armament_idx + dir + opts.size()) % opts.size()
+
+
+func _cycle_character(prefix: String, dir: int) -> void:
+	var n: int = GameData.CHARACTERS.size()
+	if n <= 0:
+		return
+	var idx: int = p1_index if prefix == "p1" else p2_index
+	for _step in range(n):
+		idx = (idx + dir + n) % n
+		if _is_char_index_unlocked(idx):
+			if prefix == "p1":
+				p1_index = idx
+				_clamp_options("p1")
+			else:
+				p2_index = idx
+				_clamp_options("p2")
+			return
 
 
 func _current_char_id(prefix: String) -> String:
@@ -272,41 +339,56 @@ func _clamp_options(prefix: String) -> void:
 	# 換角色時，若新角色的選項清單較短就退回 0
 	var pop: Array = GameData.character_passive_options(_current_char_id(prefix))
 	var sop: Array = GameData.character_skill_options(_current_char_id(prefix))
+	var aop: Array = _armament_options()
 	if prefix == "p1":
 		if p1_passive_idx >= pop.size():
 			p1_passive_idx = 0
 		if p1_skill_idx >= sop.size():
 			p1_skill_idx = 0
+		if p1_armament_idx >= aop.size():
+			p1_armament_idx = 0
 	else:
 		if p2_passive_idx >= pop.size():
 			p2_passive_idx = 0
 		if p2_skill_idx >= sop.size():
 			p2_skill_idx = 0
+		if p2_armament_idx >= aop.size():
+			p2_armament_idx = 0
 
 
 func _save_selections() -> void:
+	_ensure_unlocked_selection()
 	GameState.p1_character = GameData.CHARACTERS[p1_index]["id"]
 	var p1_pop: Array = GameData.character_passive_options(_current_char_id("p1"))
 	var p1_sop: Array = GameData.character_skill_options(_current_char_id("p1"))
 	GameState.p1_passive = String(p1_pop[p1_passive_idx]) if p1_pop.size() > 0 else "none"
 	GameState.p1_skill = String(p1_sop[p1_skill_idx]) if p1_sop.size() > 0 else "none"
+	var arm_opts: Array = _armament_options()
+	GameState.p1_armament = String(arm_opts[p1_armament_idx]) if arm_opts.size() > 0 else "none"
 	if GameState.two_players:
 		GameState.p2_character = GameData.CHARACTERS[p2_index]["id"]
 		var p2_pop: Array = GameData.character_passive_options(_current_char_id("p2"))
 		var p2_sop: Array = GameData.character_skill_options(_current_char_id("p2"))
 		GameState.p2_passive = String(p2_pop[p2_passive_idx]) if p2_pop.size() > 0 else "none"
 		GameState.p2_skill = String(p2_sop[p2_skill_idx]) if p2_sop.size() > 0 else "none"
+		GameState.p2_armament = String(arm_opts[p2_armament_idx]) if arm_opts.size() > 0 else "none"
+	GameState.save_to_disk()
 
 
 func _update_panels() -> void:
-	_apply_panel(p1_index, p1_passive_idx, p1_skill_idx, p1_focus, p1_ready,
+	_ensure_unlocked_selection()
+	_clamp_options("p1")
+	_clamp_options("p2")
+	_apply_panel(p1_index, p1_passive_idx, p1_skill_idx, p1_armament_idx, p1_focus, p1_ready,
 		p1_name, p1_desc, p1_stats, p1_passive, p1_skill,
 		p1_passive_icon, p1_skill_icon,
+		p1_equipment, p1_rune, p1_equipment_icon, p1_rune_icon,
 		p1_color, p1_preview, p1_panel)
 	if GameState.two_players:
-		_apply_panel(p2_index, p2_passive_idx, p2_skill_idx, p2_focus, p2_ready,
+		_apply_panel(p2_index, p2_passive_idx, p2_skill_idx, p2_armament_idx, p2_focus, p2_ready,
 			p2_name, p2_desc, p2_stats, p2_passive, p2_skill,
 			p2_passive_icon, p2_skill_icon,
+			p2_equipment, p2_rune, p2_equipment_icon, p2_rune_icon,
 			p2_color, p2_preview, p2_panel)
 	hint_label.text = _hint_text()
 	if bool(GameState.touch_controls_enabled):
@@ -324,9 +406,19 @@ func _update_panels() -> void:
 			ready_label.visible = false
 
 
-func _apply_panel(idx: int, passive_idx: int, skill_idx: int, focus: int, ready: bool,
+func _ensure_unlocked_selection() -> void:
+	if not _is_char_index_unlocked(p1_index):
+		p1_index = _first_unlocked_char_index("swordsman")
+		_clamp_options("p1")
+	if not _is_char_index_unlocked(p2_index):
+		p2_index = _first_unlocked_char_index("ranger")
+		_clamp_options("p2")
+
+
+func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int, focus: int, ready: bool,
 		n: Label, d: Label, s: Label, p_lbl: Label, sk_lbl: Label,
 		p_icon: TextureRect, sk_icon: TextureRect,
+		eq_lbl: Label, rune_lbl: Label, eq_icon: TextureRect, rune_icon: TextureRect,
 		col: ColorRect, prev: TextureRect, pnl: Panel) -> void:
 	var c: Dictionary = GameData.CHARACTERS[idx]
 	# 角色名（focus 在角色欄時加 ◀ ▶ 提示）
@@ -375,37 +467,94 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, focus: int, ready:
 		sk_icon.texture = sk_tex
 		sk_icon.visible = sk_tex != null
 
+	# 武裝 / 符文（符文仍預留；武裝可由鐵匠製作後選用）
+	var empty_txt: String = tr("CSEL_SLOT_EMPTY")
+	if eq_lbl:
+		var arm_opts: Array = _armament_options()
+		var arm_id: String = String(arm_opts[armament_idx]) if arm_opts.size() > 0 else "none"
+		var arm_def: Dictionary = GameData.get_armament_def(arm_id)
+		var arm_name: String = GameData.tr_name(arm_def) if not arm_def.is_empty() else empty_txt
+		eq_lbl.text = "%s\n%s" % [
+			_row_text(tr("CSEL_ARMAMENT_LBL"), arm_name,
+				arm_opts.size() > 1, focus == FOCUS_ARMAMENT and not ready),
+			GameData.tr_desc(arm_def) if not arm_def.is_empty() else ""]
+		eq_lbl.modulate = Color(1, 1, 1) if (focus == FOCUS_ARMAMENT and not ready) else Color(0.7, 0.78, 0.92)
+	if rune_lbl:
+		rune_lbl.text = tr("CSEL_ROW_FMT") % [tr("CSEL_RUNE_LBL"), empty_txt]
+		rune_lbl.modulate = Color(0.55, 0.62, 0.72)
+	if eq_icon:
+		eq_icon.visible = false
+	if rune_icon:
+		rune_icon.visible = false
+
 	# 角色介紹：固定顯示在最下方（不再隨焦點切換成被動／技能描述）
 	d.text = GameData.tr_desc(c)
 	d.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
 
 	# 角色貼圖預覽 — 32x32 美術用最近鄰 + 整數倍縮放，避免上採樣糊掉
 	if prev:
-		if c.has("sprite") and String(c["sprite"]) != "":
-			var atlas: Texture2D = load(c["sprite"])
+		var atlas: Texture2D = null
+		var hf: int = 1
+		var vf: int = 1
+		var prow: int = 0
+		var pcol: int = 0
+		# 逐幀 PNG（sprite_frames）→ 直接拿 idle 第 1 張當預覽，不切片
+		var frame_tex: Texture2D = null
+		if c.has("sprite_frames") and c["sprite_frames"] is Dictionary:
+			var first_path: String = _first_frame_path((c["sprite_frames"] as Dictionary).get("idle", null))
+			if first_path != "":
+				frame_tex = load(first_path) as Texture2D
+		if frame_tex:
+			var fw2: float = float(maxi(1, frame_tex.get_width()))
+			var fh2: float = float(maxi(1, frame_tex.get_height()))
+			prev.texture = frame_tex
+			prev.modulate = c.get("tint", Color.WHITE)
+			prev.visible = true
+			prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			prev.flip_h = bool(c.get("sprite_faces_left", false))
+			_apply_integer_scale_preview(prev, fw2, fh2)
+		elif c.has("sprite_strips") and c["sprite_strips"].has("idle"):
+			var preview_key: String = String(c.get("preview_strip", "idle"))
+			if not c["sprite_strips"].has(preview_key):
+				preview_key = "idle"
+			atlas = load(String(c["sprite_strips"][preview_key]))
 			if atlas:
-				var hf: int = max(1, int(c.get("hframes", 1)))
-				var vf: int = max(1, int(c.get("vframes", 1)))
-				var fw: int = atlas.get_width() / hf
-				var fh: int = atlas.get_height() / vf
-				var prow: int = clamp(int(c.get("preview_row", c.get("row_idle", 0))), 0, vf - 1)
-				var pcol: int = clamp(int(c.get("preview_col", 0)), 0, hf - 1)
-				var trim_t: int = clamp(int(c.get("preview_trim_top", 14)), 0, fh - 4)
-				var trim_b: int = clamp(int(c.get("preview_trim_bottom", 1)), 0, fh - trim_t - 4)
-				var trim_l: int = clamp(int(c.get("preview_trim_left", 4)), 0, fw - 4)
-				var trim_r: int = clamp(int(c.get("preview_trim_right", 4)), 0, fw - trim_l - 4)
-				var rx: float = pcol * fw + trim_l
-				var ry: float = prow * fh + trim_t
-				var rw: float = max(1.0, fw - trim_l - trim_r)
-				var rh: float = max(1.0, fh - trim_t - trim_b)
-				var at := AtlasTexture.new()
-				at.atlas = atlas
-				at.region = Rect2(rx, ry, rw, rh)
-				prev.texture = at
-				prev.modulate = c.get("tint", Color.WHITE)
-				prev.visible = true
-				prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				_apply_integer_scale_preview(prev, rw, rh)
+				hf = maxi(1, int(c.get("strip_hframes", 8)))
+				if c.has("strip_hframes_by_strip") and c["strip_hframes_by_strip"] is Dictionary \
+						and c["strip_hframes_by_strip"].has(preview_key):
+					hf = maxi(1, int(c["strip_hframes_by_strip"][preview_key]))
+				vf = 1
+				prow = 0
+				pcol = clampi(int(c.get("preview_col", 0)), 0, hf - 1)
+		elif c.has("sprite") and String(c["sprite"]) != "":
+			atlas = load(c["sprite"])
+			if atlas:
+				hf = maxi(1, int(c.get("hframes", 1)))
+				vf = maxi(1, int(c.get("vframes", 1)))
+				prow = clampi(int(c.get("preview_row", c.get("row_idle", 0))), 0, vf - 1)
+				pcol = clampi(int(c.get("preview_col", 0)), 0, hf - 1)
+		if frame_tex:
+			pass
+		elif atlas:
+			var fw: int = atlas.get_width() / hf
+			var fh: int = atlas.get_height() / vf
+			var trim_t: int = clampi(int(c.get("preview_trim_top", 14)), 0, fh - 4)
+			var trim_b: int = clampi(int(c.get("preview_trim_bottom", 1)), 0, fh - trim_t - 4)
+			var trim_l: int = clampi(int(c.get("preview_trim_left", 4)), 0, fw - 4)
+			var trim_r: int = clampi(int(c.get("preview_trim_right", 4)), 0, fw - trim_l - 4)
+			var rx: float = pcol * fw + trim_l
+			var ry: float = prow * fh + trim_t
+			var rw: float = maxf(1.0, fw - trim_l - trim_r)
+			var rh: float = maxf(1.0, fh - trim_t - trim_b)
+			var at := AtlasTexture.new()
+			at.atlas = atlas
+			at.region = Rect2(rx, ry, rw, rh)
+			prev.texture = at
+			prev.modulate = c.get("tint", Color.WHITE)
+			prev.visible = true
+			prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			prev.flip_h = bool(c.get("sprite_faces_left", false))
+			_apply_integer_scale_preview(prev, rw, rh)
 		else:
 			prev.texture = null
 			prev.visible = false
@@ -424,6 +573,24 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, focus: int, ready:
 	sb.corner_radius_top_right = 10
 	sb.corner_radius_bottom_left = 10
 	sb.corner_radius_bottom_right = 10
+
+
+# sprite_frames entry 取第一張的路徑（支援 Array 或 {pattern,count,start}）
+func _first_frame_path(entry) -> String:
+	if entry == null:
+		return ""
+	if entry is Array:
+		var arr: Array = entry
+		if arr.is_empty():
+			return ""
+		return String(arr[0])
+	if entry is Dictionary:
+		var pat: String = String(entry.get("pattern", ""))
+		var start: int = int(entry.get("start", 1))
+		if pat == "" or int(entry.get("count", 0)) <= 0:
+			return ""
+		return pat.replace("{i}", str(start))
+	return ""
 
 
 # 把 TextureRect 改用「整數倍」尺寸並置中於父容器，避免非整數倍縮放造成像素寬窄不一
@@ -463,7 +630,7 @@ func _row_text(label: String, value: String, multi: bool, focused: bool) -> Stri
 
 
 func _hint_text() -> String:
-	var line1: String = tr("CSEL_HINT_LR")
+	var line1: String = tr("CSEL_HINT_LR_ARMAMENT")
 	if GameState.two_players:
 		return line1 + "\n" + tr("CSEL_HINT_DUO")
 	return line1 + "\n" + tr("CSEL_HINT_SOLO")
@@ -471,17 +638,17 @@ func _hint_text() -> String:
 
 # ============================================================================
 # 觸控介面（手機 / 網頁版）
-# - 每個面板下方一條觸控列：[角色][被動][技能] tab + ◀ ▶ 循環 + 出發 / 解除
+# - 每個面板下方一條觸控列：[角色][被動][技能][武裝] tab + ◀ ▶ 循環 + 出發 / 解除
 # - 左上角一顆「← 主選單」按鈕
 # - 與 GameState.touch_controls_enabled 連動，可在執行時開關
 # ============================================================================
 func _build_touch_controls() -> void:
 	if p1_panel:
 		_touch_p1 = _make_panel_touch_bar("p1")
-		p1_panel.add_child(_touch_p1)
+		add_child(_touch_p1)
 	if p2_panel:
 		_touch_p2 = _make_panel_touch_bar("p2")
-		p2_panel.add_child(_touch_p2)
+		add_child(_touch_p2)
 
 	_touch_back_btn = Button.new()
 	_touch_back_btn.text = tr("CSEL_TOUCH_BACK")
@@ -491,15 +658,14 @@ func _build_touch_controls() -> void:
 	_touch_back_btn.focus_mode = Control.FOCUS_NONE
 	_touch_back_btn.pressed.connect(_on_touch_back)
 	add_child(_touch_back_btn)
+	_apply_touch_layout()
 
 
 func _make_panel_touch_bar(prefix: String) -> Control:
-	# 面板寬 400、高 520（offset_top -270 ~ offset_bottom 250）；
-	# 我們把觸控列放在面板「正下方」(local y >= 525) — Panel 不裁切，子物件可超出。
+	# 觸控列掛在根節點，位置由 _apply_touch_layout() 夾在可視範圍內。
 	var bar := Control.new()
 	bar.name = "TouchBar_" + prefix
-	bar.size = Vector2(P1_PANEL_WIDTH, 96)
-	bar.position = Vector2(0, 525)
+	bar.size = Vector2(P1_PANEL_WIDTH, TOUCH_BAR_HEIGHT)
 	bar.mouse_filter = Control.MOUSE_FILTER_PASS
 
 	# Row 1：角色 / 被動 / 技能 tab
@@ -513,13 +679,14 @@ func _make_panel_touch_bar(prefix: String) -> Control:
 		tr("CSEL_TOUCH_FOCUS_CHAR"),
 		tr("CSEL_TOUCH_FOCUS_PASSIVE"),
 		tr("CSEL_TOUCH_FOCUS_SKILL"),
+		tr("CSEL_TOUCH_FOCUS_ARMAMENT"),
 	]
 	var btns: Array[Button] = []
-	for i in range(3):
+	for i in range(4):
 		var b := Button.new()
 		b.text = String(labels[i])
-		b.custom_minimum_size = Vector2((P1_PANEL_WIDTH - 28) / 3.0, 38)
-		b.add_theme_font_size_override("font_size", 14)
+		b.custom_minimum_size = Vector2((P1_PANEL_WIDTH - 34) / 4.0, 38)
+		b.add_theme_font_size_override("font_size", 13)
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(_on_touch_focus.bind(prefix, i))
 		tab_row.add_child(b)
@@ -565,6 +732,27 @@ func _make_panel_touch_bar(prefix: String) -> Control:
 		_touch_ready_btn_p2 = ready_btn
 
 	return bar
+
+
+func _apply_touch_layout() -> void:
+	var vp: Vector2 = get_viewport_rect().size
+	_position_touch_bar(_touch_p1, p1_panel, vp)
+	_position_touch_bar(_touch_p2, p2_panel, vp)
+	if _touch_back_btn:
+		_touch_back_btn.position = Vector2(16, 16)
+
+
+func _position_touch_bar(bar: Control, panel: Panel, vp: Vector2) -> void:
+	if bar == null or panel == null:
+		return
+	var rect: Rect2 = panel.get_rect()
+	var bar_w: float = rect.size.x if rect.size.x > 0.0 else P1_PANEL_WIDTH
+	bar.size = Vector2(bar_w, TOUCH_BAR_HEIGHT)
+	var max_x: float = maxf(TOUCH_BAR_MARGIN, vp.x - bar_w - TOUCH_BAR_MARGIN)
+	var x: float = clampf(rect.position.x, TOUCH_BAR_MARGIN, max_x)
+	var preferred_y: float = rect.end.y + 5.0
+	var max_y: float = maxf(TOUCH_BAR_MARGIN, vp.y - TOUCH_BAR_HEIGHT - TOUCH_BAR_MARGIN)
+	bar.position = Vector2(x, minf(preferred_y, max_y))
 
 
 func _apply_touch_visibility() -> void:
@@ -619,8 +807,10 @@ func _on_touch_cycle(prefix: String, dir: int) -> void:
 
 func _on_touch_ready(prefix: String) -> void:
 	if prefix == "p1":
+		AudioManager.play_sfx("ui_back" if p1_ready else "ui_confirm")
 		p1_ready = not p1_ready
 	else:
+		AudioManager.play_sfx("ui_back" if p2_ready else "ui_confirm")
 		p2_ready = not p2_ready
 	_update_panels()
 
@@ -628,5 +818,6 @@ func _on_touch_ready(prefix: String) -> void:
 func _on_touch_back() -> void:
 	if _transitioning:
 		return
+	AudioManager.play_sfx("ui_back")
 	_transitioning = true
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")

@@ -2,7 +2,7 @@ extends Control
 ## 關卡選擇：在 CharacterSelect 完成後出現，玩家挑選要打的關卡再進入戰鬥。
 ## - 鍵盤 / 手把：← → 切換關卡，Enter / Space / p1_action 確認，ESC / ui_back 返回
 ## - 觸控：◀ ▶ 切換、出發 / 返回大按鈕
-## 目前只有 1 個關卡（史萊姆之森），但 UI 已支援多筆，加新關卡到 GameData.STAGES 即可。
+## 目前只有 1 個關卡（史萊姆平原），但 UI 已支援多筆，加新關卡到 GameData.STAGES 即可。
 
 const STAGE_PANEL_W := 720.0
 const STAGE_PANEL_H := 360.0
@@ -176,7 +176,7 @@ func _apply_layout() -> void:
 	stage_boss_label.position = Vector2(0, 160)
 	stage_boss_label.size = Vector2(STAGE_PANEL_W, 30)
 	stage_reward_label.position = Vector2(0, 200)
-	stage_reward_label.size = Vector2(STAGE_PANEL_W, 30)
+	stage_reward_label.size = Vector2(STAGE_PANEL_W, 80)
 
 	# 切換箭頭緊貼面板兩側
 	var arrow_w: float = 64.0
@@ -221,12 +221,17 @@ func _refresh() -> void:
 	else:
 		stage_boss_label.text = ""
 
-	# 勝利金幣
+	# 關卡獎勵
+	var rewards: Array[String] = []
 	var reward: int = int(stage.get("victory_gold", 0))
 	if reward > 0:
-		stage_reward_label.text = tr("STAGE_SELECT_REWARD_FMT") % reward
-	else:
-		stage_reward_label.text = ""
+		rewards.append(tr("STAGE_SELECT_REWARD_FMT") % reward)
+	if bool(stage.get("rescue_blacksmith", false)):
+		if bool(GameState.blacksmith_rescued):
+			rewards.append(tr("STAGE_SELECT_RESCUE_BLACKSMITH_DONE"))
+		else:
+			rewards.append(tr("STAGE_SELECT_RESCUE_BLACKSMITH"))
+	stage_reward_label.text = "\n".join(rewards)
 
 	# 金幣與切換鈕可見性
 	gold_label.text = tr("MAIN_GOLD_FMT") % GameState.gold
@@ -238,6 +243,7 @@ func _refresh() -> void:
 func _cycle(dir: int) -> void:
 	if _stages.size() <= 1:
 		return
+	AudioManager.play_sfx("ui_select")
 	_index = (_index + dir + _stages.size()) % _stages.size()
 	_refresh()
 
@@ -245,6 +251,7 @@ func _cycle(dir: int) -> void:
 func _on_depart() -> void:
 	if _transitioning or _stages.is_empty():
 		return
+	AudioManager.play_sfx("ui_confirm")
 	GameState.current_stage_id = String(_stages[_index]["id"])
 	GameState.save_to_disk()
 	_transitioning = true
@@ -254,5 +261,6 @@ func _on_depart() -> void:
 func _on_back() -> void:
 	if _transitioning:
 		return
+	AudioManager.play_sfx("ui_back")
 	_transitioning = true
 	get_tree().change_scene_to_file("res://scenes/CharacterSelect.tscn")

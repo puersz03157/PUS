@@ -68,8 +68,65 @@ func fire() -> bool:
 func damage_enemy(e: Node, mult: float = 1.0) -> void:
 	if not is_instance_valid(e):
 		return
+	var was_bleeding: bool = e.has_method("is_status_bleeding") and e.is_status_bleeding()
+	var hit_mult: float = mult
+	var wid0: String = String(def.get("id", ""))
+	if wid0 == "ice" and weapon_upgrades_maxed() and e.has_method("is_status_slowed") \
+			and e.is_status_slowed():
+		hit_mult *= GameData.ENEMY_STATUS_ICE_VS_SLOW_DAMAGE_MULT
+	if wid0 == "sword" and weapon_upgrades_maxed():
+		var n_s: int = _count_alive_enemies_near(owner_player.global_position, eff_range * 1.2)
+		hit_mult *= GameData.weapon_max_sword_damage_mult(n_s)
+	if wid0 == "spear" and weapon_upgrades_maxed():
+		var n_p: int = _count_alive_enemies_near(owner_player.global_position, eff_range * 1.2)
+		hit_mult *= GameData.weapon_max_spear_damage_mult(n_p)
+	var dealt: float = eff_damage * hit_mult
 	if e.has_method("take_damage"):
-		e.take_damage(eff_damage * mult, self)
+		e.take_damage(dealt, self)
 		# 通知玩家：武器命中事件（給「快射節奏」等被動使用）
 		if owner_player and owner_player.has_method("on_weapon_hit"):
 			owner_player.on_weapon_hit(e, self)
+	if wid0 == "claw" and weapon_upgrades_maxed() and was_bleeding \
+			and owner_player and owner_player.has_method("_heal"):
+		owner_player._heal(dealt * GameData.ENEMY_STATUS_CLAW_BLEED_LIFESTEAL_RATIO)
+	_apply_on_hit_status_effects(e, hit_mult)
+
+
+func _count_alive_enemies_near(origin: Vector2, radius: float) -> int:
+	if owner_player == null:
+		return 0
+	var n: int = 0
+	for ee in owner_player.get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(ee):
+			continue
+		if ee.get("hp") != null and float(ee.hp) <= 0.0:
+			continue
+		if origin.distance_to(ee.global_position) <= radius:
+			n += 1
+	return n
+
+
+func _apply_on_hit_status_effects(e: Node, mult: float) -> void:
+	if not is_instance_valid(e):
+		return
+	var wid: String = String(def.get("id", ""))
+	var hit_damage: float = eff_damage * mult
+	if wid == "melody" and e.has_method("apply_status_vulnerable"):
+		var cap: int = GameData.ENEMY_STATUS_MELODY_VULN_STACK_CAP_BASE
+		if weapon_upgrades_maxed():
+			cap = GameData.ENEMY_STATUS_MELODY_VULN_STACK_CAP_MAXED
+		e.apply_status_vulnerable(GameData.ENEMY_STATUS_MELODY_VULN_DURATION, cap)
+	if wid == "claw" and e.has_method("apply_status_bleed"):
+		e.apply_status_bleed(
+			hit_damage * GameData.ENEMY_STATUS_CLAW_BLEED_DPS_RATIO,
+			GameData.ENEMY_STATUS_CLAW_BLEED_DURATION,
+			self)
+	if wid == "flame" and bool(def.get("params", {}).get("burn", false)) \
+			and e.has_method("apply_status_burn"):
+		var br: float = GameData.ENEMY_STATUS_FLAME_BURN_DPS_RATIO
+		if weapon_upgrades_maxed():
+			br *= 2.0
+		e.apply_status_burn(
+			hit_damage * br,
+			GameData.ENEMY_STATUS_FLAME_BURN_DURATION,
+			self)

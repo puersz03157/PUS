@@ -37,6 +37,24 @@ const WEAPONS: Array[Dictionary] = [
 		"max_effect": "目標越多傷害提升", "max_effect_key": "WEAPON_SPEAR_MAX",
 	},
 	{
+		"id": "axe",
+		"name": "斧頭", "name_key": "WEAPON_AXE_NAME",
+		"kind": "axe",
+		"damage": 42.0,
+		"rate": 0.75,
+		"range": 86.0,
+		"params": {
+			"hit_radius": 54.0,
+			"forward_offset": 70.0,
+			"throw_speed": 520.0,
+			"throw_distance": 360.0,
+			"throw_hit_radius": 28.0,
+			"throw_damage_mult": 0.75,
+			"color": Color(1.0, 0.62, 0.28),
+		},
+		"max_effect": "攻擊後投出會返回的斧頭", "max_effect_key": "WEAPON_AXE_MAX",
+	},
+	{
 		"id": "magic_bullet",
 		"name": "魔彈", "name_key": "WEAPON_MAGIC_BULLET_NAME",
 		"kind": "projectile",
@@ -58,7 +76,7 @@ const WEAPONS: Array[Dictionary] = [
 	},
 	{
 		"id": "melody",
-		"name": "旋律", "name_key": "WEAPON_MELODY_NAME",
+		"name": "飛鏢", "name_key": "WEAPON_MELODY_NAME",
 		"kind": "projectile",
 		"damage": 10.0,
 		"rate": 1.3,
@@ -144,9 +162,38 @@ const WEAPONS: Array[Dictionary] = [
 	},
 ]
 
+
+const ARMAMENTS: Array[Dictionary] = [
+	{
+		"id": "none",
+		"name": "無", "name_key": "CSEL_NONE",
+		"desc": "不裝備武裝。", "desc_key": "ARMAMENT_NONE_DESC",
+		"weapon_id": "",
+		"atk_add": 0.0,
+		"spd_add": 0.0,
+	},
+	{
+		"id": "iron_sword",
+		"name": "鐵劍", "name_key": "ARMAMENT_IRON_SWORD_NAME",
+		"desc": "進場利劍等級 +1，ATK +3。", "desc_key": "ARMAMENT_IRON_SWORD_DESC",
+		"weapon_id": "sword",
+		"atk_add": 3.0,
+		"spd_add": 0.0,
+	},
+	{
+		"id": "hunter_bow",
+		"name": "獵弓", "name_key": "ARMAMENT_HUNTER_BOW_NAME",
+		"desc": "進場弓箭等級 +1，SPD +1。", "desc_key": "ARMAMENT_HUNTER_BOW_DESC",
+		"weapon_id": "bow",
+		"atk_add": 0.0,
+		"spd_add": 1.0,
+	},
+]
+
 # 角色定義 — 依 Excel
 # 動畫格式：32x32 sprite sheet，列 0=待機/1=行走/2=跳躍(未用)/3=攻擊/4=受擊/5=死亡
 # rarity 改為穩定 ID（"common"/"rare"/"epic"/"legend"），UI 端用 tr_rarity 翻譯
+# 可選 body_radius：玩家本體圓形碰撞／地圖阻擋判定半徑（px），預設 42（與 Player.tscn 一致）
 const CHARACTERS: Array[Dictionary] = [
 	{
 		"id": "swordsman",
@@ -156,25 +203,110 @@ const CHARACTERS: Array[Dictionary] = [
 		"desc": "均衡型：近戰素質標準，血量稍高以支撐近距離戰鬥。",
 		"desc_key": "CHAR_SWORDSMAN_DESC",
 		"color": Color(0.95, 0.85, 0.55),
-		"sprite": "res://assets/characters/MiniSwordMan.png",
-		"hframes": 6, "vframes": 6, "scale": 1.8, "offset_y": -7,
-		"frames_per_row": [4, 6, 3, 6, 3, 4],
+		"sprite": "",
+		"sprite_faces_left": true,
+		"sprite_strips": {
+			"idle": "res://assets/characters/SwordMan/IDLE/idle_left.png",
+			"walk": "res://assets/characters/SwordMan/RUN/run_left.png",
+			"attack": "res://assets/characters/SwordMan/ATTACK 1/attack1_left.png",
+		},
+		"strip_hframes": 8,
+		"strip_frames": {"idle": 8, "walk": 8, "attack": 8, "hit": 8, "death": 8},
+		"walk_anim_over_attack": true,
+		"scale": 1,
+		"body_radius": 24,
+		"offset_y": -7,
 		"skill_options": ["none", "whirl_slash"],
 		"passive_options": ["none", "fighting_spirit"],
 	},
 	{
+		"id": "ranger",
+		"name": "遊俠", "name_key": "CHAR_RANGER_NAME",
+		"rarity": "common",
+		"weapon": "bow", "hp": 90.0, "atk": 14.0, "def": 7.0, "spd": 6.5,
+		"desc": "遠程拉打：較高的移動速度補足血量弱點，適合遠距離狙擊。",
+		"desc_key": "CHAR_RANGER_DESC",
+		"color": Color(0.6, 1.0, 0.7),
+		"sprite": "",
+		"sprite_faces_left": false,
+		## 條狀圖：每格約 160×144（Idle 6 / Walk 8 / Atk 7 / Hurt 4 / Death 8）
+		"sprite_strips": {
+			"idle": "res://assets/characters/ArcherMan/Idle.png",
+			"walk": "res://assets/characters/ArcherMan/Walk.png",
+			"attack": "res://assets/characters/ArcherMan/Atk.png",
+			"hurt": "res://assets/characters/ArcherMan/Hurt.png",
+			"death": "res://assets/characters/ArcherMan/Death.png",
+		},
+		"strip_hframes": 8,
+		"strip_hframes_by_strip": {
+			"idle": 6, "walk": 8, "attack": 7, "hurt": 4, "death": 8,
+		},
+		"strip_frames": {"idle": 6, "walk": 8, "attack": 7, "hit": 4, "death": 8},
+		"walk_anim_over_attack": true,
+		"scale": 0.8,
+		"body_radius": 25,
+		"offset_y": -7,
+		"skill_options": ["none", "agile_tactics"],
+		"passive_options": ["none", "quick_step"],
+	},
+	{
 		"id": "knight",
 		"name": "騎士", "name_key": "CHAR_KNIGHT_NAME",
-		"rarity": "common",
+		"rarity": "rare",
 		"weapon": "spear", "hp": 150.0, "atk": 10.0, "def": 15.0, "spd": 4.5,
 		"skill_options": ["none", "heavy_armor"],
 		"passive_options": ["none", "unyielding"],
 		"desc": "坦克型：極高的生存能力，雖然移速較慢，但能承受大量傷害。",
 		"desc_key": "CHAR_KNIGHT_DESC",
 		"color": Color(0.7, 0.85, 1.0),
-		"sprite": "res://assets/characters/MiniSpearMan.png",
-		"hframes": 7, "vframes": 6, "scale": 1.8, "offset_y": -7,
-		"frames_per_row": [4, 6, 3, 7, 3, 5],
+		"sprite": "",
+		"sprite_faces_left": false,
+		"sprite_strips": {
+			"idle": "res://assets/characters/SpearMan/IDLE.png",
+			"walk": "res://assets/characters/SpearMan/WALK.png",
+			"attack": "res://assets/characters/SpearMan/ATTACK.png",
+			"hurt": "res://assets/characters/SpearMan/HURT.png",
+			"death": "res://assets/characters/SpearMan/DEATH.png",
+		},
+		"strip_hframes": 4,
+		"strip_hframes_by_strip": {
+			"idle": 4, "walk": 6, "attack": 6, "hurt": 3, "death": 9,
+		},
+		"strip_frames": {"idle": 4, "walk": 6, "attack": 6, "hit": 3, "death": 9},
+		"walk_anim_over_attack": true,
+		"scale": .8,
+		"body_radius": 24,
+		"offset_y": -7,
+	},
+	{
+		"id": "warrior",
+		"name": "戰士", "name_key": "CHAR_WARRIOR_NAME",
+		"rarity": "rare",
+		"weapon": "axe", "hp": 108.0, "atk": 14.0, "def": 9.0, "spd": 5.2,
+		"desc": "猛攻型：較劍士更偏重輸出，以近戰壓制換取略低的生存能力。",
+		"desc_key": "CHAR_WARRIOR_DESC",
+		"color": Color(0.88, 0.52, 0.42),
+		"sprite": "",
+		"sprite_faces_left": false,
+		"sprite_strips": {
+			"idle": "res://assets/characters/Warrior/IDLE.png",
+			"walk": "res://assets/characters/Warrior/WALK.png",
+			"attack": "res://assets/characters/Warrior/ATTACK 1.png",
+			"hurt": "res://assets/characters/Warrior/HURT.png",
+			"death": "res://assets/characters/Warrior/DEATH.png",
+		},
+		"strip_hframes": 12,
+		"strip_hframes_by_strip": {
+			"idle": 12, "walk": 12, "attack": 11, "hurt": 6, "death": 11,
+		},
+		"strip_frames": {"idle": 12, "walk": 12, "attack": 11, "hit": 6, "death": 11},
+		"strip_fps": {"attack": 14.0},
+		"walk_anim_over_attack": true,
+		"scale": 0.82,
+		"body_radius": 24,
+		"offset_y": -7,
+		"skill_options": ["none", "whirl_slash"],
+		"passive_options": ["none", "unyielding"],
 	},
 	{
 		"id": "wizard",
@@ -184,55 +316,135 @@ const CHARACTERS: Array[Dictionary] = [
 		"desc": "玻璃大砲：生存能力極低，但擁有最高攻擊力。",
 		"desc_key": "CHAR_WIZARD_DESC",
 		"color": Color(0.85, 0.55, 1.0),
-		"sprite": "res://assets/characters/MiniMage.png",
-		"hframes": 11, "vframes": 8, "scale": 1.8, "offset_y": -7,
-		"frames_per_row": [4, 6, 3, 11, 9, 9, 2, 9],
+		"sprite": "",
+		"sprite_faces_left": true,
+		"sprite_strips": {
+			"idle": "res://assets/characters/Mage/IDLE.png",
+			"walk": "res://assets/characters/Mage/WALK.png",
+			"attack": "res://assets/characters/Mage/RANGED ATTACK.png",
+			"hurt": "res://assets/characters/Mage/HURT.png",
+			"death": "res://assets/characters/Mage/DEATH.png",
+		},
+		"strip_hframes": 6,
+		"strip_hframes_by_strip": {
+			"idle": 6, "walk": 4, "attack": 10, "hurt": 4, "death": 6,
+		},
+		"strip_frames": {"idle": 6, "walk": 4, "attack": 10, "hit": 4, "death": 6},
+		"walk_anim_over_attack": true,
+		"scale": 0.6,
+		"offset_y": -7,
+		"body_radius": 24,
 		"skill_options": ["none", "energy_wave"],
 		"passive_options": ["none", "arcane_mastery"],
 	},
 	{
-		"id": "ranger",
-		"name": "遊俠", "name_key": "CHAR_RANGER_NAME",
-		"rarity": "rare",
-		"weapon": "bow", "hp": 90.0, "atk": 14.0, "def": 7.0, "spd": 6.5,
-		"desc": "遠程拉打：較高的移動速度補足血量弱點，適合遠距離狙擊。",
-		"desc_key": "CHAR_RANGER_DESC",
-		"color": Color(0.6, 1.0, 0.7),
-		"sprite": "res://assets/characters/MiniArcherMan.png",
-		"hframes": 11, "vframes": 7, "scale": 1.8, "offset_y": -7,
-		"frames_per_row": [4, 6, 3, 11, 6, 3, 4],
-		"skill_options": ["none", "agile_tactics"],
-		"passive_options": ["none", "quick_step"],
-	},
-	{
 		"id": "bard",
-		"name": "詩人", "name_key": "CHAR_BARD_NAME",
+		"name": "武士", "name_key": "CHAR_BARD_NAME",
 		"rarity": "epic",
 		"weapon": "melody", "hp": 100.0, "atk": 10.0, "def": 8.0, "spd": 6.0,
 		"desc": "輔助/功能：素質平庸但靈活度高，依賴武器易傷特效輔助。",
 		"desc_key": "CHAR_BARD_DESC",
 		"color": Color(1.0, 0.7, 0.85),
-		"sprite": "res://assets/characters/MiniSatyr.png",
-		"hframes": 11, "vframes": 7, "scale": 1.8, "offset_y": -7,
-		"frames_per_row": [4, 6, 3, 5, 11, 2, 5],
-		# Satyr 攻擊在第 5 列（index 4）；受擊/死亡由程式依 vframes 最後兩列自動指定
-		"row_attack": 4,
+		"sprite": "",
+		"sprite_faces_left": false,
+		"sprite_strips": {
+			"idle": "res://assets/characters/Samurai/IDLE.png",
+			"walk": "res://assets/characters/Samurai/RUN.png",
+			"attack": "res://assets/characters/Samurai/ATTACK.png",
+			"hurt": "res://assets/characters/Samurai/HURT.png",
+			"death": "res://assets/characters/Samurai/DEATH.png",
+		},
+		"strip_hframes": 8,
+		"strip_hframes_by_strip": {
+			"idle": 5, "walk": 8, "attack": 7, "hurt": 4, "death": 10,
+		},
+		"strip_frames": {"idle": 5, "walk": 8, "attack": 7, "hit": 4, "death": 10},
+		"walk_anim_over_attack": true,
+		"scale": 0.95,
+		"body_radius": 24,
+		"offset_y": -7,
 	},
 	{
 		"id": "werewolf",
 		"name": "狼人", "name_key": "CHAR_WEREWOLF_NAME",
-		"rarity": "common",
+		"rarity": "epic",
 		"weapon": "claw", "hp": 110.0, "atk": 16.0, "def": 7.0, "spd": 7.0,
 		"desc": "敏捷近戰：高攻擊、極高移速，透過快速切入與流血造成威脅。",
 		"desc_key": "CHAR_WEREWOLF_DESC",
 		"color": Color(0.85, 0.55, 0.45),
-		"sprite": "res://assets/characters/MiniWerewolf-Sheet.png",
-		"hframes": 15, "vframes": 8, "scale": 1.8, "offset_y": -7,
-		"frames_per_row": [4, 6, 3, 7, 6, 15, 2, 5],
-		# Werewolf 攻擊在第 4 列（index 3）；受擊/死亡為最後兩列；預覽 = 變身列最後一格（人類）
-		"row_attack": 3,
-		"preview_row": 5, "preview_col": 14,
-		# 沿用預設裁切（trim_top 14, left/right 4），讓人類型態的視覺大小與其他角色一致
+		"sprite": "",
+		"sprite_faces_left": false,
+		"sprite_strips": {
+			"human_idle": "res://assets/characters/Werewolf/IDLE HUMAN.png",
+			"transform": "res://assets/characters/Werewolf/TRANSFORMATION.png",
+			"idle": "res://assets/characters/Werewolf/IDLE.png",
+			"walk": "res://assets/characters/Werewolf/RUN.png",
+			"attack": "res://assets/characters/Werewolf/ATTACK.png",
+			"hurt": "res://assets/characters/Werewolf/HURT.png",
+			"death": "res://assets/characters/Werewolf/DEATH.png",
+		},
+		"preview_strip": "human_idle",
+		"start_transform": true,
+		"strip_hframes": 6,
+		"strip_hframes_by_strip": {
+			"human_idle": 6, "transform": 8, "idle": 6, "walk": 6, "attack": 7, "hurt": 6, "death": 10,
+		},
+		"strip_frames": {
+			"human_idle": 6, "transform": 8, "idle": 6, "walk": 6, "attack": 7, "hit": 6, "death": 10,
+		},
+		"walk_anim_over_attack": true,
+		"scale": 0.72,
+		"body_radius": 28,
+		"offset_y": -10,
+	},
+	{
+		"id": "vampire_lord",
+		"name": "吸血鬼領主", "name_key": "CHAR_VAMPIRE_LORD_NAME",
+		"rarity": "legend",
+		"weapon": "claw", "hp": 118.0, "atk": 17.0, "def": 9.0, "spd": 6.2,
+		"desc": "傳說血族：爪擊與高機動兼顧，擅長貼身纏鬥與持續壓制。",
+		"desc_key": "CHAR_VAMPIRE_LORD_DESC",
+		"color": Color(0.55, 0.22, 0.32),
+		## NightLord：每動作一組獨立 PNG（無 hurt，會落到 idle）
+		"sprite_frames": {
+			"idle":   {"pattern": "res://assets/characters/NightLord/Idle/Idle{i}.png",        "count": 14},
+			"walk":   {"pattern": "res://assets/characters/NightLord/Run/Running{i}.png",      "count": 10},
+			"attack": {"pattern": "res://assets/characters/NightLord/Attacks/LightAtk{i}.png", "count": 25},
+			"death":  {"pattern": "res://assets/characters/NightLord/Death/Death{i}.png",      "count": 43},
+		},
+		"anim_fps": 18.0,
+		"sprite_faces_left": false,
+		"walk_anim_over_attack": true,
+		"scale": 0.7,
+		"body_radius": 28,
+		"offset_y": -10,
+		"skill_options": ["none", "whirl_slash"],
+		"passive_options": ["none", "fighting_spirit"],
+	},
+	{
+		"id": "flame_witch",
+		"name": "烈焰靈女巫", "name_key": "CHAR_FLAME_WITCH_NAME",
+		"rarity": "legend",
+		"weapon": "flame", "hp": 88.0, "atk": 19.0, "def": 6.0, "spd": 5.3,
+		"desc": "傳說術者：駕馭火焰範圍傷害，爆發與控場兼備。",
+		"desc_key": "CHAR_FLAME_WITCH_DESC",
+		"color": Color(1.0, 0.45, 0.25),
+		## SalamanderWitch：每動作一組獨立 PNG
+		"sprite_frames": {
+			"idle":   {"pattern": "res://assets/characters/SalamanderWitch/Idle/Idle{i}.png",         "count": 9},
+			"walk":   {"pattern": "res://assets/characters/SalamanderWitch/Move/Move{i}.png",         "count": 13},
+			"attack": {"pattern": "res://assets/characters/SalamanderWitch/Attacks/ComboAtk{i}.png",  "count": 28},
+			"hurt":   {"pattern": "res://assets/characters/SalamanderWitch/Hurt/Hurt{i}.png",         "count": 5},
+			"death":  {"pattern": "res://assets/characters/SalamanderWitch/Death/Die{i}.png",         "count": 30},
+		},
+		"anim_fps": 18.0,
+		"sprite_faces_left": false,
+		"walk_anim_over_attack": true,
+		"scale": .8,
+		"body_radius": 28,
+		"offset_y": -8,
+		"skill_options": ["none", "energy_wave"],
+		"passive_options": ["none", "arcane_mastery"],
 	},
 ]
 
@@ -243,6 +455,24 @@ const WEAPON_UPGRADES: Array[Dictionary] = [
 	{"id": "w_rate",    "name": "攻擊頻率",   "name_key": "WUP_W_RATE_NAME",    "max": 2, "value": 0.15, "field": "rate_mult"},
 	{"id": "w_count",   "name": "投射物增加", "name_key": "WUP_W_COUNT_NAME",   "max": 2, "value": 1,    "field": "count_add"},
 ]
+
+## 敵人異常狀態（流血 / 燃燒 / 中毒 DOT、易傷、緩速）— 集中於此方便調平衡
+const ENEMY_STATUS_TICK_SEC := 0.25
+const ENEMY_STATUS_MELODY_VULN_DURATION := 4.0
+const ENEMY_STATUS_MELODY_VULN_STACK_CAP_BASE := 3
+const ENEMY_STATUS_MELODY_VULN_STACK_CAP_MAXED := 5
+const ENEMY_STATUS_MELODY_VULN_PER_STACK := 0.07
+const ENEMY_STATUS_CLAW_BLEED_DURATION := 4.0
+const ENEMY_STATUS_CLAW_BLEED_DPS_RATIO := 0.22
+const ENEMY_STATUS_CLAW_BLEED_LIFESTEAL_RATIO := 0.08
+const ENEMY_STATUS_FLAME_BURN_DURATION := 3.0
+const ENEMY_STATUS_FLAME_BURN_DPS_RATIO := 0.20
+const ENEMY_STATUS_ICE_SLOW_DURATION := 2.2
+const ENEMY_STATUS_ICE_SLOW_FACTOR := 0.55
+const ENEMY_STATUS_ICE_VS_SLOW_DAMAGE_MULT := 1.35
+const ENEMY_STATUS_POISON_DURATION := 3.0
+const ENEMY_STATUS_POISON_PUDDLE_DPS_RATIO := 0.32
+const ENEMY_STATUS_POISON_ATK_REDUCE := 0.15
 
 # 通用能力升級
 const COMMON_UPGRADES: Array[Dictionary] = [
@@ -280,8 +510,27 @@ func is_weapon_upgrades_maxed(upgrades: Dictionary) -> bool:
 	return true
 
 
+## 利劍滿級：周圍敵人數越少傷害越高（enemy_count 為 eff_range 內存活數）
+func weapon_max_sword_damage_mult(enemy_count: int) -> float:
+	var n: int = maxi(1, enemy_count)
+	if n <= 1:
+		return 1.34
+	if n == 2:
+		return 1.14
+	return 1.0
+
+
+## 長槍滿級：周圍敵人數越多傷害越高（有上限）
+func weapon_max_spear_damage_mult(enemy_count: int) -> float:
+	var n: int = maxi(1, enemy_count)
+	return min(1.38, 1.0 + 0.072 * float(maxi(0, n - 2)))
+
+
 ## 已實裝「滿級額外效果」的武器 id（其餘武器全滿時不彈解鎖視窗，直到實裝為止）
-const WEAPON_MAX_BONUS_IMPLEMENTED: Array[String] = ["bow", "shard", "holy"]
+const WEAPON_MAX_BONUS_IMPLEMENTED: Array[String] = [
+	"sword", "spear", "axe", "magic_bullet", "bow", "melody", "claw", "shard", "flame",
+	"lightning", "ice", "poison", "holy",
+]
 
 
 func weapon_max_bonus_is_implemented(weapon_id: String) -> bool:
@@ -292,6 +541,13 @@ func get_weapon_def(id: String) -> Dictionary:
 	for w in WEAPONS:
 		if w["id"] == id:
 			return w
+	return {}
+
+
+func get_armament_def(id: String) -> Dictionary:
+	for a in ARMAMENTS:
+		if a["id"] == id:
+			return a
 	return {}
 
 
@@ -534,6 +790,10 @@ func tr_weapon_name(id: String) -> String:
 	return tr_name(get_weapon_def(id))
 
 
+func tr_armament_name(id: String) -> String:
+	return tr_name(get_armament_def(id))
+
+
 func tr_character_name(id: String) -> String:
 	return tr_name(get_character_def(id))
 
@@ -614,28 +874,27 @@ const SLIMES: Array[Dictionary] = [
 		"scale":1.5, "radius":27.0, "offset_y":-11,
 		"hp_mult":3.6, "dmg_mult":2.4, "speed_mult":1.15, "xp_mult":3.5},
 
-	# 大型史萊姆 (50x40 sprite, 8x7 sheet) — Boss
-	# 橘色 sheet 部分列實際幀數略少，採用保守值避免空白幀
+	# 大型史萊姆 (40x40 sprite, 10x7 sheet) — Boss
+	# 列順序：idle / walk / jump(未用) / attack / skill(未用) / hurt / death
 	{"id":"boss_orange", "tex":"res://assets/enemy/Slime/Orange/MiniSlimeMonsterO.png",
-		"tier":4, "elite":true, "boss":true, "hframes":8, "vframes":7,
-		"frames_per_row":[2,4,4,4,4,2,4],
-		"scale":1.8, "radius":54.0, "offset_y":-9,
+		"tier":4, "elite":true, "boss":true, "hframes":10, "vframes":7,
+		"frames_per_row":[4,6,8,10,7,2,7],
+		"scale":2.25, "radius":54.0, "offset_y":-9,
 		"hp_mult":5.0, "dmg_mult":2.8, "speed_mult":0.8, "xp_mult":6.0},
 	{"id":"boss_red",    "tex":"res://assets/enemy/Slime/Red/MiniSlimeMonsterR.png",
-		"tier":5, "elite":true, "boss":true, "hframes":8, "vframes":7,
-		"frames_per_row":[3,5,7,8,6,2,6],
-		"scale":1.8, "radius":54.0, "offset_y":-9,
+		"tier":5, "elite":true, "boss":true, "hframes":10, "vframes":7,
+		"frames_per_row":[4,6,8,10,7,2,7],
+		"scale":2.25, "radius":54.0, "offset_y":-9,
 		"hp_mult":7.0, "dmg_mult":3.5, "speed_mult":0.8, "xp_mult":9.0},
 
 	# 關卡 Boss — 史萊姆王（取自橙色大型史萊姆紋理，更大、更慢、極厚血）
-	# frames_per_row 改成保守值，避免某些列尾段空白格被輪播到
 	{"id":"slime_king",
 		"name":"史萊姆王", "name_key": "SLIME_KING_NAME",
 		"tex":"res://assets/enemy/Slime/Orange/MiniSlimeMonsterO.png",
 		"tier":99, "elite":true, "boss":true, "stage_boss":true,
-		"hframes":8, "vframes":7,
-		"frames_per_row":[2,4,4,4,4,2,4],
-		"scale":2.6, "radius":80.0, "offset_y":-12,
+		"hframes":10, "vframes":7,
+		"frames_per_row":[4,6,8,10,7,2,7],
+		"scale":3.25, "radius":80.0, "offset_y":-12,
 		"hp_mult":22.0, "dmg_mult":3.2, "speed_mult":0.55, "xp_mult":18.0},
 ]
 
@@ -644,13 +903,14 @@ const SLIMES: Array[Dictionary] = [
 const STAGES: Array[Dictionary] = [
 	{
 		"id": "slime_forest",
-		"name": "第一關 — 史萊姆之森",
+		"name": "第一關 — 史萊姆平原",
 		"name_key": "STAGE_SLIME_FOREST_NAME",
 		"map_path": "res://assets/Maps/TEST.tmx",
 		"boss_id": "slime_king",
 		"boss_time": 600.0,        # 10 分鐘
 		"boss_warning_time": 30.0, # Boss 出現前 30 秒提示
 		"victory_gold": 250,
+		"rescue_blacksmith": true,
 	},
 ]
 

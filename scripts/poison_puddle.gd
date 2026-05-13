@@ -80,3 +80,14 @@ func _apply_tick() -> void:
 		if d <= puddle_radius:
 			if e.has_method("take_damage"):
 				e.take_damage(damage_per_tick, weapon)
+			if weapon and e.has_method("apply_status_poison"):
+				var weaken_poison: bool = false
+				if weapon is WeaponBase:
+					var wb: WeaponBase = weapon as WeaponBase
+					weaken_poison = wb.weapon_upgrades_maxed() \
+							and String(wb.def.get("id", "")) == "poison"
+				e.apply_status_poison(
+					damage_per_tick * GameData.ENEMY_STATUS_POISON_PUDDLE_DPS_RATIO,
+					GameData.ENEMY_STATUS_POISON_DURATION,
+					weapon,
+					weaken_poison)

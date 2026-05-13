@@ -13,6 +13,10 @@ const MAP_SIZE := Vector2(2400.0, 2400.0)       # = MAP_RAW_SIZE * MAP_SCALE
 const MAP_CENTER := Vector2(1200.0, 1200.0)
 const CAMERA_ZOOM := Vector2(2.0, 2.0)
 
+const Coop := preload("res://scripts/coop_pair_follow.gd")
+const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
+const BLACKSMITH_RESCUE_RADIUS := 72.0
+
 @onready var camera: Camera2D = $Camera
 @onready var spawn_timer: Timer = $SpawnTimer
 @onready var hud: CanvasLayer = $HUD
@@ -44,6 +48,7 @@ const TOUCH_HUD_SCRIPT := preload("res://scripts/touch_hud.gd")
 var p1_skill_icon: Panel = null
 var p2_skill_icon: Panel = null
 var touch_hud: CanvasLayer = null
+var _coop_pointer_overlay: Control = null
 
 var players: Array = []
 var run_time: float = 0.0
@@ -64,6 +69,7 @@ var boss_node: Node = null
 var boss_warning_shown: bool = false
 var boss_spawned: bool = false
 var stage_completed: bool = false
+var blacksmith_rescue_node: Node2D = null
 
 var map_node: Node = null
 var spawn_origin: Vector2 = Vector2.ZERO
@@ -83,15 +89,17 @@ func _ready() -> void:
 	camera.make_current()
 	_spawn_map()
 	_spawn_players()
+	_spawn_blacksmith_rescue_if_needed()
 	_position_camera()
 	# 雙人模式：團隊 XP 門檻 + 50%（敵人多 60%、不該因此一直升級爆 HP）
 	if GameState.two_players:
 		team_xp_to_next = round(team_xp_to_next * 1.5)
 	spawn_timer.timeout.connect(_on_spawn_tick)
-	spawn_timer.start()
 	_draw_background()
 	hud_p2_panel.visible = GameState.two_players
 	_show_stage_banner()
+	if not _present_start_weapon_notice():
+		spawn_timer.start()
 
 
 func _spawn_map() -> void:
@@ -199,6 +207,10 @@ func _spawn_players() -> void:
 	_sync_team_progress_to_players()
 	_build_hud_skill_icons()
 	_build_touch_hud()
+	if GameState.two_players and players.size() >= 2:
+		_coop_pointer_overlay = CoopPointerOverlay.new()
+		_coop_pointer_overlay.setup(self)
+		hud.add_child(_coop_pointer_overlay)
 
 
 # 建立浮動搖桿 / 技能 / 暫停的觸控 HUD —— 連接到 P1
@@ -240,6 +252,55 @@ func _build_hud_skill_icons() -> void:
 			p2_panel_node.offset_top)
 
 
+func _present_start_weapon_notice() -> bool:
+	var lines: Array[String] = []
+	for p in players:
+		if p == null:
+			continue
+		for info in p.start_weapon_reward_log:
+			lines.append(_format_start_weapon_line(p, info))
+	if lines.is_empty():
+		return false
+	get_tree().paused = true
+	BlockingNotice.present(
+		get_tree(),
+		tr("START_REWARD_TITLE"),
+		"\n".join(lines),
+		tr("START_REWARD_HINT"),
+		tr("PINBALL_REWARD_OK"),
+		self,
+		"_start_weapon_notice_dismissed",
+	)
+	return true
+
+
+func _start_weapon_notice_dismissed() -> void:
+	get_tree().paused = false
+	if not stage_completed:
+		spawn_timer.start()
+
+
+func _format_start_weapon_line(p: Node, info: Dictionary) -> String:
+	var pname: String = tr("PINBALL_PNAME_FMT") % (int(p.slot_index) + 1)
+	var source: String = tr("START_REWARD_SOURCE_CHARACTER")
+	if String(info.get("source_kind", "")) == "armament":
+		source = GameData.tr_armament_name(String(info.get("source_id", "")))
+	var wid: String = String(info.get("weapon_id", ""))
+	var weapon_name: String = GameData.tr_weapon_name(wid)
+	match String(info.get("kind", "")):
+		"weapon_new":
+			return tr("START_REWARD_WEAPON_NEW_FMT") % [pname, source, weapon_name]
+		"weapon_upgrade":
+			var udef: Dictionary = GameData.get_weapon_upgrade_def(String(info.get("upgrade_id", "")))
+			return tr("START_REWARD_WEAPON_UP_FMT") % [
+				pname, source, weapon_name, GameData.tr_name(udef),
+				int(info.get("current", 0)), int(info.get("max", 0))]
+		"weapon_upgrade_max":
+			return tr("START_REWARD_WEAPON_MAX_FMT") % [pname, source, weapon_name]
+		_:
+			return tr("START_REWARD_NOOP_FMT") % [pname, source]
+
+
 func _process(delta: float) -> void:
 	if stage_completed:
 		_position_camera()
@@ -248,6 +309,7 @@ func _process(delta: float) -> void:
 	# 第一關曲線：每 44 秒提升一階（再放慢一點，雙人純近戰前 5 分鐘也撐得住）
 	difficulty = run_time / 44.0
 	_position_camera()
+	_update_blacksmith_rescue()
 	_update_hud()
 	_update_stage_progress()
 	# ESC 由 PauseMenu (PROCESS_MODE_ALWAYS) 處理
@@ -266,6 +328,108 @@ func _show_stage_banner() -> void:
 	tw.tween_interval(2.4)
 	tw.tween_property(stage_banner, "modulate", Color(1, 1, 1, 0), 0.8)
 	tw.tween_callback(func(): stage_banner.visible = false)
+
+
+func _show_center_notice(text: String) -> void:
+	stage_banner.text = text
+	stage_banner.visible = true
+	stage_banner.modulate = Color(1, 1, 1, 0)
+	var tw := create_tween()
+	tw.tween_property(stage_banner, "modulate", Color(1, 1, 1, 1), 0.25)
+	tw.tween_interval(2.0)
+	tw.tween_property(stage_banner, "modulate", Color(1, 1, 1, 0), 0.45)
+	tw.tween_callback(func(): stage_banner.visible = false)
+
+
+func _spawn_blacksmith_rescue_if_needed() -> void:
+	if not bool(stage_def.get("rescue_blacksmith", false)):
+		return
+	if bool(GameState.blacksmith_rescued):
+		return
+	blacksmith_rescue_node = _make_blacksmith_marker(
+		tr("BLACKSMITH_RESCUE_NAME"),
+		tr("BLACKSMITH_RESCUE_HINT"))
+	blacksmith_rescue_node.global_position = _pick_blacksmith_rescue_position()
+	add_child(blacksmith_rescue_node)
+
+
+func _pick_blacksmith_rescue_position() -> Vector2:
+	var center: Vector2 = spawn_origin
+	var fallback: Vector2 = center + Vector2(520.0, -220.0)
+	for _attempt in range(60):
+		var ang: float = randf() * TAU
+		var dist: float = randf_range(420.0, 920.0)
+		var pos: Vector2 = center + Vector2(cos(ang), sin(ang)) * dist
+		if map_bounds.size != Vector2.ZERO:
+			pos.x = clamp(pos.x, map_bounds.position.x + 160.0, map_bounds.end.x - 160.0)
+			pos.y = clamp(pos.y, map_bounds.position.y + 160.0, map_bounds.end.y - 160.0)
+		if _is_open_rescue_position(pos):
+			return pos
+	return fallback
+
+
+func _is_open_rescue_position(pos: Vector2) -> bool:
+	if pos.distance_to(spawn_origin) < 360.0:
+		return false
+	var samples := [
+		Vector2.ZERO,
+		Vector2(96, 0), Vector2(-96, 0), Vector2(0, 96), Vector2(0, -96),
+		Vector2(72, 72), Vector2(-72, 72), Vector2(72, -72), Vector2(-72, -72),
+	]
+	for off in samples:
+		if is_world_blocked_at(pos + off, 28.0):
+			return false
+	return true
+
+
+func _update_blacksmith_rescue() -> void:
+	if blacksmith_rescue_node == null or not is_instance_valid(blacksmith_rescue_node):
+		return
+	for p in players:
+		if p == null or not is_instance_valid(p):
+			continue
+		if p.hp <= 0:
+			continue
+		if p.global_position.distance_to(blacksmith_rescue_node.global_position) <= BLACKSMITH_RESCUE_RADIUS:
+			_rescue_blacksmith()
+			return
+
+
+func _rescue_blacksmith() -> void:
+	GameState.rescue_blacksmith()
+	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
+		blacksmith_rescue_node.queue_free()
+	blacksmith_rescue_node = null
+	_show_center_notice(tr("BLACKSMITH_RESCUED_NOTICE"))
+
+
+func _make_blacksmith_marker(title: String, hint: String) -> Node2D:
+	var root := Node2D.new()
+	root.name = "BlacksmithRescue"
+	root.z_index = 8
+	var draw := DrawerNode2D.new()
+	draw.fn = Callable(self, "_draw_blacksmith_marker")
+	root.add_child(draw)
+	var label := Label.new()
+	label.text = "%s\n%s" % [title, hint]
+	label.position = Vector2(-120, -88)
+	label.size = Vector2(240, 48)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.55))
+	root.add_child(label)
+	return root
+
+
+func _draw_blacksmith_marker(node: Node2D) -> void:
+	node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(1.0, 0.82, 0.22, 0.12))
+	node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(1.0, 0.82, 0.22, 0.65), 2.0)
+	node.draw_circle(Vector2(0, -20), 15.0, Color(0.95, 0.72, 0.48))
+	node.draw_rect(Rect2(-16, -5, 32, 38), Color(0.28, 0.30, 0.36))
+	node.draw_rect(Rect2(-24, -2, 48, 10), Color(0.72, 0.62, 0.44))
+	node.draw_line(Vector2(18, 0), Vector2(44, -24), Color(0.74, 0.52, 0.32), 5.0)
+	node.draw_rect(Rect2(38, -34, 22, 12), Color(0.70, 0.72, 0.76))
 
 
 func _update_stage_progress() -> void:
@@ -358,15 +522,22 @@ func _on_boss_tree_exited() -> void:
 func _position_camera() -> void:
 	if players.is_empty():
 		return
-	var center := Vector2.ZERO
-	var alive := 0
-	for p in players:
-		if p.hp > 0:
-			center += p.global_position
-			alive += 1
-	if alive > 0:
-		center /= alive
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	if GameState.two_players and players.size() >= 2:
+		Coop.clamp_player_pair_separation(players)
+	var center: Vector2 = Coop.camera_center_alive(players)
 	camera.global_position = center
+	if GameState.two_players and players.size() >= 2:
+		var p1 = players[0]
+		var p2 = players[1]
+		var both_alive: bool = p1 != null and p2 != null and p1.hp > 0.0 and p2.hp > 0.0
+		if both_alive:
+			camera.zoom = Coop.dynamic_zoom(Coop.pair_distance(players), CAMERA_ZOOM)
+		else:
+			camera.zoom = CAMERA_ZOOM
+	else:
+		camera.zoom = CAMERA_ZOOM
+	Coop.clamp_camera_position(camera, MAP_SIZE, vp_size)
 
 
 func _update_hud() -> void:
@@ -464,6 +635,10 @@ func add_team_xp(amount: float) -> void:
 	_sync_team_progress_to_players()
 
 
+func add_run_gold(amount: int) -> void:
+	GameState.grant_run_gold(amount)
+
+
 func _team_level_up() -> void:
 	team_level += 1
 	# 1.32 倍 + 3：每升一級的需求成長更快（之前 1.25 + 2 太溫和）
@@ -537,6 +712,8 @@ func _game_over(won: bool) -> void:
 		reward = int(stage_def.get("victory_gold", 0))
 		GameState.grant_run_gold(reward)
 		_clear_remaining_enemies()
+		AudioManager.play_sfx("reward", 0.02)
+	reward = int(GameState.last_result.get("gold_reward", reward))
 	gameover_panel.visible = true
 	_populate_summary(won, reward)
 

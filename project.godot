@@ -25,6 +25,7 @@ config/icon="res://icon.svg"
 RegisterGamepadInputs="*res://scripts/register_gamepad_inputs.gd"
 GameData="*res://scripts/game_data.gd"
 GameState="*res://scripts/game_state.gd"
+AudioManager="*res://scripts/audio_manager.gd"
 TranslationLoader="*res://scripts/translation_loader.gd"
 SettingsOverlay="*res://scripts/settings_overlay.gd"
 
@@ -114,6 +115,7 @@ ui_back={
 [internationalization]
 
 locale/fallback="zh_TW"
+locale/translations=PackedStringArray("res://translations/strings.zh_TW.translation")
 
 [layer_names]
 
@@ -129,4 +131,5 @@ locale/fallback="zh_TW"
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.05, 0.06, 0.1, 1)

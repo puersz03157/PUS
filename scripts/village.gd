@@ -9,6 +9,10 @@ const MAP_RAW_SIZE := Vector2(3200.0, 320.0)
 const MAP_SCALE := 1.5
 const MAP_SIZE := Vector2(4800.0, 480.0)
 const CAMERA_ZOOM := Vector2(2.0, 2.0)
+const BLACKSMITH_INTERACT_RADIUS := 90.0
+
+const Coop := preload("res://scripts/coop_pair_follow.gd")
+const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
 
 @onready var camera: Camera2D = $Camera
 @onready var hud: CanvasLayer = $HUD
@@ -29,6 +33,11 @@ var floor_y: float = 0.0
 
 var _pause_open: bool = false
 var _transitioning: bool = false
+var _coop_pointer_overlay: Control = null
+var _blacksmith_node: Node2D = null
+var _blacksmith_dialog: CanvasLayer = null
+var _smith_status_label: Label = null
+var _smith_gold_label: Label = null
 
 
 func _ready() -> void:
@@ -36,8 +45,13 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	camera.make_current()
 	_spawn_map()
+	_spawn_blacksmith_if_rescued()
 	_spawn_players()
 	_position_camera()
+	if GameState.two_players and players.size() >= 2:
+		_coop_pointer_overlay = CoopPointerOverlay.new()
+		_coop_pointer_overlay.setup(self)
+		hud.add_child(_coop_pointer_overlay)
 	_draw_background()
 	_setup_hud()
 
@@ -61,11 +75,15 @@ func _process(_delta: float) -> void:
 	if _transitioning:
 		return
 	if Input.is_action_just_pressed("ui_back"):
+		if _blacksmith_dialog != null:
+			_close_blacksmith_dialog()
+			return
 		if _pause_open:
 			_close_pause()
 		else:
 			_open_pause()
 		return
+	_update_blacksmith_interaction()
 	_position_camera()
 
 
@@ -252,30 +270,276 @@ func add_team_xp(_amount: float) -> void:
 	pass
 
 
+func _spawn_blacksmith_if_rescued() -> void:
+	if not bool(GameState.blacksmith_rescued):
+		return
+	var slot: Node = _find_map_object_by_name([
+		"smith", "Smith", "blacksmith", "Blacksmith", "BlacksmithSlot", "blacksmith_slot"])
+	var pos: Vector2 = Vector2(MAP_SIZE.x * 0.62, floor_y - 42.0)
+	if slot is Node2D:
+		pos.x = (slot as Node2D).global_position.x
+		pos.y = floor_y - 42.0
+	var smith := _make_blacksmith_village_marker()
+	smith.global_position = pos
+	add_child(smith)
+	_blacksmith_node = smith
+
+
+func _make_blacksmith_village_marker() -> Node2D:
+	var root := Node2D.new()
+	root.name = "VillageBlacksmith"
+	root.z_index = 9
+	var draw := DrawerNode2D.new()
+	draw.fn = Callable(self, "_draw_village_blacksmith")
+	root.add_child(draw)
+	var label := Label.new()
+	label.text = tr("VILLAGE_BLACKSMITH_NAME")
+	label.position = Vector2(-80, -86)
+	label.size = Vector2(160, 32)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.48))
+	root.add_child(label)
+	return root
+
+
+func _draw_village_blacksmith(node: Node2D) -> void:
+	node.draw_circle(Vector2(0, 34), 34.0, Color(0, 0, 0, 0.22))
+	node.draw_circle(Vector2(0, -20), 15.0, Color(0.95, 0.72, 0.48))
+	node.draw_rect(Rect2(-17, -5, 34, 40), Color(0.28, 0.30, 0.36))
+	node.draw_rect(Rect2(-25, -2, 50, 10), Color(0.72, 0.62, 0.44))
+	node.draw_line(Vector2(18, 2), Vector2(46, -26), Color(0.74, 0.52, 0.32), 5.0)
+	node.draw_rect(Rect2(40, -36, 24, 12), Color(0.70, 0.72, 0.76))
+
+
+func _update_blacksmith_interaction() -> void:
+	if _pause_open or _blacksmith_dialog != null or _blacksmith_node == null or not is_instance_valid(_blacksmith_node):
+		return
+	var near: bool = false
+	for p in players:
+		if p != null and is_instance_valid(p) \
+				and p.global_position.distance_to(_blacksmith_node.global_position) <= BLACKSMITH_INTERACT_RADIUS:
+			near = true
+			break
+	if near:
+		hint_label.text = tr("VILLAGE_BLACKSMITH_INTERACT_HINT")
+		if Input.is_action_just_pressed("p1_action") or Input.is_action_just_pressed("p2_action") \
+				or Input.is_action_just_pressed("ui_accept"):
+			_open_blacksmith_dialog()
+	else:
+		hint_label.text = tr("VILLAGE_HINT")
+
+
+func _open_blacksmith_dialog() -> void:
+	if _blacksmith_dialog != null:
+		return
+	get_tree().paused = true
+	_blacksmith_dialog = CanvasLayer.new()
+	_blacksmith_dialog.layer = 240
+	_blacksmith_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_blacksmith_dialog)
+
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_blacksmith_dialog.add_child(root)
+
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0.58)
+	root.add_child(dim)
+
+	var panel := PanelContainer.new()
+	var panel_w: float = min(760.0, vp.x - 40.0)
+	var panel_h: float = min(520.0, vp.y - 40.0)
+	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
+	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	root.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 18)
+	margin.add_theme_constant_override("margin_bottom", 18)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	margin.add_child(vbox)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 16)
+	vbox.add_child(header)
+
+	var portrait := Panel.new()
+	portrait.custom_minimum_size = Vector2(96, 96)
+	header.add_child(portrait)
+	var portrait_label := Label.new()
+	portrait_label.text = tr("VILLAGE_BLACKSMITH_NAME")
+	portrait_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	portrait_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	portrait_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	portrait_label.add_theme_font_size_override("font_size", 18)
+	portrait.add_child(portrait_label)
+
+	var talk_box := VBoxContainer.new()
+	talk_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(talk_box)
+	var title := Label.new()
+	title.text = tr("BLACKSMITH_SHOP_TITLE")
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", Color(1.0, 0.84, 0.45))
+	talk_box.add_child(title)
+	var line := Label.new()
+	line.text = _random_blacksmith_line()
+	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	line.add_theme_font_size_override("font_size", 15)
+	talk_box.add_child(line)
+	_smith_gold_label = Label.new()
+	_smith_gold_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.35))
+	talk_box.add_child(_smith_gold_label)
+
+	_smith_status_label = Label.new()
+	_smith_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_smith_status_label.add_theme_color_override("font_color", Color(0.75, 0.9, 1.0))
+	vbox.add_child(_smith_status_label)
+
+	var goods := VBoxContainer.new()
+	goods.add_theme_constant_override("separation", 8)
+	vbox.add_child(goods)
+	_add_blacksmith_goods(goods)
+
+	var close_btn := Button.new()
+	close_btn.text = tr("BLACKSMITH_CLOSE")
+	close_btn.custom_minimum_size = Vector2(220, 46)
+	close_btn.pressed.connect(_close_blacksmith_dialog)
+	vbox.add_child(close_btn)
+	close_btn.grab_focus()
+	_refresh_blacksmith_dialog("")
+
+
+func _add_blacksmith_goods(goods: VBoxContainer) -> void:
+	var slot_btn := Button.new()
+	slot_btn.name = "SlotButton"
+	slot_btn.pressed.connect(_buy_blacksmith_slot)
+	goods.add_child(slot_btn)
+	var weapon_btn := Button.new()
+	weapon_btn.name = "WeaponKindButton"
+	weapon_btn.pressed.connect(_buy_blacksmith_weapon_kind)
+	goods.add_child(weapon_btn)
+	for arm_id in ["iron_sword", "hunter_bow"]:
+		var btn := Button.new()
+		btn.name = "Armament_" + arm_id
+		btn.pressed.connect(_buy_blacksmith_armament.bind(arm_id))
+		goods.add_child(btn)
+
+
+func _refresh_blacksmith_dialog(status: String) -> void:
+	if _blacksmith_dialog == null:
+		return
+	if _smith_gold_label:
+		_smith_gold_label.text = tr("BLACKSMITH_GOLD_FMT") % GameState.gold
+	if _smith_status_label:
+		_smith_status_label.text = status
+	var goods: Array = _blacksmith_dialog.find_children("*", "Button", true, false)
+	for n in goods:
+		var btn: Button = n as Button
+		if btn == null:
+			continue
+		match String(btn.name):
+			"SlotButton":
+				var cost: int = GameState.next_weapon_slot_unlock_cost()
+				btn.disabled = cost < 0 or GameState.gold < cost
+				btn.text = tr("BLACKSMITH_BUY_SLOT_DONE") if cost < 0 \
+					else tr("BLACKSMITH_BUY_SLOT_FMT") % [GameState.get_unlocked_weapon_slot_count() + 1, cost]
+			"WeaponKindButton":
+				var wid: String = GameState.next_locked_weapon_id()
+				btn.disabled = wid == "" or GameState.gold < GameState.BLACKSMITH_WEAPON_KIND_COST
+				btn.text = tr("BLACKSMITH_BUY_WEAPON_DONE") if wid == "" \
+					else tr("BLACKSMITH_BUY_WEAPON_FMT") % [
+						GameData.tr_weapon_name(wid), GameState.BLACKSMITH_WEAPON_KIND_COST]
+			_:
+				if String(btn.name).begins_with("Armament_"):
+					var arm_id: String = String(btn.name).replace("Armament_", "")
+					var adef: Dictionary = GameData.get_armament_def(arm_id)
+					var owned: bool = GameState.is_armament_unlocked(arm_id)
+					btn.disabled = owned or GameState.gold < GameState.BLACKSMITH_ARMAMENT_COST
+					btn.text = tr("BLACKSMITH_CRAFT_ARMAMENT_DONE_FMT") % GameData.tr_name(adef) if owned \
+						else tr("BLACKSMITH_CRAFT_ARMAMENT_FMT") % [
+							GameData.tr_name(adef), GameState.BLACKSMITH_ARMAMENT_COST,
+							GameData.tr_desc(adef)]
+
+
+func _buy_blacksmith_slot() -> void:
+	var before: int = GameState.get_unlocked_weapon_slot_count()
+	if GameState.buy_next_weapon_slot():
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_BOUGHT_SLOT_FMT") % (before + 1))
+	else:
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_NOT_ENOUGH_GOLD"))
+
+
+func _buy_blacksmith_weapon_kind() -> void:
+	var wid: String = GameState.buy_next_weapon_kind()
+	if wid != "":
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_BOUGHT_WEAPON_FMT") % GameData.tr_weapon_name(wid))
+	else:
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_NOT_ENOUGH_GOLD"))
+
+
+func _buy_blacksmith_armament(arm_id: String) -> void:
+	var adef: Dictionary = GameData.get_armament_def(arm_id)
+	if GameState.buy_armament(arm_id):
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_CRAFTED_ARMAMENT_FMT") % GameData.tr_name(adef))
+	else:
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_NOT_ENOUGH_GOLD"))
+
+
+func _close_blacksmith_dialog() -> void:
+	if _blacksmith_dialog != null and is_instance_valid(_blacksmith_dialog):
+		_blacksmith_dialog.queue_free()
+	_blacksmith_dialog = null
+	_smith_status_label = null
+	_smith_gold_label = null
+	get_tree().paused = false
+
+
+func _random_blacksmith_line() -> String:
+	var keys := ["BLACKSMITH_DIALOG_1", "BLACKSMITH_DIALOG_2", "BLACKSMITH_DIALOG_3"]
+	return tr(keys.pick_random())
+
+
 # ---------------- 玩家 ----------------
 func _spawn_players() -> void:
-	# 玩家中心放在地面 BODY_RADIUS 上方，腳剛好踩在 floor_y
-	var body_r: float = 30.0   # 跟 Player.BODY_RADIUS 對齊
+	# 玩家中心放在地面 body_radius 上方，腳剛好踩在 floor_y（半徑見 GameData 角色 body_radius）
+	var def1: Dictionary = GameData.get_character_def(GameState.p1_character)
+	if def1.is_empty():
+		def1 = GameData.CHARACTERS[0]
+	var body_r1: float = clampf(float(def1.get("body_radius", 42.0)), 8.0, 160.0)
 	var feet_x: float = spawn_origin.x
-	var center_y: float = floor_y - body_r
 
 	var p1 = PLAYER_SCENE.instantiate()
 	p1.input_prefix = "p1"
 	p1.slot_index = 0
 	p1.village_mode = true
 	p1.process_mode = Node.PROCESS_MODE_PAUSABLE
-	p1.position = Vector2(feet_x - 30.0, center_y)
+	p1.position = Vector2(feet_x - 30.0, floor_y - body_r1)
 	add_child(p1)
 	p1.setup_from_character(GameState.p1_character)
 	players.append(p1)
 
 	if GameState.two_players:
+		var def2: Dictionary = GameData.get_character_def(GameState.p2_character)
+		if def2.is_empty():
+			def2 = GameData.CHARACTERS[0]
+		var body_r2: float = clampf(float(def2.get("body_radius", 42.0)), 8.0, 160.0)
 		var p2 = PLAYER_SCENE.instantiate()
 		p2.input_prefix = "p2"
 		p2.slot_index = 1
 		p2.village_mode = true
 		p2.process_mode = Node.PROCESS_MODE_PAUSABLE
-		p2.position = Vector2(feet_x + 30.0, center_y)
+		p2.position = Vector2(feet_x + 30.0, floor_y - body_r2)
 		add_child(p2)
 		p2.setup_from_character(GameState.p2_character)
 		players.append(p2)
@@ -284,15 +548,22 @@ func _spawn_players() -> void:
 func _position_camera() -> void:
 	if players.is_empty():
 		return
-	var center := Vector2.ZERO
-	var alive: int = 0
-	for p in players:
-		if p.hp > 0:
-			center += p.global_position
-			alive += 1
-	if alive > 0:
-		center /= alive
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	if GameState.two_players and players.size() >= 2:
+		Coop.clamp_player_pair_separation(players)
+	var center: Vector2 = Coop.camera_center_alive(players)
 	camera.global_position = center
+	if GameState.two_players and players.size() >= 2:
+		var p1 = players[0]
+		var p2 = players[1]
+		var both_alive: bool = p1 != null and p2 != null and p1.hp > 0.0 and p2.hp > 0.0
+		if both_alive:
+			camera.zoom = Coop.dynamic_zoom(Coop.pair_distance(players), CAMERA_ZOOM)
+		else:
+			camera.zoom = CAMERA_ZOOM
+	else:
+		camera.zoom = CAMERA_ZOOM
+	Coop.clamp_camera_position(camera, MAP_SIZE, vp_size)
 
 
 # ---------------- 後備背景（無地圖時的網格）----------------

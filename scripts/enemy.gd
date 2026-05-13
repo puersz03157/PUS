@@ -18,8 +18,35 @@ var anim_time: float = 0.0
 const ANIM_FPS := 6.0
 const ROW_IDLE := 0
 const ROW_WALK := 1
+const ROW_DEATH := 6
+const GOLD_ORB_SCENE: PackedScene = preload("res://scenes/GoldOrb.tscn")
+const GOLD_DROP_NORMAL_CHANCE := 0.08
+const GOLD_DROP_ELITE_CHANCE := 0.18
+const GOLD_DROP_BOSS_CHANCE := 0.60
 
 var game_ref: Node = null
+var _dying: bool = false
+
+# 緩速：對 _base_move_speed 乘算（寒冰等）
+var _base_move_speed: float = 90.0
+var _slow_time: float = 0.0
+var _slow_speed_factor: float = 1.0
+# 易傷：飛鏢疊層，滿級提高層數上限（傷害乘算 1 + 層數×係數）
+var _vuln_time: float = 0.0
+var _vuln_stacks: int = 0
+var _vuln_stack_cap: int = 0
+# 流血 / 燃燒 / 中毒：各自 DPS 與剩餘時間
+var _bleed_time: float = 0.0
+var _bleed_dps: float = 0.0
+var _bleed_source: Node = null
+var _burn_time: float = 0.0
+var _burn_dps: float = 0.0
+var _burn_source: Node = null
+var _poison_time: float = 0.0
+var _poison_dps: float = 0.0
+var _poison_source: Node = null
+var _poison_atk_reduce: float = 0.0
+var _dot_tick_carry: float = 0.0
 
 @onready var sprite: Sprite2D = $Sprite
 @onready var body_shape: CollisionShape2D = $Body
@@ -65,6 +92,7 @@ func setup_with_slime(def: Dictionary, level_factor: float) -> void:
 	max_hp = base_hp * float(def.get("hp_mult", 1.0))
 	hp = max_hp
 	move_speed = base_speed * float(def.get("speed_mult", 1.0))
+	_base_move_speed = move_speed
 	damage = base_dmg * float(def.get("dmg_mult", 1.0))
 	xp_value = base_xp * float(def.get("xp_mult", 1.0))
 
@@ -76,6 +104,9 @@ func setup(level_factor: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if _dying:
+		_process_death_animation(delta)
+		return
 	if sprite == null or sprite.texture == null or hframes_count <= 1:
 		return
 	anim_time += delta
@@ -86,14 +117,17 @@ func _process(delta: float) -> void:
 		row = ROW_WALK
 	elif moving and vframes_count > 1 and frames_per_row.size() <= 1:
 		row = ROW_WALK
-	var fcount: int = hframes_count
-	if row < frames_per_row.size():
-		fcount = max(1, int(frames_per_row[row]))
+	var fcount: int = _frame_count_for_row(row)
 	var f: int = int(anim_time * ANIM_FPS) % fcount
 	sprite.frame = row * hframes_count + f
 
 
 func _physics_process(delta: float) -> void:
+	if _dying or hp <= 0.0:
+		return
+	_advance_enemy_status(delta)
+	if _dying or hp <= 0.0:
+		return
 	var target: Node2D = null
 	var best: float = 1e9
 	for p in get_tree().get_nodes_in_group("players"):
@@ -111,11 +145,13 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector2.ZERO
 	else:
 		var dir: Vector2 = (target.global_position - global_position).normalized()
-		velocity = dir * move_speed
+		var spd_mult: float = _slow_speed_factor if _slow_time > 0.0 else 1.0
+		velocity = dir * _base_move_speed * spd_mult
 		if best < radius + 30.0:
 			var k: String = str(target.get_instance_id())
 			if hit_cooldowns.get(k, 0.0) <= 0.0:
-				target.take_damage(damage)
+				var deal: float = damage * (1.0 - clampf(_poison_atk_reduce, 0.0, 0.75))
+				target.take_damage(deal)
 				hit_cooldowns[k] = 0.6
 		# 朝向：水平翻轉 sprite
 		if sprite:
@@ -141,18 +177,111 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 
-func take_damage(d: float, source: Node = null) -> void:
+func take_damage(d: float, source: Node = null, opts: Dictionary = {}) -> void:
+	if _dying or hp <= 0.0:
+		return
+	var dmg: float = d
+	if _vuln_time > 0.0 and _vuln_stacks > 0:
+		dmg *= 1.0 + float(_vuln_stacks) * GameData.ENEMY_STATUS_MELODY_VULN_PER_STACK
 	# 先計算實際扣血（不能超過剩餘 hp，避免超殺把統計灌爆）
-	var taken: float = clamp(d, 0.0, max(0.0, hp))
-	hp -= d
+	var taken: float = clamp(dmg, 0.0, max(0.0, hp))
+	hp -= dmg
 	# 通知造傷玩家：把實際扣血量加入該玩家的造成傷害統計
 	var p: Node = _resolve_player_from_source(source)
 	if p and p.has_method("register_damage_dealt"):
 		p.register_damage_dealt(taken)
-	modulate = Color(2.0, 2.0, 2.0)
-	create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.12)
+	if not opts.get("from_dot", false):
+		AudioManager.play_sfx("enemy_hit", 0.05)
+		modulate = Color(2.0, 2.0, 2.0)
+		create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.12)
 	if hp <= 0:
 		_die(source)
+
+
+func is_status_slowed() -> bool:
+	return _slow_time > 0.0
+
+
+func is_status_bleeding() -> bool:
+	return _bleed_time > 0.0 and _bleed_dps > 0.0
+
+
+func apply_status_slow(duration: float, speed_factor: float = 0.55) -> void:
+	_slow_time = max(_slow_time, duration)
+	_slow_speed_factor = min(_slow_speed_factor, clamp(speed_factor, 0.15, 1.0))
+
+
+func apply_status_vulnerable(duration: float, stack_cap: int) -> void:
+	_vuln_time = max(_vuln_time, duration)
+	var cap: int = max(1, stack_cap)
+	_vuln_stack_cap = max(_vuln_stack_cap, cap)
+	_vuln_stacks = min(_vuln_stack_cap, _vuln_stacks + 1)
+
+
+func apply_status_bleed(dps: float, duration: float, source: Node = null) -> void:
+	if dps <= 0.0 or duration <= 0.0:
+		return
+	_bleed_time = max(_bleed_time, duration)
+	_bleed_dps = max(_bleed_dps, dps)
+	if source != null:
+		_bleed_source = source
+
+
+func apply_status_burn(dps: float, duration: float, source: Node = null) -> void:
+	if dps <= 0.0 or duration <= 0.0:
+		return
+	_burn_time = max(_burn_time, duration)
+	_burn_dps = max(_burn_dps, dps)
+	if source != null:
+		_burn_source = source
+
+
+func apply_status_poison(
+		dps: float, duration: float, source: Node = null, weaken_attack: bool = false) -> void:
+	if dps <= 0.0 or duration <= 0.0:
+		return
+	_poison_time = max(_poison_time, duration)
+	_poison_dps = max(_poison_dps, dps)
+	if source != null:
+		_poison_source = source
+	if weaken_attack:
+		_poison_atk_reduce = max(
+			_poison_atk_reduce, GameData.ENEMY_STATUS_POISON_ATK_REDUCE)
+
+
+func _advance_enemy_status(delta: float) -> void:
+	_dot_tick_carry += delta
+	var step: float = GameData.ENEMY_STATUS_TICK_SEC
+	while _dot_tick_carry >= step:
+		_dot_tick_carry -= step
+		_pulse_dot_sources(step)
+	_slow_time = max(0.0, _slow_time - delta)
+	if _slow_time <= 0.0:
+		_slow_speed_factor = 1.0
+	_vuln_time = max(0.0, _vuln_time - delta)
+	if _vuln_time <= 0.0:
+		_vuln_stacks = 0
+		_vuln_stack_cap = 0
+	_bleed_time = max(0.0, _bleed_time - delta)
+	if _bleed_time <= 0.0:
+		_bleed_dps = 0.0
+	_burn_time = max(0.0, _burn_time - delta)
+	if _burn_time <= 0.0:
+		_burn_dps = 0.0
+	_poison_time = max(0.0, _poison_time - delta)
+	if _poison_time <= 0.0:
+		_poison_dps = 0.0
+		_poison_atk_reduce = 0.0
+
+
+func _pulse_dot_sources(step: float) -> void:
+	var dot_opts := {"from_dot": true}
+	if _bleed_time > 0.0 and _bleed_dps > 0.0:
+		take_damage(_bleed_dps * step, _bleed_source, dot_opts)
+	if _burn_time > 0.0 and _burn_dps > 0.0:
+		take_damage(_burn_dps * step, _burn_source, dot_opts)
+	if _poison_time > 0.0 and _poison_dps > 0.0:
+		take_damage(_poison_dps * step, _poison_source, dot_opts)
 
 
 func _resolve_player_from_source(source: Node) -> Node:
@@ -167,6 +296,8 @@ func _resolve_player_from_source(source: Node) -> Node:
 
 
 func _die(source: Node) -> void:
+	if _dying:
+		return
 	if source and source.has_method("on_enemy_killed"):
 		source.on_enemy_killed(self)
 	elif source and source is Node and source.get("owner_player"):
@@ -178,4 +309,70 @@ func _die(source: Node) -> void:
 	orb.global_position = global_position
 	orb.value = xp_value
 	get_tree().current_scene.add_child(orb)
-	queue_free()
+	_try_drop_gold()
+	if _has_death_animation():
+		_begin_death_animation()
+	else:
+		queue_free()
+
+
+func _try_drop_gold() -> void:
+	var amount: int = _roll_gold_drop_amount()
+	if amount <= 0:
+		return
+	var gold = GOLD_ORB_SCENE.instantiate()
+	gold.global_position = global_position + Vector2(randf_range(-10.0, 10.0), randf_range(-8.0, 8.0))
+	gold.value = amount
+	get_tree().current_scene.add_child(gold)
+
+
+func _roll_gold_drop_amount() -> int:
+	if bool(slime_def.get("stage_boss", false)):
+		return randi_range(25, 40)
+	if bool(slime_def.get("boss", false)):
+		if randf() <= GOLD_DROP_BOSS_CHANCE:
+			return randi_range(8, 14)
+		return 0
+	if bool(slime_def.get("elite", false)):
+		if randf() <= GOLD_DROP_ELITE_CHANCE:
+			return randi_range(2, 4)
+		return 0
+	if randf() <= GOLD_DROP_NORMAL_CHANCE:
+		return randi_range(1, 2)
+	return 0
+
+
+func _frame_count_for_row(row: int) -> int:
+	if row < frames_per_row.size():
+		return max(1, int(frames_per_row[row]))
+	return max(1, hframes_count)
+
+
+func _has_death_animation() -> bool:
+	return sprite != null and sprite.texture != null and hframes_count > 1 and vframes_count > ROW_DEATH
+
+
+func _begin_death_animation() -> void:
+	_dying = true
+	velocity = Vector2.ZERO
+	hit_cooldowns.clear()
+	remove_from_group("enemies")
+	collision_layer = 0
+	collision_mask = 0
+	if body_shape:
+		body_shape.set_deferred("disabled", true)
+	anim_time = 0.0
+	modulate = Color(1, 1, 1, 1)
+	sprite.frame = ROW_DEATH * hframes_count
+
+
+func _process_death_animation(delta: float) -> void:
+	if not _has_death_animation():
+		queue_free()
+		return
+	anim_time += delta
+	var fcount: int = _frame_count_for_row(ROW_DEATH)
+	var f: int = min(fcount - 1, int(anim_time * ANIM_FPS))
+	sprite.frame = ROW_DEATH * hframes_count + f
+	if anim_time >= float(fcount) / ANIM_FPS:
+		queue_free()

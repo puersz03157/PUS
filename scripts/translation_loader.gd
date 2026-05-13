@@ -1,13 +1,17 @@
 extends Node
 ## 啟動時從 res://translations/strings.csv 建立 Translation 並註冊到 TranslationServer。
-## 不依賴編輯器匯出的 .translation 檔（避免 Git 未追蹤或專案設定指到 .csv 卻載入失敗）。
+## 優先讀 raw CSV；匯出版若拿不到 CSV，會退回 Godot 匯出的 .translation 檔。
 ## 空白的 zh_CN / en 欄位會以 zh_TW 內容補齊，避免系統語系落在 en 時整片顯示 KEY。
 
 const CSV_PATH := "res://translations/strings.csv"
+const FALLBACK_TRANSLATION_PATHS := [
+	"res://translations/strings.zh_TW.translation",
+]
 
 
 func _ready() -> void:
-	_load_translations_from_csv(CSV_PATH)
+	if not _load_translations_from_csv(CSV_PATH):
+		_load_fallback_translation_resources()
 	_apply_startup_locale()
 
 
@@ -20,15 +24,15 @@ func _apply_startup_locale() -> void:
 	TranslationServer.set_locale(loc)
 
 
-func _load_translations_from_csv(path: String) -> void:
+func _load_translations_from_csv(path: String) -> bool:
 	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		push_warning("TranslationLoader: 無法開啟 %s" % path)
-		return
+		return false
 	var header: PackedStringArray = f.get_csv_line()
 	if header.size() < 2:
 		push_warning("TranslationLoader: CSV 標題列無效")
-		return
+		return false
 	if String(header[0]).strip_edges().to_lower() != "keys":
 		push_warning("TranslationLoader: 第一欄必須為 keys")
 	var locales: PackedStringArray = PackedStringArray()
@@ -37,7 +41,7 @@ func _load_translations_from_csv(path: String) -> void:
 		if h != "":
 			locales.append(h)
 	if locales.is_empty():
-		return
+		return false
 	var by_locale: Dictionary = {}
 	for li in range(locales.size()):
 		by_locale[locales[li]] = {}
@@ -79,3 +83,13 @@ func _load_translations_from_csv(path: String) -> void:
 				continue
 			tr_res.add_message(String(k), val)
 		TranslationServer.add_translation(tr_res)
+	return true
+
+
+func _load_fallback_translation_resources() -> void:
+	for path in FALLBACK_TRANSLATION_PATHS:
+		if not ResourceLoader.exists(path):
+			continue
+		var tr_res: Translation = load(path) as Translation
+		if tr_res != null:
+			TranslationServer.add_translation(tr_res)

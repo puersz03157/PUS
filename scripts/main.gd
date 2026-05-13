@@ -51,11 +51,13 @@ func _on_village() -> void:
 
 
 func _open_village_picker() -> void:
+	AudioManager.play_sfx("ui_select")
 	village_picker.visible = true
 	btn_village_solo.grab_focus()
 
 
 func _close_village_picker() -> void:
+	AudioManager.play_sfx("ui_back")
 	village_picker.visible = false
 	btn_village.grab_focus()
 
@@ -71,6 +73,7 @@ func _on_village_duo() -> void:
 func _go_select(two_players: bool, target: String) -> void:
 	if _transitioning:
 		return
+	AudioManager.play_sfx("ui_confirm")
 	_transitioning = true
 	GameState.two_players = two_players
 	GameState.next_scene = target
@@ -78,4 +81,5 @@ func _go_select(two_players: bool, target: String) -> void:
 
 
 func _on_quit() -> void:
+	AudioManager.play_sfx("ui_confirm")
 	get_tree().quit()
