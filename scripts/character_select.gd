@@ -507,12 +507,16 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 		if frame_tex:
 			var fw2: float = float(maxi(1, frame_tex.get_width()))
 			var fh2: float = float(maxi(1, frame_tex.get_height()))
-			prev.texture = frame_tex
+			var frame_region: Rect2 = _visible_texture_region(frame_tex, Rect2(0, 0, fw2, fh2))
+			var frame_at := AtlasTexture.new()
+			frame_at.atlas = frame_tex
+			frame_at.region = frame_region
+			prev.texture = frame_at
 			prev.modulate = c.get("tint", Color.WHITE)
 			prev.visible = true
 			prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			prev.flip_h = bool(c.get("sprite_faces_left", false))
-			_apply_integer_scale_preview(prev, fw2, fh2)
+			_apply_integer_scale_preview(prev, frame_region.size.x, frame_region.size.y)
 		elif c.has("sprite_strips") and c["sprite_strips"].has("idle"):
 			var preview_key: String = String(c.get("preview_strip", "idle"))
 			if not c["sprite_strips"].has(preview_key):
@@ -546,15 +550,16 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 			var ry: float = prow * fh + trim_t
 			var rw: float = maxf(1.0, fw - trim_l - trim_r)
 			var rh: float = maxf(1.0, fh - trim_t - trim_b)
+			var visible_region: Rect2 = _visible_texture_region(atlas, Rect2(rx, ry, rw, rh))
 			var at := AtlasTexture.new()
 			at.atlas = atlas
-			at.region = Rect2(rx, ry, rw, rh)
+			at.region = visible_region
 			prev.texture = at
 			prev.modulate = c.get("tint", Color.WHITE)
 			prev.visible = true
 			prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			prev.flip_h = bool(c.get("sprite_faces_left", false))
-			_apply_integer_scale_preview(prev, rw, rh)
+			_apply_integer_scale_preview(prev, visible_region.size.x, visible_region.size.y)
 		else:
 			prev.texture = null
 			prev.visible = false
@@ -593,7 +598,38 @@ func _first_frame_path(entry) -> String:
 	return ""
 
 
-# 把 TextureRect 改用「整數倍」尺寸並置中於父容器，避免非整數倍縮放造成像素寬窄不一
+# 取出來源圖中實際有像素的區域，避免角色因左右透明留白不同而看起來大小不一。
+func _visible_texture_region(tex: Texture2D, source_rect: Rect2, padding: int = 2) -> Rect2:
+	if tex == null:
+		return source_rect
+	var img: Image = tex.get_image()
+	if img == null:
+		return source_rect
+	var x0: int = clampi(int(floor(source_rect.position.x)), 0, img.get_width() - 1)
+	var y0: int = clampi(int(floor(source_rect.position.y)), 0, img.get_height() - 1)
+	var x1: int = clampi(int(ceil(source_rect.end.x)), x0 + 1, img.get_width())
+	var y1: int = clampi(int(ceil(source_rect.end.y)), y0 + 1, img.get_height())
+	var min_x: int = x1
+	var min_y: int = y1
+	var max_x: int = x0
+	var max_y: int = y0
+	for y in range(y0, y1):
+		for x in range(x0, x1):
+			if img.get_pixel(x, y).a > 0.02:
+				min_x = mini(min_x, x)
+				min_y = mini(min_y, y)
+				max_x = maxi(max_x, x + 1)
+				max_y = maxi(max_y, y + 1)
+	if min_x >= max_x or min_y >= max_y:
+		return source_rect
+	min_x = maxi(x0, min_x - padding)
+	min_y = maxi(y0, min_y - padding)
+	max_x = mini(x1, max_x + padding)
+	max_y = mini(y1, max_y + padding)
+	return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
+
+
+# 把 TextureRect 改用「整數倍」尺寸並置中於父容器，讓預覽大小一致且不裁頭。
 func _apply_integer_scale_preview(prev: TextureRect, src_w: float, src_h: float) -> void:
 	var parent: Control = prev.get_parent() as Control
 	if parent == null:
@@ -604,12 +640,11 @@ func _apply_integer_scale_preview(prev: TextureRect, src_w: float, src_h: float)
 		# 父尺寸還沒就緒就用 .tscn 設的尺寸 (P1Panel/Color = 130x130)
 		pw = 130.0
 		ph = 130.0
-	# 預留邊框留白：取父尺寸的 92%
-	var avail_w: float = pw * 0.92
-	var avail_h: float = ph * 0.92
-	var max_int_scale: int = max(1, min(int(avail_w / src_w), int(avail_h / src_h)))
-	var disp_w: float = src_w * max_int_scale
-	var disp_h: float = src_h * max_int_scale
+	var avail_w: float = pw * 0.94
+	var avail_h: float = ph * 0.94
+	var fit_scale: int = max(1, min(int(avail_w / src_w), int(avail_h / src_h)))
+	var disp_w: float = src_w * fit_scale
+	var disp_h: float = src_h * fit_scale
 	# 解掉錨點（.tscn 預設 anchors_preset=15 會撐滿父層），改用絕對 size + position
 	prev.set_anchors_preset(Control.PRESET_TOP_LEFT, false)
 	prev.size = Vector2(disp_w, disp_h)

@@ -40,9 +40,15 @@ func refresh() -> void:
 	var rate_lv: int = u.get("w_rate", 0)
 	var cnt_lv: int = u.get("w_count", 0)
 
-	var atk_factor: float = (1.0 + 0.05 * owner_player.atk) * owner_player.damage_mult
+	var dmg_mult_total: float = owner_player.damage_mult
+	if owner_player.has_method("get_effective_damage_mult"):
+		dmg_mult_total = owner_player.get_effective_damage_mult()
+	var rate_mult_total: float = owner_player.rate_mult
+	if owner_player.has_method("get_effective_rate_mult"):
+		rate_mult_total = owner_player.get_effective_rate_mult()
+	var atk_factor: float = (1.0 + 0.05 * owner_player.atk) * dmg_mult_total
 	eff_damage = def["damage"] * (1.0 + 0.20 * dmg_lv) * atk_factor
-	eff_rate = def["rate"] * (1.0 + 0.15 * rate_lv) * owner_player.rate_mult
+	eff_rate = def["rate"] * (1.0 + 0.15 * rate_lv) * rate_mult_total
 	eff_range = def["range"] * (1.0 + 0.15 * rng_lv)
 	var base_count: int = int(def["params"].get("count", 1))
 	eff_count = base_count + cnt_lv

@@ -26,6 +26,10 @@ const GOLD_DROP_BOSS_CHANCE := 0.60
 
 var game_ref: Node = null
 var _dying: bool = false
+var special_ai_mode: String = ""
+var flee_lifetime: float = 12.0
+var rune_dust_drop: int = 0
+var _special_age: float = 0.0
 
 # 緩速：對 _base_move_speed 乘算（寒冰等）
 var _base_move_speed: float = 90.0
@@ -103,6 +107,25 @@ func setup(level_factor: float) -> void:
 	setup_with_slime(def, level_factor)
 
 
+func setup_rescue_runner(level_factor: float, dust_amount: int) -> void:
+	var def: Dictionary = GameData.get_slime_def("slime_lightblue")
+	if def.is_empty():
+		def = GameData.pick_slime(level_factor)
+	setup_with_slime(def, level_factor)
+	special_ai_mode = "flee"
+	flee_lifetime = 13.0
+	rune_dust_drop = dust_amount
+	max_hp *= 1.8
+	hp = max_hp
+	move_speed *= 1.45
+	_base_move_speed = move_speed
+	xp_value *= 2.5
+	damage = max(1.0, damage * 0.4)
+	modulate = Color(1.25, 0.75, 1.8)
+	if sprite:
+		sprite.scale *= 1.2
+
+
 func _process(delta: float) -> void:
 	if _dying:
 		_process_death_animation(delta)
@@ -125,6 +148,10 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if _dying or hp <= 0.0:
 		return
+	_special_age += delta
+	if special_ai_mode == "flee" and _special_age >= flee_lifetime:
+		queue_free()
+		return
 	_advance_enemy_status(delta)
 	if _dying or hp <= 0.0:
 		return
@@ -146,8 +173,15 @@ func _physics_process(delta: float) -> void:
 	else:
 		var dir: Vector2 = (target.global_position - global_position).normalized()
 		var spd_mult: float = _slow_speed_factor if _slow_time > 0.0 else 1.0
-		velocity = dir * _base_move_speed * spd_mult
-		if best < radius + 30.0:
+		if special_ai_mode == "flee":
+			var flee_dir: Vector2 = -dir
+			velocity = flee_dir * _base_move_speed * spd_mult
+			if best >= 620.0:
+				queue_free()
+				return
+		else:
+			velocity = dir * _base_move_speed * spd_mult
+		if special_ai_mode != "flee" and best < radius + 30.0:
 			var k: String = str(target.get_instance_id())
 			if hit_cooldowns.get(k, 0.0) <= 0.0:
 				var deal: float = damage * (1.0 - clampf(_poison_atk_reduce, 0.0, 0.75))
@@ -310,10 +344,20 @@ func _die(source: Node) -> void:
 	orb.value = xp_value
 	get_tree().current_scene.add_child(orb)
 	_try_drop_gold()
+	_try_grant_rune_dust()
 	if _has_death_animation():
 		_begin_death_animation()
 	else:
 		queue_free()
+
+
+func _try_grant_rune_dust() -> void:
+	if rune_dust_drop <= 0:
+		return
+	if is_instance_valid(GameState) and GameState.has_method("grant_rune_dust"):
+		GameState.grant_rune_dust(rune_dust_drop)
+	if game_ref != null and game_ref.has_method("notify_rune_dust_drop"):
+		game_ref.notify_rune_dust_drop(rune_dust_drop)
 
 
 func _try_drop_gold() -> void:

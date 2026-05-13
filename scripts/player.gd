@@ -27,6 +27,11 @@ var xp_mult: float = 1.0
 var dmg_reduce: float = 0.0
 var regen_per_sec: float = 0.0
 
+const LEVEL_HP_MULT_PER_LEVEL := 0.02
+const LEVEL_DAMAGE_MULT_PER_LEVEL := 0.02
+const LEVEL_DEF_BONUS_PER_LEVEL := 0.5
+const LEVEL_SPEED_MULT_PER_LEVEL := 0.003
+
 # 共用等級系統 — 實際資料存在 Game.team_level / team_xp，這裡為了 HUD/_draw 同步暫存
 var level: int = 1
 var xp: float = 0.0
@@ -340,6 +345,50 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 
+func get_level_growth_steps() -> int:
+	return maxi(0, level - 1)
+
+
+func get_level_hp_mult() -> float:
+	return 1.0 + LEVEL_HP_MULT_PER_LEVEL * float(get_level_growth_steps())
+
+
+func get_level_damage_mult() -> float:
+	return 1.0 + LEVEL_DAMAGE_MULT_PER_LEVEL * float(get_level_growth_steps())
+
+
+func get_level_def_bonus() -> float:
+	return LEVEL_DEF_BONUS_PER_LEVEL * float(get_level_growth_steps())
+
+
+func get_level_speed_mult() -> float:
+	return 1.0 + LEVEL_SPEED_MULT_PER_LEVEL * float(get_level_growth_steps())
+
+
+func get_effective_max_hp() -> float:
+	return max_hp * hp_mult * get_level_hp_mult()
+
+
+func get_effective_damage_mult() -> float:
+	return damage_mult * get_level_damage_mult()
+
+
+func get_effective_atk_power() -> float:
+	return atk * get_effective_damage_mult()
+
+
+func get_effective_def() -> float:
+	return def_value + get_level_def_bonus()
+
+
+func get_effective_rate_mult() -> float:
+	return rate_mult
+
+
+func get_effective_move_speed() -> float:
+	return move_speed * speed_mult * get_level_speed_mult()
+
+
 # 戰鬥（俯視）：八方向自由移動
 func _battle_physics(delta: float) -> void:
 	var dir: Vector2 = Vector2(
@@ -352,7 +401,7 @@ func _battle_physics(delta: float) -> void:
 	if sprite and sprite.visible:
 		sprite.rotation = face_dir.angle()
 	if dir.length() > 0:
-		velocity = dir.normalized() * move_speed * speed_mult
+		velocity = dir.normalized() * get_effective_move_speed()
 	else:
 		velocity = Vector2.ZERO
 
@@ -389,7 +438,7 @@ func _village_physics(delta: float) -> void:
 		velocity.y = -VILLAGE_JUMP_SPEED
 		village_on_floor = false
 	# 橫向速度（地面 = 直接設定；空中 = 適度控制以避免空中急停）
-	var target_vx: float = ix * move_speed * speed_mult
+	var target_vx: float = ix * get_effective_move_speed()
 	if village_on_floor:
 		velocity.x = target_vx
 	else:
@@ -701,7 +750,7 @@ func _draw() -> void:
 	var h: float = 4.0
 	var top := Vector2(-w * 0.5, -28.0)
 	draw_rect(Rect2(top, Vector2(w, h)), Color(0.1, 0.05, 0.05))
-	var pct: float = clamp(hp / max(1.0, max_hp * hp_mult), 0.0, 1.0)
+	var pct: float = clamp(hp / max(1.0, get_effective_max_hp()), 0.0, 1.0)
 	draw_rect(Rect2(top, Vector2(w * pct, h)), Color(0.95, 0.3, 0.3))
 	var top2 := top + Vector2(0, h + 1.0)
 	draw_rect(Rect2(top2, Vector2(w, 2.0)), Color(0.05, 0.15, 0.25))
@@ -770,7 +819,7 @@ func take_damage(d: float) -> void:
 		create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.25)
 		_passive_unyielding_try_meter()
 		return
-	var actual: float = max(1.0, d * (1.0 - dmg_reduce) - def_value * 0.5)
+	var actual: float = max(1.0, d * (1.0 - dmg_reduce) - get_effective_def() * 0.5)
 	var taken_now: float = min(actual, hp)
 	hp -= actual
 	damage_taken += taken_now
@@ -803,7 +852,7 @@ func _heal(amount: float) -> void:
 	# 死亡狀態鎖死，任何來源（regen / level-up / 技能）都不能讓 hp 從 0 回升
 	if hp <= 0:
 		return
-	hp = min(max_hp * hp_mult, hp + amount)
+	hp = min(get_effective_max_hp(), hp + amount)
 
 
 # 經驗：共用等級制 — 把 XP 投入 Game 的隊伍進度（含 xp_mult 倍率）
@@ -831,7 +880,8 @@ func _self_level_up() -> void:
 	level += 1
 	xp_to_next = round(xp_to_next * 1.25 + 2.0)
 	# 升級回血：以最大 HP 5% 為主（之前固定 +10 在 2P 連升時等於無敵）
-	_heal(max_hp * hp_mult * 0.05)
+	_refresh_weapon_stats()
+	_heal(get_effective_max_hp() * 0.05)
 	AudioManager.play_sfx("level_up", 0.02)
 	leveled_up.emit(self)
 
@@ -840,7 +890,8 @@ func _self_level_up() -> void:
 func on_team_level_up(new_level: int) -> void:
 	level = new_level
 	# 升級回血上限以最大 HP 5%（避免雙人快速升級被當無敵）
-	_heal(max_hp * hp_mult * 0.05)
+	_refresh_weapon_stats()
+	_heal(get_effective_max_hp() * 0.05)
 	AudioManager.play_sfx("level_up", 0.02)
 
 
@@ -848,6 +899,12 @@ func on_team_level_up(new_level: int) -> void:
 func sync_team_progress(team_xp: float, team_to_next: float) -> void:
 	xp = team_xp
 	xp_to_next = team_to_next
+
+
+func _refresh_weapon_stats() -> void:
+	for ww in weapons:
+		if ww["node"]:
+			ww["node"].refresh()
 
 
 func on_enemy_killed(_e: Node) -> void:
@@ -912,7 +969,7 @@ func _skill_agile_tactics_combat(s: Dictionary) -> void:
 	var min_dmg: float = float(prm.get("combat_min_damage", 18.0))
 	var n: int = base_n + ranger_arrows
 	ranger_arrows = 0
-	var dmg: float = max(min_dmg, atk * damage_mult * dmg_mul)
+	var dmg: float = max(min_dmg, get_effective_atk_power() * dmg_mul)
 	var aim: Vector2 = face_dir if face_dir.length_squared() > 0.001 else Vector2.RIGHT
 	var center_ang: float = aim.angle()
 	var total_spread: float = deg_to_rad(spread_d) * (n - 1)
@@ -1024,7 +1081,7 @@ func _skill_whirl_slash_combat(s: Dictionary) -> void:
 	var radius: float = float(params.get("combat_radius", 360.0))
 	var dmg_mult: float = float(params.get("combat_damage_mult", 6.0))
 	var min_damage: float = float(params.get("combat_min_damage", 80.0))
-	var dmg: float = max(min_damage, atk * damage_mult * dmg_mult)
+	var dmg: float = max(min_damage, get_effective_atk_power() * dmg_mult)
 	# 命中範圍內所有敵人
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if not is_instance_valid(e):
@@ -1074,7 +1131,7 @@ func _skill_energy_wave_combat(s: Dictionary) -> void:
 	var min_dmg: float = float(prm.get("combat_min_damage", 60.0))
 	var start: Vector2 = global_position + face_dir * start_off
 	var end: Vector2 = start + face_dir * beam_len
-	var dmg: float = max(min_dmg, atk * damage_mult * dmg_mul)
+	var dmg: float = max(min_dmg, get_effective_atk_power() * dmg_mul)
 	var any_hit: bool = false
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if not is_instance_valid(e):
@@ -1250,13 +1307,12 @@ func apply_common_upgrade(id: String) -> Dictionary:
 		match f:
 			"hp_mult":
 				hp_mult += v
-				_heal(max_hp * v)
+				_heal(max_hp * get_level_hp_mult() * v)
 			"speed_mult":
 				speed_mult += v
 			"rate_mult":
 				rate_mult += v
-				for ww in weapons:
-					if ww["node"]: ww["node"].refresh()
+				_refresh_weapon_stats()
 			"pickup_mult":
 				pickup_mult += v
 				_update_pickup_radius()
@@ -1268,8 +1324,7 @@ func apply_common_upgrade(id: String) -> Dictionary:
 				regen_per_sec += v
 			"damage_mult":
 				damage_mult += v
-				for ww in weapons:
-					if ww["node"]: ww["node"].refresh()
+				_refresh_weapon_stats()
 		return {"kind": "common_upgrade", "upgrade_id": id, "current": cur, "max": int(u["max"])}
 	var u0: Dictionary = GameData.get_common_upgrade_def(id)
 	return {"kind": "common_upgrade", "upgrade_id": id, "current": cur, "max": int(u0.get("max", 0))}

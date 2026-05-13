@@ -104,7 +104,7 @@ func _try_hit(body: Node) -> void:
 			if e == body:
 				continue
 			if global_position.distance_to(e.global_position) <= explode_radius:
-				weapon.damage_enemy(e, 0.7)
+				weapon.damage_enemy(e, 0.8)
 	_finish()
 
 

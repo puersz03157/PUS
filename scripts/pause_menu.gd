@@ -202,8 +202,10 @@ func _build_player_section(p: Node) -> void:
 		p.slot_index + 1,
 		c_def["color"].to_html(false),
 		GameData.tr_name(c_def),
-		int(p.hp), int(p.max_hp * p.hp_mult), p.kills]
+		int(p.hp), int(_effective_max_hp(p)), p.kills]
 	inner.add_child(header)
+
+	_build_live_stat_section(inner, p, c_def)
 
 	# 技能 / 被動：兩個有 label 的格子
 	var sk_pa_row := HBoxContainer.new()
@@ -262,6 +264,41 @@ func _build_player_section(p: Node) -> void:
 		stk.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
 		stk.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		inner.add_child(stk)
+
+
+func _build_live_stat_section(inner: VBoxContainer, p: Node, c_def: Dictionary) -> void:
+	var stat := RichTextLabel.new()
+	stat.bbcode_enabled = true
+	stat.fit_content = true
+	stat.scroll_active = false
+	stat.custom_minimum_size = Vector2(0, 58)
+	stat.add_theme_font_size_override("normal_font_size", 13)
+	stat.text = _live_stat_text(p, c_def)
+	inner.add_child(stat)
+
+
+func _live_stat_text(p: Node, _c_def: Dictionary) -> String:
+	var effective_hp: float = _effective_max_hp(p)
+	var effective_atk: float = _call_float(p, "get_effective_atk_power", p.atk * p.damage_mult)
+	var effective_def: float = _call_float(p, "get_effective_def", p.def_value)
+	var effective_rate: float = _call_float(p, "get_effective_rate_mult", p.rate_mult)
+	var effective_move: float = _call_float(p, "get_effective_move_speed", p.move_speed * p.speed_mult)
+	var lines: Array[String] = []
+	lines.append("[color=#ffd24d]即時素質[/color]  HP %d/%d    ATK %.1f    DEF %.1f" % [
+		int(p.hp), int(effective_hp), effective_atk, effective_def])
+	lines.append("SPD(atk) %.2fx    SPD(move) %.0f    減傷 %.0f%%" % [
+		effective_rate, effective_move, float(p.dmg_reduce) * 100.0])
+	return "\n".join(lines)
+
+
+func _call_float(target: Node, method: String, fallback: float) -> float:
+	if target != null and target.has_method(method):
+		return float(target.call(method))
+	return fallback
+
+
+func _effective_max_hp(p: Node) -> float:
+	return _call_float(p, "get_effective_max_hp", p.max_hp * p.hp_mult)
 
 
 func _build_stack_lines(p: Node) -> Array[String]:

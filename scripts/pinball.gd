@@ -13,10 +13,13 @@ const PEG_BOUNCE := 0.92
 const LAUNCHER_SPEED := 200.0
 const LAUNCHER_HALF_W := 18.0
 const LAUNCH_INITIAL_VY := 320.0
-## 彈針被撞「擊毀」時額外加分（撞擊本身的 +1 仍照舊）
+## 彈針被撞「擊毀」時額外加分（撞擊本身的分數仍照舊）
+const PEG_HIT_SCORE := 3
 const PEG_DESTROY_EXTRA_SCORE := 5
 ## 每位玩家彈針分每達此整數倍，隨機升級一個尚未摧毀的獎勵格
 const SCORE_SLOT_UPGRADE_EVERY := 20
+const SCORE_SLOT_UPGRADE_MAX_MULT := 3
+const FALLBACK_GOLD_REWARD := 20
 
 
 var board_rect: Rect2 = Rect2()
@@ -35,7 +38,7 @@ var title_label: Label
 var instructions_label: Label
 var slot_labels: Array = []
 
-# 計分板：每次彈珠（含能量彈）撞到彈針 +1 分；擊毀彈針再加分。分數每達 20 的倍數會隨機升級一格獎勵。
+# 計分板：每次彈珠（含能量彈）撞到彈針加分；擊毀彈針再加分。分數每達 20 的倍數會隨機升級一格獎勵。
 var player_scores: Dictionary = {}   # Node(player) -> int
 var scoreboard_label: Label
 
@@ -188,7 +191,7 @@ func _refresh_scoreboard() -> void:
 	scoreboard_label.text = tr("PINBALL_SCOREBOARD_PREFIX") + "　".join(parts)
 
 
-# 給球的擁有玩家加分（每撞 1 次彈針 = +1；擊毀另計）
+# 給球的擁有玩家加分（每撞 1 次彈針 = +PEG_HIT_SCORE；擊毀另計）
 func _grant_peg_score(b: Dictionary, amount: int = 1) -> void:
 	var p: Node = b.get("player", null)
 	if p == null or amount <= 0:
@@ -203,44 +206,32 @@ func _grant_peg_score(b: Dictionary, amount: int = 1) -> void:
 		_upgrade_random_alive_reward_slot()
 
 
-func _pick_reward_for_slot_upgrade(replace_idx: int) -> Dictionary:
-	var pool: Array = _build_reward_pool()
-	pool.shuffle()
-	var used: Dictionary = {}
-	for i in SLOT_COUNT:
-		if i == replace_idx:
-			continue
-		if slots[i].get("destroyed", false):
-			continue
-		used[String(slots[i].get("name", ""))] = true
-	for r in pool:
-		if not used.has(String(r.get("name", ""))):
-			return (r as Dictionary).duplicate(true)
-	return {
-		"name": tr("PINBALL_SLOT_GOLD"),
-		"desc": tr("PINBALL_SLOT_GOLD_DESC"),
-		"color": Color(1, 0.85, 0.4),
-		"reward": {"type": "noop"},
-	}
-
-
 func _upgrade_random_alive_reward_slot() -> void:
 	var candidates: Array[int] = []
 	for i in SLOT_COUNT:
-		if not slots[i].get("destroyed", false):
+		if not slots[i].get("destroyed", false) \
+				and int(slots[i].get("reward_mult", 1)) < SCORE_SLOT_UPGRADE_MAX_MULT:
 			candidates.append(i)
 	if candidates.is_empty():
 		return
 	var idx: int = candidates[randi() % candidates.size()]
-	var new_slot: Dictionary = _pick_reward_for_slot_upgrade(idx)
-	slots[idx] = new_slot
+	slots[idx]["reward_mult"] = int(slots[idx].get("reward_mult", 1)) + 1
+	slots[idx]["upgraded"] = true
 	var lbl: Label = slot_labels[idx]
-	lbl.text = String(new_slot.get("name", ""))
-	lbl.add_theme_color_override("font_color", Color(1, 1, 1))
+	lbl.text = _slot_display_name(slots[idx])
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
 	slots_node.queue_redraw()
 	var tw := lbl.create_tween()
 	lbl.modulate = Color(1.45, 1.35, 0.95)
 	tw.tween_property(lbl, "modulate", Color(1, 1, 1), 0.5)
+
+
+func _slot_display_name(slot: Dictionary) -> String:
+	var name: String = String(slot.get("name", ""))
+	var mult: int = int(slot.get("reward_mult", 1))
+	if mult > 1:
+		return "%s x%d" % [name, mult]
+	return name
 
 
 func _action_label(a: String) -> String:
@@ -325,7 +316,7 @@ func _build_slots() -> void:
 		lbl.position = Vector2(board_rect.position.x + slot_w * i,
 			board_rect.end.y + 6.0)
 		lbl.size = Vector2(slot_w, slot_h - 8.0)
-		lbl.text = slots[i]["name"]
+		lbl.text = _slot_display_name(slots[i])
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -339,6 +330,8 @@ func _build_slots() -> void:
 func _draw_slots(node: Node2D) -> void:
 	for i in SLOT_COUNT:
 		var col: Color = slots[i]["color"]
+		if int(slots[i].get("reward_mult", 1)) > 1:
+			col = col.lerp(Color(1.0, 0.92, 0.35), 0.35)
 		var r := Rect2(board_rect.position.x + slot_w * i,
 			board_rect.end.y, slot_w - 2.0, slot_h - 8.0)
 		if slots[i].get("destroyed", false):
@@ -362,6 +355,8 @@ func _draw_slots(node: Node2D) -> void:
 func _build_reward_pool() -> Array:
 	var pool: Array = []
 	for u in GameData.COMMON_UPGRADES:
+		if not _any_leveler_can_take_common(String(u["id"])):
+			continue
 		pool.append({
 			"name": GameData.tr_name(u),
 			"desc": GameData.tr_desc(u),
@@ -371,12 +366,16 @@ func _build_reward_pool() -> Array:
 	# 統計：每位升級玩家擁有的武器、是否還有空格
 	var anyone_has_room: bool = false
 	var owned: Dictionary = {}
+	var upgradable: Dictionary = {}
 	for p in levelers:
 		var weapon_cap: int = p.get_weapon_slot_max() if p.has_method("get_weapon_slot_max") else int(p.WEAPON_SLOT_MAX)
 		if p.weapons.size() < weapon_cap:
 			anyone_has_room = true
 		for w in p.weapons:
-			owned[w["id"]] = true
+			var owned_id: String = String(w["id"])
+			owned[owned_id] = true
+			if _weapon_entry_can_upgrade(w):
+				upgradable[owned_id] = true
 	for w in GameData.WEAPONS:
 		var wid: String = String(w["id"])
 		if not GameState.is_weapon_unlocked(wid):
@@ -394,6 +393,8 @@ func _build_reward_pool() -> Array:
 				"reward": {"type": "weapon", "id": wid},
 			})
 		else:
+			if not upgradable.has(wid):
+				continue
 			pool.append({
 				"name": tr("PINBALL_SLOT_UPGRADE_NAME_FMT") % w_name,
 				"desc": tr("PINBALL_SLOT_UPGRADE_DESC_FMT") % w_name,
@@ -402,6 +403,62 @@ func _build_reward_pool() -> Array:
 			})
 	pool.shuffle()
 	return pool
+
+
+func _weapon_entry_can_upgrade(entry: Dictionary) -> bool:
+	var upgrades: Dictionary = entry.get("upgrades", {})
+	return not GameData.is_weapon_upgrades_maxed(upgrades)
+
+
+func _any_leveler_can_take_common(common_id: String) -> bool:
+	for p in levelers:
+		if p != null and _player_can_take_common(p, common_id):
+			return true
+	return false
+
+
+func _player_can_take_common(p: Node, common_id: String) -> bool:
+	var def: Dictionary = GameData.get_common_upgrade_def(common_id)
+	if def.is_empty():
+		return false
+	var log: Dictionary = p.common_upgrade_log
+	return int(log.get(common_id, 0)) < int(def.get("max", 0))
+
+
+func _player_weapon_entry(p: Node, weapon_id: String) -> Dictionary:
+	for w in p.weapons:
+		if String(w.get("id", "")) == weapon_id:
+			return w
+	return {}
+
+
+func _player_weapon_can_upgrade(p: Node, weapon_id: String) -> bool:
+	var entry: Dictionary = _player_weapon_entry(p, weapon_id)
+	return not entry.is_empty() and _weapon_entry_can_upgrade(entry)
+
+
+func _pick_player_upgradable_weapon_id(p: Node, excluded_id: String = "") -> String:
+	var candidates: Array[String] = []
+	for w in p.weapons:
+		var wid: String = String(w.get("id", ""))
+		if wid == "" or wid == excluded_id:
+			continue
+		if _weapon_entry_can_upgrade(w):
+			candidates.append(wid)
+	if candidates.is_empty():
+		return ""
+	return candidates.pick_random()
+
+
+func _pick_player_common_upgrade_id(p: Node) -> String:
+	var candidates: Array[String] = []
+	for u in GameData.COMMON_UPGRADES:
+		var id: String = String(u.get("id", ""))
+		if _player_can_take_common(p, id):
+			candidates.append(id)
+	if candidates.is_empty():
+		return ""
+	return candidates.pick_random()
 
 
 func _build_balls() -> void:
@@ -634,8 +691,8 @@ func _step_ball(b: Dictionary, delta: float) -> void:
 					bounce_k *= float(b.get("peg_bounce_mult", 1.0))
 				b["vel"] -= n * dot * (1.0 + bounce_k)
 			AudioManager.play_sfx("pinball_bounce", 0.06)
-			# 計分：每撞 1 次彈針 = +1（純裝飾）
-			_grant_peg_score(b, 1)
+			# 計分：每撞 1 次彈針加分（純裝飾）
+			_grant_peg_score(b, PEG_HIT_SCORE)
 			# 重裝彈珠：撞擊累計，達門檻直接破壞
 			if b.get("heavy", false):
 				peg["heavy_hits"] = int(peg.get("heavy_hits", 0)) + 1
@@ -727,7 +784,7 @@ func _step_energy_wave_ball(b: Dictionary, delta: float) -> void:
 				b["vel"] -= n * dot * (1.0 + PEG_BOUNCE)
 			AudioManager.play_sfx("pinball_bounce", 0.06)
 			# 計分（能量彈也算）
-			_grant_peg_score(b, 1)
+			_grant_peg_score(b, PEG_HIT_SCORE)
 			peg["wave_hits"] = int(peg.get("wave_hits", 0)) + 1
 			if peg["wave_hits"] >= wave_need:
 				peg["alive"] = false
@@ -799,20 +856,55 @@ func _apply_reward_to_player(p: Node, slot_idx: int) -> void:
 		return
 	AudioManager.play_sfx("reward", 0.02)
 	var reward: Dictionary = slot["reward"]
-	var info: Dictionary = {"kind": "noop"}
-	match reward.get("type", "noop"):
-		"weapon", "weapon_up":
-			var wid: String = String(reward["id"])
-			info = p.add_weapon(wid)
-		"common":
-			info = p.apply_common_upgrade(reward["id"])
-		_:
-			info = {"kind": "noop"}
-	_enqueue_pinball_reward_dialog(p, slot, info)
+	var reward_mult: int = int(slot.get("reward_mult", 1))
+	for _i in range(maxi(1, reward_mult)):
+		var info: Dictionary = _apply_reward_once_to_player(p, reward)
+		_enqueue_pinball_reward_dialog(p, slot, info)
 	var lbl: Label = slot_labels[slot_idx]
 	lbl.modulate = Color(1.6, 1.4, 0.8)
 	var t := lbl.create_tween()
 	t.tween_property(lbl, "modulate", Color(1, 1, 1), 0.6)
+
+
+func _apply_reward_once_to_player(p: Node, reward: Dictionary) -> Dictionary:
+	match reward.get("type", "noop"):
+		"weapon", "weapon_up":
+			var wid: String = String(reward.get("id", ""))
+			if String(reward.get("type", "")) == "weapon_up" and not _player_weapon_can_upgrade(p, wid):
+				return _apply_fallback_reward_to_player(p, wid)
+			var info: Dictionary = p.add_weapon(wid)
+			if String(info.get("kind", "")) == "weapon_upgrade_max":
+				return _apply_fallback_reward_to_player(p, wid)
+			return info
+		"common":
+			var cid: String = String(reward.get("id", ""))
+			if not _player_can_take_common(p, cid):
+				return _apply_fallback_reward_to_player(p)
+			return p.apply_common_upgrade(cid)
+	return _apply_fallback_reward_to_player(p)
+
+
+func _apply_fallback_reward_to_player(p: Node, excluded_weapon_id: String = "") -> Dictionary:
+	var alt_weapon_id: String = _pick_player_upgradable_weapon_id(p, excluded_weapon_id)
+	if alt_weapon_id != "":
+		var info: Dictionary = p.add_weapon(alt_weapon_id)
+		if String(info.get("kind", "")) != "weapon_upgrade_max":
+			info["fallback"] = true
+			return info
+	var common_id: String = _pick_player_common_upgrade_id(p)
+	if common_id != "":
+		var cinfo: Dictionary = p.apply_common_upgrade(common_id)
+		cinfo["fallback"] = true
+		return cinfo
+	return _grant_fallback_gold()
+
+
+func _grant_fallback_gold() -> Dictionary:
+	if get_tree().current_scene != null and get_tree().current_scene.has_method("add_run_gold"):
+		get_tree().current_scene.add_run_gold(FALLBACK_GOLD_REWARD)
+	else:
+		GameState.grant_run_gold(FALLBACK_GOLD_REWARD)
+	return {"kind": "gold", "amount": FALLBACK_GOLD_REWARD, "fallback": true}
 
 
 func _format_pinball_reward_line(p: Node, slot: Dictionary, info: Dictionary) -> String:
@@ -839,6 +931,8 @@ func _format_pinball_reward_line(p: Node, slot: Dictionary, info: Dictionary) ->
 			var cname: String = GameData.tr_name(cdef) if not cdef.is_empty() else String(info.get("upgrade_id", ""))
 			return tr("PINBALL_REWARD_COMMON_FMT") % [
 				pname, cname, int(info.get("current", 0)), int(info.get("max", 0))]
+		"gold":
+			return tr("PINBALL_REWARD_GOLD_FMT") % [pname, int(info.get("amount", 0))]
 		_:
 			return tr("PINBALL_REWARD_NOOP_FMT") % [
 				pname, String(slot.get("name", "")), String(slot.get("desc", ""))]

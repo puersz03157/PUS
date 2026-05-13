@@ -36,6 +36,7 @@ var unlocked_weapons: Array[String] = []
 var unlocked_weapon_slots: int = DEFAULT_UNLOCKED_WEAPON_SLOTS
 var unlocked_armaments: Array[String] = ["none"]
 var blacksmith_rescued: bool = false
+var rune_dust: int = 0
 
 # 顯示語系：留空則沿用 project.godot 的 locale。
 # 受支援：zh_TW（預設）／zh_CN／en；新語系加在 strings.csv 後可動態切換。
@@ -177,6 +178,7 @@ func reset_account() -> void:
 	unlocked_weapon_slots = DEFAULT_UNLOCKED_WEAPON_SLOTS
 	unlocked_armaments = ["none"]
 	blacksmith_rescued = false
+	rune_dust = 0
 	p1_character = "swordsman"
 	p2_character = "ranger"
 	p1_passive = "none"
@@ -209,9 +211,17 @@ func grant_run_gold(amount: int) -> void:
 	save_to_disk()
 
 
+func grant_rune_dust(amount: int) -> void:
+	if amount <= 0:
+		return
+	rune_dust += amount
+	save_to_disk()
+
+
 func save_to_disk() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("meta", "gold", gold)
+	cfg.set_value("meta", "rune_dust", rune_dust)
 	cfg.set_value("meta", "current_stage_id", current_stage_id)
 	cfg.set_value("meta", "language", language)
 	cfg.set_value("meta", "touch_controls_enabled", touch_controls_enabled)
@@ -233,6 +243,7 @@ func load_from_disk() -> void:
 		unlocked_armaments = ["none"]
 		return
 	gold = int(cfg.get_value("meta", "gold", 0))
+	rune_dust = int(cfg.get_value("meta", "rune_dust", 0))
 	current_stage_id = String(cfg.get_value("meta", "current_stage_id", "slime_forest"))
 	language = String(cfg.get_value("meta", "language", ""))
 	blacksmith_rescued = bool(cfg.get_value("meta", "blacksmith_rescued", false))

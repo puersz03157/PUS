@@ -16,6 +16,17 @@ const CAMERA_ZOOM := Vector2(2.0, 2.0)
 const Coop := preload("res://scripts/coop_pair_follow.gd")
 const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
 const BLACKSMITH_RESCUE_RADIUS := 72.0
+const BLACKSMITH_EVENT_MIN_ENEMIES := 5
+const BLACKSMITH_EVENT_MAX_ENEMIES := 10
+const BLACKSMITH_EVENT_SPAWN_MIN_RADIUS := 160.0
+const BLACKSMITH_EVENT_SPAWN_MAX_RADIUS := 260.0
+const BLACKSMITH_DODGE_DURATION := 12.0
+const BLACKSMITH_DODGE_HAZARD_INTERVAL := 1.15
+const BLACKSMITH_DODGE_HAZARD_RADIUS := 78.0
+const BLACKSMITH_DODGE_HAZARD_WINDUP := 0.95
+const BLACKSMITH_DODGE_HAZARD_TTL := 1.28
+const BLACKSMITH_RUNNER_DUST_MIN := 8
+const BLACKSMITH_RUNNER_DUST_MAX := 14
 
 @onready var camera: Camera2D = $Camera
 @onready var spawn_timer: Timer = $SpawnTimer
@@ -70,6 +81,13 @@ var boss_warning_shown: bool = false
 var boss_spawned: bool = false
 var stage_completed: bool = false
 var blacksmith_rescue_node: Node2D = null
+var blacksmith_event_rescues_npc: bool = false
+var blacksmith_rescue_event_active: bool = false
+var blacksmith_rescue_event_kind: String = ""
+var blacksmith_rescue_event_enemy_ids: Array[int] = []
+var blacksmith_dodge_timer: float = 0.0
+var blacksmith_dodge_hazard_timer: float = 0.0
+var blacksmith_dodge_hazards: Array[Node2D] = []
 
 var map_node: Node = null
 var spawn_origin: Vector2 = Vector2.ZERO
@@ -309,7 +327,7 @@ func _process(delta: float) -> void:
 	# 第一關曲線：每 44 秒提升一階（再放慢一點，雙人純近戰前 5 分鐘也撐得住）
 	difficulty = run_time / 44.0
 	_position_camera()
-	_update_blacksmith_rescue()
+	_update_blacksmith_rescue(delta)
 	_update_hud()
 	_update_stage_progress()
 	# ESC 由 PauseMenu (PROCESS_MODE_ALWAYS) 處理
@@ -344,11 +362,11 @@ func _show_center_notice(text: String) -> void:
 func _spawn_blacksmith_rescue_if_needed() -> void:
 	if not bool(stage_def.get("rescue_blacksmith", false)):
 		return
-	if bool(GameState.blacksmith_rescued):
-		return
+	blacksmith_event_rescues_npc = not bool(GameState.blacksmith_rescued)
 	blacksmith_rescue_node = _make_blacksmith_marker(
-		tr("BLACKSMITH_RESCUE_NAME"),
-		tr("BLACKSMITH_RESCUE_HINT"))
+		_blacksmith_event_title(),
+		_blacksmith_event_idle_hint())
+	blacksmith_rescue_node.set_meta("rescues_npc", blacksmith_event_rescues_npc)
 	blacksmith_rescue_node.global_position = _pick_blacksmith_rescue_position()
 	add_child(blacksmith_rescue_node)
 
@@ -382,8 +400,17 @@ func _is_open_rescue_position(pos: Vector2) -> bool:
 	return true
 
 
-func _update_blacksmith_rescue() -> void:
+func _update_blacksmith_rescue(delta: float) -> void:
 	if blacksmith_rescue_node == null or not is_instance_valid(blacksmith_rescue_node):
+		return
+	if blacksmith_rescue_event_active:
+		match blacksmith_rescue_event_kind:
+			"dodge":
+				_update_blacksmith_dodge_event(delta)
+			_:
+				_prune_blacksmith_rescue_enemies()
+				if blacksmith_rescue_event_enemy_ids.is_empty():
+					_complete_blacksmith_rescue_event()
 		return
 	for p in players:
 		if p == null or not is_instance_valid(p):
@@ -391,8 +418,246 @@ func _update_blacksmith_rescue() -> void:
 		if p.hp <= 0:
 			continue
 		if p.global_position.distance_to(blacksmith_rescue_node.global_position) <= BLACKSMITH_RESCUE_RADIUS:
-			_rescue_blacksmith()
+			_start_blacksmith_rescue_event()
 			return
+
+
+func _start_blacksmith_rescue_event() -> void:
+	if blacksmith_rescue_node == null or not is_instance_valid(blacksmith_rescue_node):
+		return
+	blacksmith_rescue_event_active = true
+	blacksmith_rescue_event_kind = _pick_blacksmith_rescue_event_kind()
+	blacksmith_rescue_event_enemy_ids.clear()
+	_clear_blacksmith_dodge_hazards()
+	match blacksmith_rescue_event_kind:
+		"dodge":
+			_start_blacksmith_dodge_event()
+		"runner":
+			_start_blacksmith_runner_event()
+		_:
+			_start_blacksmith_ambush_event()
+
+
+func _pick_blacksmith_rescue_event_kind() -> String:
+	var kinds := ["ambush", "dodge", "runner"]
+	return String(kinds[randi() % kinds.size()])
+
+
+func _start_blacksmith_ambush_event() -> void:
+	_set_blacksmith_marker_text(
+		_blacksmith_event_title(),
+		_tr_text("BLACKSMITH_AMBUSH_HINT", "擊退包圍的怪群"))
+	_show_center_notice(_event_notice_text(
+		"BLACKSMITH_AMBUSH_NOTICE",
+		"BLACKSMITH_INCIDENT_AMBUSH_NOTICE",
+		"鐵匠被怪群包圍！擊退敵人才能解救。",
+		"附近出現怪群騷動！擊退敵人完成偶發事件。"))
+	var center: Vector2 = blacksmith_rescue_node.global_position
+	var alive_count: int = 0
+	for p in players:
+		if p != null and is_instance_valid(p) and p.hp > 0:
+			alive_count += 1
+	var count: int = clampi(
+		BLACKSMITH_EVENT_MIN_ENEMIES + maxi(0, alive_count - 1) * 2 + int(floor(difficulty * 0.35)),
+		BLACKSMITH_EVENT_MIN_ENEMIES,
+		BLACKSMITH_EVENT_MAX_ENEMIES)
+	var event_difficulty: float = max(1.0, difficulty + 1.0)
+	for i in range(count):
+		_spawn_blacksmith_event_enemy(center, i, count, event_difficulty)
+	_update_blacksmith_event_progress()
+
+
+func _start_blacksmith_runner_event() -> void:
+	var dust_amount: int = randi_range(BLACKSMITH_RUNNER_DUST_MIN, BLACKSMITH_RUNNER_DUST_MAX)
+	_set_blacksmith_marker_text(
+		_blacksmith_event_title(),
+		_tr_text("BLACKSMITH_RUNNER_HINT", "追擊逃跑的稀有怪"))
+	_show_center_notice(_tr_text("BLACKSMITH_RUNNER_NOTICE", "稀有怪趁亂逃跑！擊敗牠可取得符文粉塵。"))
+	var e = ENEMY_SCENE.instantiate()
+	e.global_position = _pick_blacksmith_event_spawn_position(blacksmith_rescue_node.global_position, 0, 1)
+	add_child(e)
+	if e.has_method("setup_rescue_runner"):
+		e.setup_rescue_runner(max(1.0, difficulty + 1.0), dust_amount)
+	else:
+		e.setup(max(1.0, difficulty + 1.0))
+	var eid: int = e.get_instance_id()
+	blacksmith_rescue_event_enemy_ids.append(eid)
+	e.tree_exited.connect(_on_blacksmith_rescue_enemy_removed.bind(eid))
+	_update_blacksmith_event_progress()
+
+
+func _start_blacksmith_dodge_event() -> void:
+	blacksmith_dodge_timer = BLACKSMITH_DODGE_DURATION
+	blacksmith_dodge_hazard_timer = 0.25
+	_set_blacksmith_marker_text(
+		_blacksmith_event_title(),
+		_tr_text("BLACKSMITH_DODGE_HINT", "撐過危險區域"))
+	_show_center_notice(_event_notice_text(
+		"BLACKSMITH_DODGE_NOTICE",
+		"BLACKSMITH_INCIDENT_DODGE_NOTICE",
+		"地面開始崩裂！閃避危險區域直到鐵匠脫困。",
+		"地面開始崩裂！閃避危險區域完成偶發事件。"))
+	_update_blacksmith_dodge_progress()
+
+
+func _spawn_blacksmith_event_enemy(center: Vector2, index: int, count: int, event_difficulty: float) -> void:
+	var def: Dictionary = GameData.pick_slime(event_difficulty)
+	var e = ENEMY_SCENE.instantiate()
+	e.global_position = _pick_blacksmith_event_spawn_position(center, index, count)
+	add_child(e)
+	e.setup_with_slime(def, event_difficulty)
+	var eid: int = e.get_instance_id()
+	blacksmith_rescue_event_enemy_ids.append(eid)
+	e.tree_exited.connect(_on_blacksmith_rescue_enemy_removed.bind(eid))
+
+
+func _pick_blacksmith_event_spawn_position(center: Vector2, index: int, count: int) -> Vector2:
+	for attempt in range(10):
+		var spread: float = TAU * float(index) / max(1.0, float(count))
+		var ang: float = spread + randf_range(-0.32, 0.32) + float(attempt) * 0.37
+		var dist: float = randf_range(BLACKSMITH_EVENT_SPAWN_MIN_RADIUS, BLACKSMITH_EVENT_SPAWN_MAX_RADIUS)
+		var pos: Vector2 = center + Vector2(cos(ang), sin(ang)) * dist
+		if map_bounds.size != Vector2.ZERO:
+			pos.x = clamp(pos.x, map_bounds.position.x + 40.0, map_bounds.end.x - 40.0)
+			pos.y = clamp(pos.y, map_bounds.position.y + 40.0, map_bounds.end.y - 40.0)
+		if not is_world_blocked_at(pos, 28.0):
+			return pos
+	return _random_spawn_position(center)
+
+
+func _on_blacksmith_rescue_enemy_removed(enemy_id: int) -> void:
+	blacksmith_rescue_event_enemy_ids.erase(enemy_id)
+	if blacksmith_rescue_event_active:
+		_update_blacksmith_event_progress()
+		if blacksmith_rescue_event_enemy_ids.is_empty():
+			_complete_blacksmith_rescue_event()
+
+
+func _prune_blacksmith_rescue_enemies() -> void:
+	for i in range(blacksmith_rescue_event_enemy_ids.size() - 1, -1, -1):
+		if instance_from_id(blacksmith_rescue_event_enemy_ids[i]) == null:
+			blacksmith_rescue_event_enemy_ids.remove_at(i)
+
+
+func _update_blacksmith_event_progress() -> void:
+	if not blacksmith_rescue_event_active:
+		return
+	var left: int = blacksmith_rescue_event_enemy_ids.size()
+	var progress_key: String = "BLACKSMITH_EVENT_PROGRESS_FMT"
+	var fallback: String = "救援中：剩餘 %d 隻怪物"
+	if not blacksmith_event_rescues_npc:
+		progress_key = "RANDOM_EVENT_PROGRESS_FMT"
+		fallback = "事件中：剩餘 %d 隻怪物"
+	if blacksmith_rescue_event_kind == "runner":
+		progress_key = "BLACKSMITH_RUNNER_PROGRESS_FMT"
+		fallback = "追擊中：稀有怪剩餘 %d 隻"
+	_set_blacksmith_marker_text(
+		_blacksmith_event_title(),
+		_tr_text(progress_key, fallback) % left)
+
+
+func _update_blacksmith_dodge_event(delta: float) -> void:
+	blacksmith_dodge_timer = max(0.0, blacksmith_dodge_timer - delta)
+	blacksmith_dodge_hazard_timer -= delta
+	if blacksmith_dodge_hazard_timer <= 0.0:
+		blacksmith_dodge_hazard_timer = BLACKSMITH_DODGE_HAZARD_INTERVAL
+		_spawn_blacksmith_dodge_hazard()
+	_update_blacksmith_dodge_hazards(delta)
+	_update_blacksmith_dodge_progress()
+	if blacksmith_dodge_timer <= 0.0:
+		_complete_blacksmith_rescue_event()
+
+
+func _spawn_blacksmith_dodge_hazard() -> void:
+	var pos: Vector2 = blacksmith_rescue_node.global_position
+	var candidates: Array[Node2D] = []
+	for p in players:
+		if p != null and is_instance_valid(p) and p.hp > 0:
+			candidates.append(p as Node2D)
+	if not candidates.is_empty() and randf() < 0.75:
+		var target: Node2D = candidates[randi() % candidates.size()]
+		pos = target.global_position + Vector2(randf_range(-55.0, 55.0), randf_range(-55.0, 55.0))
+	else:
+		var ang: float = randf() * TAU
+		pos += Vector2(cos(ang), sin(ang)) * randf_range(80.0, 220.0)
+	if map_bounds.size != Vector2.ZERO:
+		pos.x = clamp(pos.x, map_bounds.position.x + 40.0, map_bounds.end.x - 40.0)
+		pos.y = clamp(pos.y, map_bounds.position.y + 40.0, map_bounds.end.y - 40.0)
+	var hazard := DrawerNode2D.new()
+	hazard.z_index = 9
+	hazard.fn = Callable(self, "_draw_blacksmith_dodge_hazard")
+	hazard.global_position = pos
+	hazard.set_meta("radius", BLACKSMITH_DODGE_HAZARD_RADIUS)
+	hazard.set_meta("age", 0.0)
+	hazard.set_meta("hit_done", false)
+	add_child(hazard)
+	blacksmith_dodge_hazards.append(hazard)
+
+
+func _update_blacksmith_dodge_hazards(delta: float) -> void:
+	for i in range(blacksmith_dodge_hazards.size() - 1, -1, -1):
+		var hazard: Node2D = blacksmith_dodge_hazards[i]
+		if hazard == null or not is_instance_valid(hazard):
+			blacksmith_dodge_hazards.remove_at(i)
+			continue
+		var age: float = float(hazard.get_meta("age", 0.0)) + delta
+		hazard.set_meta("age", age)
+		if age >= BLACKSMITH_DODGE_HAZARD_WINDUP and not bool(hazard.get_meta("hit_done", false)):
+			hazard.set_meta("hit_done", true)
+			_trigger_blacksmith_dodge_hazard(hazard)
+		if age >= BLACKSMITH_DODGE_HAZARD_TTL:
+			hazard.queue_free()
+			blacksmith_dodge_hazards.remove_at(i)
+		else:
+			hazard.queue_redraw()
+
+
+func _trigger_blacksmith_dodge_hazard(hazard: Node2D) -> void:
+	var radius: float = float(hazard.get_meta("radius", BLACKSMITH_DODGE_HAZARD_RADIUS))
+	var dmg: float = 12.0 + difficulty * 1.4
+	for p in players:
+		if p == null or not is_instance_valid(p) or p.hp <= 0:
+			continue
+		if p.global_position.distance_to(hazard.global_position) <= radius:
+			p.take_damage(dmg)
+
+
+func _update_blacksmith_dodge_progress() -> void:
+	_set_blacksmith_marker_text(
+		_blacksmith_event_title(),
+		_tr_text("BLACKSMITH_DODGE_PROGRESS_FMT", "閃避中：剩餘 %d 秒") % int(ceil(blacksmith_dodge_timer)))
+
+
+func _draw_blacksmith_dodge_hazard(node: Node2D) -> void:
+	var radius: float = float(node.get_meta("radius", BLACKSMITH_DODGE_HAZARD_RADIUS))
+	var age: float = float(node.get_meta("age", 0.0))
+	var ready_pct: float = clampf(age / BLACKSMITH_DODGE_HAZARD_WINDUP, 0.0, 1.0)
+	var col := Color(1.0, 0.25, 0.12, 0.18 + ready_pct * 0.28)
+	if bool(node.get_meta("hit_done", false)):
+		col = Color(1.0, 0.55, 0.1, 0.28)
+	node.draw_circle(Vector2.ZERO, radius, col)
+	node.draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, Color(1.0, 0.3, 0.15, 0.85), 3.0)
+	node.draw_arc(Vector2.ZERO, radius * ready_pct, 0.0, TAU, 48, Color(1.0, 0.9, 0.35, 0.8), 2.0)
+
+
+func _clear_blacksmith_dodge_hazards() -> void:
+	for hazard in blacksmith_dodge_hazards:
+		if hazard != null and is_instance_valid(hazard):
+			hazard.queue_free()
+	blacksmith_dodge_hazards.clear()
+
+
+func _complete_blacksmith_rescue_event() -> void:
+	if not blacksmith_rescue_event_active:
+		return
+	blacksmith_rescue_event_active = false
+	blacksmith_rescue_event_kind = ""
+	blacksmith_rescue_event_enemy_ids.clear()
+	_clear_blacksmith_dodge_hazards()
+	if blacksmith_event_rescues_npc:
+		_rescue_blacksmith()
+	else:
+		_complete_incident_event()
 
 
 func _rescue_blacksmith() -> void:
@@ -400,7 +665,14 @@ func _rescue_blacksmith() -> void:
 	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
 		blacksmith_rescue_node.queue_free()
 	blacksmith_rescue_node = null
-	_show_center_notice(tr("BLACKSMITH_RESCUED_NOTICE"))
+	_show_center_notice(_tr_text("BLACKSMITH_RESCUED_NOTICE", "鐵匠已獲救！回村莊看看吧。"))
+
+
+func _complete_incident_event() -> void:
+	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
+		blacksmith_rescue_node.queue_free()
+	blacksmith_rescue_node = null
+	_show_center_notice(_tr_text("BLACKSMITH_INCIDENT_DONE_NOTICE", "偶發事件已完成！"))
 
 
 func _make_blacksmith_marker(title: String, hint: String) -> Node2D:
@@ -411,6 +683,7 @@ func _make_blacksmith_marker(title: String, hint: String) -> Node2D:
 	draw.fn = Callable(self, "_draw_blacksmith_marker")
 	root.add_child(draw)
 	var label := Label.new()
+	label.name = "InfoLabel"
 	label.text = "%s\n%s" % [title, hint]
 	label.position = Vector2(-120, -88)
 	label.size = Vector2(240, 48)
@@ -422,7 +695,47 @@ func _make_blacksmith_marker(title: String, hint: String) -> Node2D:
 	return root
 
 
+func _set_blacksmith_marker_text(title: String, hint: String) -> void:
+	if blacksmith_rescue_node == null or not is_instance_valid(blacksmith_rescue_node):
+		return
+	var label := blacksmith_rescue_node.get_node_or_null("InfoLabel") as Label
+	if label != null:
+		label.text = "%s\n%s" % [title, hint]
+
+
+func _blacksmith_event_title() -> String:
+	if blacksmith_event_rescues_npc:
+		return _tr_text("BLACKSMITH_RESCUE_NAME", "被困的鐵匠")
+	return _tr_text("RANDOM_EVENT_NAME", "偶發事件")
+
+
+func _blacksmith_event_idle_hint() -> String:
+	if blacksmith_event_rescues_npc:
+		return _tr_text("BLACKSMITH_RESCUE_HINT", "靠近觸發救援事件")
+	return _tr_text("RANDOM_EVENT_HINT", "靠近觸發偶發事件")
+
+
+func _event_notice_text(
+		rescue_key: String, incident_key: String, rescue_fallback: String, incident_fallback: String) -> String:
+	if blacksmith_event_rescues_npc:
+		return _tr_text(rescue_key, rescue_fallback)
+	return _tr_text(incident_key, incident_fallback)
+
+
+func _tr_text(key: String, fallback: String) -> String:
+	var text: String = tr(key)
+	return fallback if text == key or text == "" else text
+
+
 func _draw_blacksmith_marker(node: Node2D) -> void:
+	if not bool(node.get_meta("rescues_npc", true)):
+		node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(0.55, 0.35, 1.0, 0.12))
+		node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(0.75, 0.55, 1.0, 0.70), 2.0)
+		node.draw_circle(Vector2.ZERO, 24.0, Color(0.25, 0.18, 0.42, 0.95))
+		node.draw_arc(Vector2.ZERO, 32.0, -0.4, TAU - 0.4, 36, Color(1.0, 0.9, 0.45, 0.9), 3.0)
+		node.draw_string(ThemeDB.fallback_font, Vector2(-5, 9), "!",
+			HORIZONTAL_ALIGNMENT_CENTER, 10, 26, Color(1.0, 0.9, 0.45))
+		return
 	node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(1.0, 0.82, 0.22, 0.12))
 	node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(1.0, 0.82, 0.22, 0.65), 2.0)
 	node.draw_circle(Vector2(0, -20), 15.0, Color(0.95, 0.72, 0.48))
@@ -551,7 +864,7 @@ func _update_hud() -> void:
 	if players.size() >= 1:
 		var p = players[0]
 		hud_p1_lv.text = tr("HUD_PLAYER_LV_FMT") % [1, GameData.tr_character_name(p.character_id)]
-		hud_p1_hp.max_value = p.max_hp * p.hp_mult
+		hud_p1_hp.max_value = p.get_effective_max_hp() if p.has_method("get_effective_max_hp") else p.max_hp * p.hp_mult
 		hud_p1_hp.value = p.hp
 		hud_p1_xp.max_value = team_xp_to_next
 		hud_p1_xp.value = team_xp
@@ -559,7 +872,7 @@ func _update_hud() -> void:
 	if GameState.two_players and players.size() >= 2:
 		var p = players[1]
 		hud_p2_lv.text = tr("HUD_PLAYER_LV_FMT") % [2, GameData.tr_character_name(p.character_id)]
-		hud_p2_hp.max_value = p.max_hp * p.hp_mult
+		hud_p2_hp.max_value = p.get_effective_max_hp() if p.has_method("get_effective_max_hp") else p.max_hp * p.hp_mult
 		hud_p2_hp.value = p.hp
 		hud_p2_xp.max_value = team_xp_to_next
 		hud_p2_xp.value = team_xp
@@ -569,6 +882,9 @@ func _update_hud() -> void:
 # ---------------- 敵人生成 ----------------
 func _on_spawn_tick() -> void:
 	if stage_completed:
+		return
+	if blacksmith_rescue_event_active:
+		spawn_timer.wait_time = max(spawn_timer.wait_time, 1.4)
 		return
 	# 玩家數量縮放：2P 多湧 40%（之前 60% 太硬，純近戰雙人 3 分鐘就翻車）
 	var alive_count: int = 0
@@ -637,6 +953,12 @@ func add_team_xp(amount: float) -> void:
 
 func add_run_gold(amount: int) -> void:
 	GameState.grant_run_gold(amount)
+
+
+func notify_rune_dust_drop(amount: int) -> void:
+	if amount <= 0:
+		return
+	_show_center_notice(_tr_text("BLACKSMITH_RUNNER_DUST_NOTICE_FMT", "取得符文粉塵 +%d") % amount)
 
 
 func _team_level_up() -> void:

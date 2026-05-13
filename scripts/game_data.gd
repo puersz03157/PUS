@@ -20,20 +20,20 @@ const WEAPONS: Array[Dictionary] = [
 		"id": "sword",
 		"name": "利劍", "name_key": "WEAPON_SWORD_NAME",
 		"kind": "melee_fan",
-		"damage": 24.0,
+		"damage": 27.0,
 		"rate": 1.2,
 		"range": 110.0,
-		"params": {"angle_deg": 60.0, "color": Color(0.85, 0.85, 1.0)},
+		"params": {"angle_deg": 75.0, "color": Color(0.85, 0.85, 1.0)},
 		"max_effect": "目標越少傷害提升", "max_effect_key": "WEAPON_SWORD_MAX",
 	},
 	{
 		"id": "spear",
 		"name": "長槍", "name_key": "WEAPON_SPEAR_NAME",
 		"kind": "melee_fan",
-		"damage": 30.0,
+		"damage": 34.0,
 		"rate": 1.0,
 		"range": 230.0,
-		"params": {"angle_deg": 20.0, "color": Color(1.0, 0.95, 0.5)},
+		"params": {"angle_deg": 28.0, "color": Color(1.0, 0.95, 0.5)},
 		"max_effect": "目標越多傷害提升", "max_effect_key": "WEAPON_SPEAR_MAX",
 	},
 	{
@@ -88,7 +88,7 @@ const WEAPONS: Array[Dictionary] = [
 		"id": "claw",
 		"name": "爪擊", "name_key": "WEAPON_CLAW_NAME",
 		"kind": "melee_fan",
-		"damage": 17.0,
+		"damage": 14.0,
 		"rate": 1.8,
 		"range": 110.0,
 		"params": {"angle_deg": 180.0, "double_hit": true, "color": Color(1.0, 0.6, 0.4)},
@@ -98,7 +98,7 @@ const WEAPONS: Array[Dictionary] = [
 		"id": "shard",
 		"name": "碎刃", "name_key": "WEAPON_SHARD_NAME",
 		"kind": "orbit",
-		"damage": 8.0,
+		"damage": 6.0,
 		"rate": 2.0,
 		"range": 50.0,        # 半徑 2 米
 		"params": {"count": 3, "spin_speed": 3.0, "color": Color(0.7, 0.95, 1.0)},
@@ -108,9 +108,9 @@ const WEAPONS: Array[Dictionary] = [
 		"id": "flame",
 		"name": "火焰", "name_key": "WEAPON_FLAME_NAME",
 		"kind": "aura",
-		"damage": 7.0,
+		"damage": 10.0,
 		"rate": 1.0,
-		"range": 75.0,        # 3 米
+		"range": 80.0,
 		"params": {"color": Color(1.0, 0.55, 0.1), "burn": true},
 		"max_effect": "燃燒傷害加倍", "max_effect_key": "WEAPON_FLAME_MAX",
 	},
@@ -128,7 +128,7 @@ const WEAPONS: Array[Dictionary] = [
 		"id": "ice",
 		"name": "寒冰", "name_key": "WEAPON_ICE_NAME",
 		"kind": "projectile",
-		"damage": 10.0,
+		"damage": 12.0,
 		"rate": 1.1,
 		"range": 380.0,
 		"params": {"speed": 560.0, "count": 1, "slow": true, "color": Color(0.6, 0.95, 1.0)},
@@ -154,7 +154,7 @@ const WEAPONS: Array[Dictionary] = [
 		"id": "holy",
 		"name": "聖光", "name_key": "WEAPON_HOLY_NAME",
 		"kind": "aura",
-		"damage": 8.0,
+		"damage": 9.0,
 		"rate": 1.0,
 		"range": 75.0,
 		"params": {"color": Color(1.0, 0.95, 0.6), "heal": 1.0},
@@ -466,7 +466,7 @@ const ENEMY_STATUS_CLAW_BLEED_DURATION := 4.0
 const ENEMY_STATUS_CLAW_BLEED_DPS_RATIO := 0.22
 const ENEMY_STATUS_CLAW_BLEED_LIFESTEAL_RATIO := 0.08
 const ENEMY_STATUS_FLAME_BURN_DURATION := 3.0
-const ENEMY_STATUS_FLAME_BURN_DPS_RATIO := 0.20
+const ENEMY_STATUS_FLAME_BURN_DPS_RATIO := 0.35
 const ENEMY_STATUS_ICE_SLOW_DURATION := 2.2
 const ENEMY_STATUS_ICE_SLOW_FACTOR := 0.55
 const ENEMY_STATUS_ICE_VS_SLOW_DAMAGE_MULT := 1.35
