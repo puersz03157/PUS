@@ -22,6 +22,8 @@ var hp_mult: float = 1.0
 var speed_mult: float = 1.0
 var damage_mult: float = 1.0
 var rate_mult: float = 1.0
+var crit_chance: float = 0.0
+var crit_damage_mult: float = GameData.CRIT_DAMAGE_MULT_BASE
 var pickup_mult: float = 1.0
 var xp_mult: float = 1.0
 var dmg_reduce: float = 0.0
@@ -42,6 +44,13 @@ var passive_id: String = "none"
 var skill_id: String = "none"
 var armament_id: String = "none"
 var skill_cooldown: float = 0.0
+var heavenly_judgment_active: bool = false
+var heavenly_judgment_origin: Vector2 = Vector2.ZERO
+var heavenly_judgment_target: Vector2 = Vector2.ZERO
+var heavenly_judgment_time_left: float = 0.0
+var heavenly_judgment_params: Dictionary = {}
+var heavenly_judgment_confirm_guard: float = 0.0
+var heavenly_judgment_marker: Node2D = null
 
 # 重裝防禦：剩餘格擋次數（每次受傷扣 1，傷害無視）
 var block_charges: int = 0
@@ -59,6 +68,11 @@ var passive_meter_fill_cd: float = 0.0
 var passive_kill_counter: int = 0
 # 快射節奏：武器命中計數（滿 N 且可充能時觸發）
 var passive_hit_counter: int = 0
+var breakthrough_same_enemy_hits: Dictionary = {}
+var breakthrough_attack_hits: Dictionary = {}
+## 野性衝動：付費施放後 5 秒內可再免費衝刺的剩餘次數
+var wild_impulse_window: float = 0.0
+var wild_impulse_charges_left: int = 0
 
 var kills: int = 0
 # 結算統計：造成傷害 / 承受傷害（實際扣血）/ 彈珠台累積分數 / 取得的局內加成清單
@@ -153,10 +167,18 @@ func setup_from_character(cid: String) -> void:
 	_sprite_frame_anims.clear()
 	_start_transform_pending = false
 	_start_transform_done = false
-	_anim_fps = float(c.get("anim_fps", ANIM_FPS))
+	var skin_id: String = "default"
+	if input_prefix == "p1":
+		skin_id = GameState.get_p1_house_character_skin(cid)
+	elif input_prefix == "p2":
+		skin_id = GameState.get_p2_house_character_skin(cid)
+	var visual: Dictionary = GameData.resolve_character_visual_def(cid, skin_id)
+	if visual.is_empty():
+		visual = c
+	_anim_fps = float(visual.get("anim_fps", ANIM_FPS))
 	# 1) 逐幀 PNG（每動作一組獨立檔，可用 Array 或 {pattern, count, start} 兩種格式）
-	if char_sprite and c.has("sprite_frames") and c["sprite_frames"] is Dictionary:
-		var fdict: Dictionary = c["sprite_frames"]
+	if char_sprite and visual.has("sprite_frames") and visual["sprite_frames"] is Dictionary:
+		var fdict: Dictionary = visual["sprite_frames"]
 		var need_f: Array[String] = ["idle", "walk", "attack"]
 		var f_ok: bool = true
 		for fkey in need_f:
@@ -192,16 +214,16 @@ func setup_from_character(cid: String) -> void:
 			char_sprite.hframes = 1
 			char_sprite.vframes = 1
 			char_sprite.frame = 0
-			char_sprite.scale = Vector2.ONE * float(c.get("scale", 1.0))
-			char_sprite.offset = Vector2(0, float(c.get("offset_y", 0)))
-			char_sprite.modulate = c.get("tint", Color.WHITE)
+			char_sprite.scale = Vector2.ONE * float(visual.get("scale", 1.0))
+			char_sprite.offset = Vector2(0, float(visual.get("offset_y", 0)))
+			char_sprite.modulate = c.get("tint", visual.get("tint", Color.WHITE))
 			char_sprite.visible = true
-			_sprite_faces_left = bool(c.get("sprite_faces_left", false))
-			_walk_anim_over_attack = bool(c.get("walk_anim_over_attack", false))
+			_sprite_faces_left = bool(visual.get("sprite_faces_left", false))
+			_walk_anim_over_attack = bool(visual.get("walk_anim_over_attack", false))
 			frames_per_row = []
 			has_sprite = true
-	if not has_sprite and char_sprite and c.has("sprite_strips") and c["sprite_strips"] is Dictionary:
-		var strips: Dictionary = c["sprite_strips"]
+	if not has_sprite and char_sprite and visual.has("sprite_strips") and visual["sprite_strips"] is Dictionary:
+		var strips: Dictionary = visual["sprite_strips"]
 		var need: Array[String] = ["idle", "walk", "attack"]
 		var all_ok: bool = true
 		for key in need:
@@ -223,30 +245,30 @@ func setup_from_character(cid: String) -> void:
 		if all_ok and _sprite_strip_tex.size() >= 3:
 			_use_sprite_strips = true
 			char_sprite.texture = _sprite_strip_tex["idle"]
-			_strip_hframes = maxi(1, int(c.get("strip_hframes", 8)))
-			if c.has("strip_hframes_by_strip") and c["strip_hframes_by_strip"] is Dictionary:
-				for hk in c["strip_hframes_by_strip"]:
-					_strip_hframes_by_strip[String(hk)] = int(c["strip_hframes_by_strip"][hk])
+			_strip_hframes = maxi(1, int(visual.get("strip_hframes", 8)))
+			if visual.has("strip_hframes_by_strip") and visual["strip_hframes_by_strip"] is Dictionary:
+				for hk in visual["strip_hframes_by_strip"]:
+					_strip_hframes_by_strip[String(hk)] = int(visual["strip_hframes_by_strip"][hk])
 			char_sprite.hframes = _hframes_for_strip_key("idle")
 			char_sprite.vframes = 1
-			char_sprite.scale = Vector2.ONE * float(c.get("scale", 1.8))
-			char_sprite.offset = Vector2(0, float(c.get("offset_y", 0)))
+			char_sprite.scale = Vector2.ONE * float(visual.get("scale", 1.8))
+			char_sprite.offset = Vector2(0, float(visual.get("offset_y", 0)))
 			char_sprite.frame = 0
-			char_sprite.modulate = c.get("tint", Color.WHITE)
+			char_sprite.modulate = c.get("tint", visual.get("tint", Color.WHITE))
 			char_sprite.visible = true
-			_sprite_faces_left = bool(c.get("sprite_faces_left", false))
+			_sprite_faces_left = bool(visual.get("sprite_faces_left", false))
 			_strip_frames = {
 				"idle": _strip_hframes, "walk": _strip_hframes, "attack": _strip_hframes,
 				"hit": _strip_hframes, "death": _strip_hframes,
 			}
-			if c.has("strip_frames") and c["strip_frames"] is Dictionary:
-				for k in c["strip_frames"]:
-					_strip_frames[k] = int(c["strip_frames"][k])
-			if c.has("strip_fps") and c["strip_fps"] is Dictionary:
-				for k in c["strip_fps"]:
-					_strip_fps[String(k)] = float(c["strip_fps"][k])
-			_walk_anim_over_attack = bool(c.get("walk_anim_over_attack", false))
-			_start_transform_pending = bool(c.get("start_transform", false)) \
+			if visual.has("strip_frames") and visual["strip_frames"] is Dictionary:
+				for k in visual["strip_frames"]:
+					_strip_frames[k] = int(visual["strip_frames"][k])
+			if visual.has("strip_fps") and visual["strip_fps"] is Dictionary:
+				for k in visual["strip_fps"]:
+					_strip_fps[String(k)] = float(visual["strip_fps"][k])
+			_walk_anim_over_attack = bool(visual.get("walk_anim_over_attack", false))
+			_start_transform_pending = bool(visual.get("start_transform", false)) \
 				and not village_mode and _sprite_strip_tex.has("transform")
 			if _start_transform_pending:
 				_start_transform_done = false
@@ -259,21 +281,21 @@ func setup_from_character(cid: String) -> void:
 					char_sprite.frame = 0
 			frames_per_row = []
 			has_sprite = true
-	if not has_sprite and char_sprite and c.has("sprite") and String(c["sprite"]) != "":
-		var tex: Texture2D = load(c["sprite"])
+	if not has_sprite and char_sprite and visual.has("sprite") and String(visual["sprite"]) != "":
+		var tex: Texture2D = load(visual["sprite"])
 		if tex:
 			char_sprite.texture = tex
-			char_sprite.hframes = int(c.get("hframes", 1))
-			char_sprite.vframes = int(c.get("vframes", 1))
-			char_sprite.scale = Vector2.ONE * float(c.get("scale", 1.8))
-			char_sprite.offset = Vector2(0, float(c.get("offset_y", 0)))
+			char_sprite.hframes = int(visual.get("hframes", 1))
+			char_sprite.vframes = int(visual.get("vframes", 1))
+			char_sprite.scale = Vector2.ONE * float(visual.get("scale", 1.8))
+			char_sprite.offset = Vector2(0, float(visual.get("offset_y", 0)))
 			char_sprite.frame = 0
-			char_sprite.modulate = c.get("tint", Color.WHITE)
+			char_sprite.modulate = c.get("tint", visual.get("tint", Color.WHITE))
 			char_sprite.visible = true
-			frames_per_row = c.get("frames_per_row", []).duplicate() if c.has("frames_per_row") else []
-			row_idle = int(c.get("row_idle", 0))
-			row_walk = int(c.get("row_walk", 1))
-			row_attack = int(c.get("row_attack", 3))
+			frames_per_row = visual.get("frames_per_row", []).duplicate() if visual.has("frames_per_row") else []
+			row_idle = int(visual.get("row_idle", 0))
+			row_walk = int(visual.get("row_walk", 1))
+			row_attack = int(visual.get("row_attack", 3))
 			var vf: int = max(1, char_sprite.vframes)
 			# 規則：無論幾列，倒數第二列 = 受擊、最後一列 = 死亡
 			row_death = vf - 1
@@ -300,6 +322,37 @@ func setup_from_character(cid: String) -> void:
 		start_weapon_reward_log.clear()
 		_add_start_weapon(String(c["weapon"]), "character", "")
 		_apply_start_armament()
+		_apply_house_favorite_bonuses()
+
+
+func _apply_house_favorite_bonuses() -> void:
+	if village_mode:
+		return
+	var fav_ids: Array[String] = []
+	if input_prefix == "p1":
+		fav_ids = GameState.p1_house_favorite_armament_ids_for_battle(character_id)
+	elif input_prefix == "p2":
+		fav_ids = GameState.p2_house_favorite_armament_ids_for_battle(character_id)
+	else:
+		return
+	if fav_ids.is_empty():
+		return
+	var stats: Dictionary = GameData.sum_armament_flat_stats(fav_ids)
+	var has_bonus: bool = false
+	for field in GameData.ARMAMENT_FAVORITE_STAT_FIELDS:
+		if float(stats.get(field, 0.0)) > 0.0:
+			has_bonus = true
+			break
+	if not has_bonus:
+		return
+	GameData.apply_armament_favorite_stats_to_player(self, stats)
+	var log_entry: Dictionary = {
+		"kind": "house_favorites",
+		"stats": stats.duplicate(),
+		"source_kind": "house",
+		"source_id": input_prefix,
+	}
+	start_weapon_reward_log.append(log_entry)
 
 
 func _ready() -> void:
@@ -328,12 +381,23 @@ func _physics_process(delta: float) -> void:
 		_heal(regen_per_sec * delta)
 
 	passive_meter_fill_cd = max(0.0, passive_meter_fill_cd - delta)
+	_update_breakthrough_trackers(delta)
 	_try_fighting_spirit_meter()
 	_try_quick_step_meter()
+	if wild_impulse_window > 0.0:
+		wild_impulse_window -= delta
+		if wild_impulse_window <= 0.0:
+			wild_impulse_window = 0.0
+			wild_impulse_charges_left = 0
 
 	# 主動技能：在戰鬥場景按技能鍵觸發
 	if skill_cooldown > 0.0:
 		skill_cooldown = max(0.0, skill_cooldown - delta)
+	if heavenly_judgment_active:
+		_update_heavenly_judgment_target(delta)
+		_update_char_anim(delta)
+		queue_redraw()
+		return
 	if Input.is_action_just_pressed(input_prefix + "_skill"):
 		use_skill()
 
@@ -343,6 +407,20 @@ func _physics_process(delta: float) -> void:
 		_battle_physics(delta)
 	_update_char_anim(delta)
 	queue_redraw()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not heavenly_judgment_active or heavenly_judgment_confirm_guard > 0.0:
+		return
+	if event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+			_land_heavenly_judgment(get_global_mouse_position())
+	elif event is InputEventScreenTouch:
+		var touch: InputEventScreenTouch = event as InputEventScreenTouch
+		if touch.pressed:
+			var world_pos: Vector2 = get_viewport().get_canvas_transform().affine_inverse() * touch.position
+			_land_heavenly_judgment(world_pos)
 
 
 func get_level_growth_steps() -> int:
@@ -909,6 +987,10 @@ func _refresh_weapon_stats() -> void:
 
 func on_enemy_killed(_e: Node) -> void:
 	kills += 1
+	if _e != null and _e.get("slime_def") is Dictionary:
+		var eid: String = String(_e.slime_def.get("id", ""))
+		if eid != "":
+			GameState.unlock_codex_monster_on_defeat(eid)
 	if passive_id == "fighting_spirit" and skill_id != "none":
 		passive_kill_counter += 1
 		_try_fighting_spirit_meter()
@@ -918,6 +1000,10 @@ func on_enemy_killed(_e: Node) -> void:
 func _apply_passive() -> void:
 	passive_kill_counter = 0
 	passive_hit_counter = 0
+	breakthrough_same_enemy_hits.clear()
+	breakthrough_attack_hits.clear()
+	wild_impulse_window = 0.0
+	wild_impulse_charges_left = 0
 	skill_meter = 0.0
 	passive_meter_fill_cd = 0.0
 
@@ -1019,11 +1105,32 @@ func passive_arcane_mastery_on_skill_hit() -> void:
 	_try_grant_passive_skill_meter(fill)
 
 
+func passive_sword_aura_resonance_on_status() -> void:
+	if passive_id != "sword_aura_resonance" or skill_id == "none":
+		return
+	var pdef: Dictionary = GameData.get_passive_def("sword_aura_resonance")
+	var fill: float = float(pdef.get("params", {}).get("meter_fill", 32.0))
+	_try_grant_passive_skill_meter(fill)
+
+
+func reset_wild_impulse_chain() -> void:
+	wild_impulse_window = 0.0
+	wild_impulse_charges_left = 0
+
+
 # 武器命中事件（由 WeaponBase.damage_enemy 呼叫）
 func on_weapon_hit(_e: Node, _weapon: Node) -> void:
 	if passive_id == "quick_step" and skill_id != "none":
 		passive_hit_counter += 1
 		_try_quick_step_meter()
+	if passive_id == "breakthrough" and skill_id != "none":
+		_breakthrough_on_weapon_hit(_e, _weapon)
+	if passive_id == "bloodlust" and skill_id != "none" and _e != null \
+			and is_instance_valid(_e) and _e.has_method("is_status_bleeding"):
+		if _e.is_status_bleeding():
+			var pdef2: Dictionary = GameData.get_passive_def("bloodlust")
+			var fill2: float = float(pdef2.get("params", {}).get("meter_fill", 30.0))
+			_try_grant_passive_skill_meter(fill2)
 
 
 # 結算：在被動 CD 結束時把累計的命中數兌換成量表（與鬥志高昂相同模式）
@@ -1037,6 +1144,66 @@ func _try_quick_step_meter() -> void:
 		if not _try_grant_passive_skill_meter(fill):
 			break
 		passive_hit_counter -= need
+
+
+func _update_breakthrough_trackers(delta: float) -> void:
+	for key in breakthrough_same_enemy_hits.keys():
+		var data: Dictionary = breakthrough_same_enemy_hits[key]
+		data["time"] = float(data.get("time", 0.0)) - delta
+		if float(data["time"]) <= 0.0:
+			breakthrough_same_enemy_hits.erase(key)
+	for key in breakthrough_attack_hits.keys():
+		var data2: Dictionary = breakthrough_attack_hits[key]
+		data2["time"] = float(data2.get("time", 0.0)) - delta
+		if float(data2["time"]) <= 0.0:
+			breakthrough_attack_hits.erase(key)
+
+
+func _breakthrough_on_weapon_hit(e: Node, weapon: Node) -> void:
+	if e == null or not is_instance_valid(e):
+		return
+	var pdef: Dictionary = GameData.get_passive_def("breakthrough")
+	var params: Dictionary = pdef.get("params", {})
+	var window: float = float(params.get("same_enemy_window", 5.0))
+	var same_need: int = max(1, int(params.get("same_enemy_hits", 3)))
+	var multi_need: int = max(1, int(params.get("multi_hit_count", 3)))
+	var eid: String = str(e.get_instance_id())
+	var same_data: Dictionary = breakthrough_same_enemy_hits.get(eid, {"count": 0, "time": 0.0})
+	if float(same_data.get("time", 0.0)) <= 0.0:
+		same_data["count"] = 0
+	same_data["count"] = int(same_data.get("count", 0)) + 1
+	same_data["time"] = window
+	breakthrough_same_enemy_hits[eid] = same_data
+	if int(same_data["count"]) >= same_need:
+		breakthrough_same_enemy_hits.erase(eid)
+		_breakthrough_try_meter_fill()
+
+	var token: String = "none"
+	if weapon != null:
+		token = str(weapon.get_instance_id())
+	if weapon != null and weapon.has_method("get_attack_token"):
+		token = String(weapon.call("get_attack_token"))
+	var attack_data: Dictionary = breakthrough_attack_hits.get(token, {
+		"seen": {},
+		"time": 0.24,
+		"triggered": false,
+	})
+	var seen: Dictionary = attack_data.get("seen", {})
+	seen[eid] = true
+	attack_data["seen"] = seen
+	attack_data["time"] = 0.24
+	if not bool(attack_data.get("triggered", false)) and seen.size() >= multi_need:
+		attack_data["triggered"] = true
+		_breakthrough_try_meter_fill()
+	breakthrough_attack_hits[token] = attack_data
+
+
+func _breakthrough_try_meter_fill() -> void:
+	var pdef: Dictionary = GameData.get_passive_def("breakthrough")
+	var fill: float = float(pdef.get("params", {}).get("meter_fill", 35.0))
+	if _try_grant_passive_skill_meter(fill):
+		modulate = Color(1.35, 1.18, 0.65)
+		create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.22)
 
 
 # 通用：嘗試消耗技能 (檢查冷卻 + skill_id 是否有效)
@@ -1059,7 +1226,13 @@ func use_skill(context: String = "combat") -> bool:
 	if context != "combat":
 		# 其他 context (例：彈珠台) 由各場景自行呼叫 try_consume_skill 處理
 		return false
-	var s: Dictionary = try_consume_skill()
+	var from_wi_followup: bool = skill_id == "wild_impulse" \
+			and wild_impulse_charges_left > 0 and wild_impulse_window > 0.0
+	var s: Dictionary
+	if from_wi_followup:
+		s = GameData.get_skill_def(skill_id)
+	else:
+		s = try_consume_skill()
 	if s.is_empty():
 		return false
 	AudioManager.play_sfx("skill_cast", 0.03)
@@ -1072,6 +1245,17 @@ func use_skill(context: String = "combat") -> bool:
 			_skill_energy_wave_combat(s)
 		"agile_tactics":
 			_skill_agile_tactics_combat(s)
+		"heavenly_judgment":
+			_skill_heavenly_judgment_combat(s)
+		"mirror_moon":
+			_skill_mirror_moon_combat(s)
+		"wild_impulse":
+			_skill_wild_impulse_combat(s)
+			if from_wi_followup:
+				wild_impulse_charges_left = max(0, wild_impulse_charges_left - 1)
+			else:
+				wild_impulse_window = 5.0
+				wild_impulse_charges_left = 2
 	return true
 
 
@@ -1157,17 +1341,270 @@ func _skill_energy_wave_combat(s: Dictionary) -> void:
 	play_attack_anim()
 
 
-func add_weapon(weapon_id: String) -> Dictionary:
+func _skill_heavenly_judgment_combat(s: Dictionary) -> void:
+	heavenly_judgment_params = s.get("params", {})
+	heavenly_judgment_active = true
+	heavenly_judgment_origin = global_position
+	heavenly_judgment_target = global_position
+	heavenly_judgment_time_left = float(heavenly_judgment_params.get("combat_select_time", 3.0))
+	heavenly_judgment_confirm_guard = 0.16
+	velocity = Vector2.ZERO
+	modulate.a = 0.42
+	_ensure_heavenly_judgment_marker()
+
+
+func _update_heavenly_judgment_target(delta: float) -> void:
+	velocity = Vector2.ZERO
+	heavenly_judgment_confirm_guard = max(0.0, heavenly_judgment_confirm_guard - delta)
+	heavenly_judgment_time_left -= delta
+	var dir := Vector2(
+		Input.get_action_strength(input_prefix + "_right") - Input.get_action_strength(input_prefix + "_left"),
+		Input.get_action_strength(input_prefix + "_down") - Input.get_action_strength(input_prefix + "_up")
+	)
+	if dir.length() > 0.05:
+		var speed: float = float(heavenly_judgment_params.get("combat_cursor_speed", 320.0))
+		heavenly_judgment_target += dir.normalized() * speed * delta
+		heavenly_judgment_target = _clamp_heavenly_judgment_target(heavenly_judgment_target)
+	if heavenly_judgment_marker != null and is_instance_valid(heavenly_judgment_marker):
+		heavenly_judgment_marker.global_position = heavenly_judgment_target
+		heavenly_judgment_marker.set_meta("time_left", heavenly_judgment_time_left)
+		heavenly_judgment_marker.queue_redraw()
+	if heavenly_judgment_confirm_guard <= 0.0 and (
+			Input.is_action_just_pressed(input_prefix + "_skill")
+			or Input.is_action_just_pressed(input_prefix + "_action")
+			or Input.is_action_just_pressed("ui_accept")):
+		_land_heavenly_judgment(heavenly_judgment_target)
+		return
+	if heavenly_judgment_time_left <= 0.0:
+		_land_heavenly_judgment(heavenly_judgment_origin)
+
+
+func _clamp_heavenly_judgment_target(pos: Vector2) -> Vector2:
+	var max_range: float = float(heavenly_judgment_params.get("combat_target_range", 420.0))
+	var offset: Vector2 = pos - heavenly_judgment_origin
+	if offset.length() > max_range:
+		pos = heavenly_judgment_origin + offset.normalized() * max_range
+	var game = get_parent()
+	if game and game.has_method("is_world_blocked_at"):
+		if game.is_world_blocked_at(pos, body_radius):
+			return heavenly_judgment_target
+	return pos
+
+
+func _land_heavenly_judgment(pos: Vector2) -> void:
+	if not heavenly_judgment_active:
+		return
+	heavenly_judgment_active = false
+	global_position = _clamp_heavenly_judgment_target(pos)
+	modulate.a = 1.0
+	_clear_heavenly_judgment_marker()
+	var radius: float = float(heavenly_judgment_params.get("combat_radius", 150.0))
+	var dmg_mul: float = float(heavenly_judgment_params.get("combat_damage_mult", 5.2))
+	var min_damage: float = float(heavenly_judgment_params.get("combat_min_damage", 70.0))
+	var stun_time: float = float(heavenly_judgment_params.get("combat_stun", 1.4))
+	var dmg: float = max(min_damage, get_effective_atk_power() * dmg_mul)
+	var any_hit: bool = false
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e):
+			continue
+		var ee := e as Node2D
+		if ee == null:
+			continue
+		var er: float = 28.0
+		var rn: Variant = e.get("radius")
+		if rn != null:
+			er = float(rn)
+		if ee.global_position.distance_to(global_position) <= radius + er:
+			if e.has_method("take_damage"):
+				e.take_damage(dmg, self)
+				any_hit = true
+			if e.has_method("apply_stun"):
+				e.apply_stun(stun_time)
+	if any_hit:
+		AudioManager.play_sfx("skill_cast", 0.04)
+	_spawn_heavenly_judgment_impact(radius)
+	play_attack_anim()
+
+
+func _ensure_heavenly_judgment_marker() -> void:
+	_clear_heavenly_judgment_marker()
+	var marker := DrawerNode2D.new()
+	marker.fn = Callable(self, "_draw_heavenly_judgment_marker")
+	marker.z_index = 80
+	marker.global_position = heavenly_judgment_target
+	marker.set_meta("radius", float(heavenly_judgment_params.get("combat_radius", 150.0)))
+	marker.set_meta("max_time", float(heavenly_judgment_params.get("combat_select_time", 3.0)))
+	marker.set_meta("time_left", heavenly_judgment_time_left)
+	get_tree().current_scene.add_child(marker)
+	heavenly_judgment_marker = marker
+
+
+func _clear_heavenly_judgment_marker() -> void:
+	if heavenly_judgment_marker != null and is_instance_valid(heavenly_judgment_marker):
+		heavenly_judgment_marker.queue_free()
+	heavenly_judgment_marker = null
+
+
+func _draw_heavenly_judgment_marker(node: Node2D) -> void:
+	var radius: float = float(node.get_meta("radius", 150.0))
+	var max_time: float = max(0.01, float(node.get_meta("max_time", 3.0)))
+	var time_left: float = float(node.get_meta("time_left", 0.0))
+	var ready: float = clampf(1.0 - time_left / max_time, 0.0, 1.0)
+	node.draw_circle(Vector2.ZERO, radius, Color(1.0, 0.72, 0.18, 0.16 + ready * 0.10))
+	node.draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, Color(1.0, 0.88, 0.34, 0.92), 3.0)
+	node.draw_line(Vector2(-14, 0), Vector2(14, 0), Color(1.0, 0.95, 0.55), 2.0)
+	node.draw_line(Vector2(0, -14), Vector2(0, 14), Color(1.0, 0.95, 0.55), 2.0)
+
+
+func _spawn_heavenly_judgment_impact(radius: float) -> void:
+	var impact := DrawerNode2D.new()
+	impact.fn = Callable(self, "_draw_heavenly_judgment_impact")
+	impact.z_index = 90
+	impact.global_position = global_position
+	impact.set_meta("radius", radius)
+	get_tree().current_scene.add_child(impact)
+	var tw := impact.create_tween()
+	impact.scale = Vector2(0.2, 0.2)
+	impact.modulate.a = 0.92
+	tw.tween_property(impact, "scale", Vector2.ONE, 0.12)
+	tw.parallel().tween_property(impact, "modulate:a", 0.0, 0.34)
+	tw.tween_callback(impact.queue_free)
+
+
+func _draw_heavenly_judgment_impact(node: Node2D) -> void:
+	var radius: float = float(node.get_meta("radius", 150.0))
+	node.draw_circle(Vector2.ZERO, radius, Color(1.0, 0.55, 0.12, 0.24))
+	node.draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, Color(1.0, 0.86, 0.28, 0.95), 5.0)
+
+
+func _skill_mirror_moon_combat(s: Dictionary) -> void:
+	var params: Dictionary = s.get("params", {})
+	var origin: Vector2 = global_position
+	var dir: Vector2 = face_dir.normalized()
+	if dir == Vector2.ZERO:
+		dir = Vector2.RIGHT
+	var dash_distance: float = float(params.get("combat_dash_distance", 320.0))
+	var dash_width: float = float(params.get("combat_dash_width", 74.0))
+	var end_pos: Vector2 = _mirror_moon_dash_end(origin, dir, dash_distance)
+	var dmg: float = max(
+		float(params.get("combat_min_damage", 36.0)),
+		get_effective_atk_power() * float(params.get("combat_damage_mult", 2.8)))
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e):
+			continue
+		var ee := e as Node2D
+		if ee == null:
+			continue
+		var er: float = float(e.get("radius")) if e.get("radius") != null else 28.0
+		if _point_segment_distance_sq(ee.global_position, origin, end_pos) <= pow(dash_width + er, 2.0):
+			if e.has_method("take_damage"):
+				e.take_damage(dmg, self)
+	global_position = end_pos
+	_spawn_mirror_moon_dash_vfx(origin, end_pos, dash_width)
+	_spawn_mirror_moon_clone(origin, dir, params)
+	play_attack_anim()
+
+
+func _mirror_moon_dash_end(origin: Vector2, dir: Vector2, distance: float) -> Vector2:
+	var end_pos: Vector2 = origin + dir * distance
+	var game = get_parent()
+	if game and game.has_method("is_world_blocked_at"):
+		var steps: int = 8
+		for i in range(1, steps + 1):
+			var p: Vector2 = origin.lerp(end_pos, float(i) / float(steps))
+			if game.is_world_blocked_at(p, body_radius):
+				return origin.lerp(end_pos, float(i - 1) / float(steps))
+	return end_pos
+
+
+func _spawn_mirror_moon_clone(pos: Vector2, dir: Vector2, params: Dictionary) -> void:
+	var clone := _MirrorMoonClone.new()
+	clone.setup(
+		self,
+		dir,
+		float(params.get("clone_duration", 3.0)),
+		float(params.get("clone_interval", 0.55)),
+		float(params.get("clone_radius", 150.0)),
+		max(float(params.get("clone_min_damage", 18.0)),
+			get_effective_atk_power() * float(params.get("clone_damage_mult", 1.15))),
+		color)
+	clone.global_position = pos
+	get_tree().current_scene.add_child(clone)
+
+
+func _spawn_mirror_moon_dash_vfx(start: Vector2, end: Vector2, width: float) -> void:
+	var vfx := DrawerNode2D.new()
+	vfx.fn = Callable(self, "_draw_mirror_moon_dash_vfx")
+	vfx.z_index = 92
+	vfx.global_position = start
+	vfx.set_meta("end_local", end - start)
+	vfx.set_meta("width", width)
+	get_tree().current_scene.add_child(vfx)
+	var tw := vfx.create_tween()
+	vfx.modulate.a = 0.9
+	tw.tween_property(vfx, "modulate:a", 0.0, 0.28)
+	tw.tween_callback(vfx.queue_free)
+
+
+func _draw_mirror_moon_dash_vfx(node: Node2D) -> void:
+	var end_local: Vector2 = node.get_meta("end_local", Vector2.RIGHT * 260.0)
+	var width: float = float(node.get_meta("width", 70.0))
+	node.draw_line(Vector2.ZERO, end_local, Color(0.78, 0.95, 1.0, 0.88), width * 0.35)
+	node.draw_line(Vector2.ZERO, end_local, Color(1.0, 1.0, 1.0, 0.95), 3.0)
+
+
+func _skill_wild_impulse_combat(s: Dictionary) -> void:
+	var params: Dictionary = s.get("params", {})
+	var origin: Vector2 = global_position
+	var dir: Vector2 = face_dir.normalized()
+	if dir == Vector2.ZERO:
+		dir = Vector2.RIGHT
+	var dash_distance: float = float(params.get("combat_dash_distance", 300.0))
+	var dash_width: float = float(params.get("combat_dash_width", 80.0))
+	var push_dist: float = float(params.get("combat_push_distance", 56.0))
+	var end_pos: Vector2 = _mirror_moon_dash_end(origin, dir, dash_distance)
+	var dmg: float = max(
+		float(params.get("combat_min_damage", 32.0)),
+		get_effective_atk_power() * float(params.get("combat_damage_mult", 2.4)))
+	var push_vec: Vector2 = dir * push_dist
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e):
+			continue
+		var ee := e as Node2D
+		if ee == null:
+			continue
+		var er: float = float(e.get("radius")) if e.get("radius") != null else 28.0
+		if _point_segment_distance_sq(ee.global_position, origin, end_pos) <= pow(dash_width + er, 2.0):
+			if e.has_method("take_damage"):
+				e.take_damage(dmg, self)
+			if e.has_method("apply_position_push"):
+				e.apply_position_push(push_vec)
+	global_position = end_pos
+	_spawn_mirror_moon_dash_vfx(origin, end_pos, dash_width * 0.85)
+	play_attack_anim()
+
+
+func add_weapon(weapon_id: String, allow_unaccounted_upgrade: bool = true) -> Dictionary:
 	for w in weapons:
 		if w["id"] == weapon_id:
+			if not allow_unaccounted_upgrade and not GameState.is_weapon_unlocked(weapon_id):
+				return {"kind": "weapon_upgrade_max", "weapon_id": weapon_id}
 			var ur: Dictionary = _apply_random_weapon_upgrade(w)
 			return _weapon_reward_result(String(w["id"]), ur)
 	# 武器格滿了 → 改強化等級最低的一把（總是有點益處），不再悄悄落空
 	if weapons.size() >= get_weapon_slot_max():
-		var lowest: Dictionary = weapons[0]
+		var lowest: Dictionary = {}
+		var lowest_level: int = 999999
 		for w in weapons:
-			if int(w["level"]) < int(lowest["level"]):
+			var wid: String = String(w.get("id", ""))
+			if not allow_unaccounted_upgrade and not GameState.is_weapon_unlocked(wid):
+				continue
+			var lv: int = int(w.get("level", 1))
+			if lowest.is_empty() or lv < lowest_level:
 				lowest = w
+				lowest_level = lv
+		if lowest.is_empty():
+			return {"kind": "weapon_upgrade_max", "weapon_id": weapon_id}
 		var ur2: Dictionary = _apply_random_weapon_upgrade(lowest)
 		return _weapon_reward_result(String(lowest["id"]), ur2)
 	var entry := {
@@ -1201,9 +1638,21 @@ func _apply_start_armament() -> void:
 	var adef: Dictionary = GameData.get_armament_def(armament_id)
 	if adef.is_empty() or armament_id == "none":
 		return
-	atk += float(adef.get("atk_add", 0.0))
-	move_speed += float(adef.get("spd_add", 0.0)) * 36.0
-	_add_start_weapon(String(adef.get("weapon_id", "")), "armament", armament_id)
+	GameData.apply_armament_flat_stats_to_player(self, adef)
+	var common_id: String = String(adef.get("common_upgrade_id", ""))
+	if common_id != "":
+		var cdef: Dictionary = GameData.get_common_upgrade_def(common_id)
+		if not cdef.is_empty():
+			var have: int = int(common_upgrade_log.get(common_id, 0))
+			var cap: int = int(cdef.get("max", 0))
+			if have < cap:
+				var cinfo: Dictionary = apply_common_upgrade(common_id)
+				cinfo["source_kind"] = "armament"
+				cinfo["source_id"] = armament_id
+				start_weapon_reward_log.append(cinfo)
+	var wfrom: String = String(adef.get("weapon_id", ""))
+	if wfrom != "":
+		_add_start_weapon(wfrom, "armament", armament_id)
 
 
 func get_weapon_slot_max() -> int:
@@ -1337,3 +1786,71 @@ func _on_pickup_area_body_entered(_body: Node) -> void:
 func _on_pickup_area_area_entered(area: Area2D) -> void:
 	if area.is_in_group("xp_orbs") or area.is_in_group("gold_orbs"):
 		area.attract_to(self)
+
+
+class _MirrorMoonClone:
+	extends Node2D
+
+	var owner_player: Node = null
+	var face_dir: Vector2 = Vector2.RIGHT
+	var life_left: float = 3.0
+	var slash_interval: float = 0.55
+	var slash_timer: float = 0.0
+	var slash_radius: float = 150.0
+	var slash_damage: float = 18.0
+	var slash_color: Color = Color(0.9, 0.9, 1.0)
+	var slash_flash: float = 0.0
+
+	func setup(
+			p: Node,
+			dir: Vector2,
+			duration: float,
+			interval: float,
+			radius: float,
+			damage: float,
+			col: Color) -> void:
+		owner_player = p
+		face_dir = dir.normalized() if dir.length_squared() > 0.001 else Vector2.RIGHT
+		life_left = duration
+		slash_interval = max(0.1, interval)
+		slash_timer = 0.05
+		slash_radius = radius
+		slash_damage = damage
+		slash_color = col
+		z_index = 50
+		modulate.a = 0.68
+
+	func _process(delta: float) -> void:
+		if owner_player == null or not is_instance_valid(owner_player):
+			queue_free()
+			return
+		life_left -= delta
+		slash_timer -= delta
+		slash_flash = max(0.0, slash_flash - delta)
+		if slash_timer <= 0.0:
+			slash_timer = slash_interval
+			_slash()
+		queue_redraw()
+		if life_left <= 0.0:
+			queue_free()
+
+	func _slash() -> void:
+		slash_flash = 0.16
+		for e in get_tree().get_nodes_in_group("enemies"):
+			if not is_instance_valid(e):
+				continue
+			var ee := e as Node2D
+			if ee == null:
+				continue
+			var er: float = float(e.get("radius")) if e.get("radius") != null else 28.0
+			if global_position.distance_to(ee.global_position) <= slash_radius + er:
+				if e.has_method("take_damage"):
+					e.take_damage(slash_damage, owner_player)
+
+	func _draw() -> void:
+		draw_circle(Vector2.ZERO, 18.0, Color(slash_color.r, slash_color.g, slash_color.b, 0.32))
+		draw_line(Vector2.ZERO, face_dir * 34.0, Color(1.0, 1.0, 1.0, 0.7), 3.0)
+		if slash_flash > 0.0:
+			var a: float = clampf(slash_flash / 0.16, 0.0, 1.0)
+			draw_arc(Vector2.ZERO, slash_radius, -PI * 0.1, PI * 1.1, 32,
+				Color(0.8, 0.95, 1.0, 0.65 * a), 4.0)

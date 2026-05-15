@@ -30,11 +30,19 @@ var special_ai_mode: String = ""
 var flee_lifetime: float = 12.0
 var rune_dust_drop: int = 0
 var _special_age: float = 0.0
+var ranged_params: Dictionary = {}
+var _ranged_cooldown: float = 0.0
+var _ranged_windup_left: float = 0.0
+var _ranged_warning: Node2D = null
+var _ranged_origin: Vector2 = Vector2.ZERO
+var _ranged_dir: Vector2 = Vector2.RIGHT
+var _ranged_length: float = 0.0
 
 # 緩速：對 _base_move_speed 乘算（寒冰等）
 var _base_move_speed: float = 90.0
 var _slow_time: float = 0.0
 var _slow_speed_factor: float = 1.0
+var _stun_time: float = 0.0
 # 易傷：飛鏢疊層，滿級提高層數上限（傷害乘算 1 + 層數×係數）
 var _vuln_time: float = 0.0
 var _vuln_stacks: int = 0
@@ -76,7 +84,8 @@ func setup_with_slime(def: Dictionary, level_factor: float) -> void:
 			sprite.texture = tex
 			sprite.hframes = int(def.get("hframes", 1))
 			sprite.vframes = int(def.get("vframes", 1))
-			sprite.frame = 0
+			var idle0: int = clampi(int(def.get("anim_row_idle", 0)), 0, maxi(0, sprite.vframes - 1))
+			sprite.frame = idle0 * sprite.hframes
 			sprite.scale = Vector2.ONE * float(def.get("scale", 1.0))
 			sprite.offset = Vector2(0, float(def.get("offset_y", 0)))
 			hframes_count = sprite.hframes
@@ -88,17 +97,16 @@ func setup_with_slime(def: Dictionary, level_factor: float) -> void:
 		var cs: CircleShape2D = body_shape.shape if body_shape.shape is CircleShape2D else CircleShape2D.new()
 		cs.radius = radius
 		body_shape.shape = cs
-	# 套用屬性 — 基底數值依 level_factor 提升，再乘上各 slime 倍率
-	var base_hp: float = 6.0 + level_factor * 4.0
-	var base_speed: float = 70.0 + level_factor * 6.0
-	var base_dmg: float = 5.0 + level_factor * 1.5
-	var base_xp: float = 1.0 + level_factor * 0.15
-	max_hp = base_hp * float(def.get("hp_mult", 1.0))
+	# 套用屬性 — 與圖鑑共用 GameData.compute_enemy_combat_stats
+	var st: Dictionary = GameData.compute_enemy_combat_stats(def, level_factor)
+	max_hp = float(st["max_hp"])
 	hp = max_hp
-	move_speed = base_speed * float(def.get("speed_mult", 1.0))
+	move_speed = float(st["move_speed"])
 	_base_move_speed = move_speed
-	damage = base_dmg * float(def.get("dmg_mult", 1.0))
-	xp_value = base_xp * float(def.get("xp_mult", 1.0))
+	damage = float(st["damage"])
+	xp_value = float(st["xp_value"])
+	if def.has("ranged") and def["ranged"] is Dictionary:
+		configure_ranged_attack(def["ranged"])
 
 
 # 舊介面：難度直接 setup（隨機選一隻）
@@ -126,6 +134,15 @@ func setup_rescue_runner(level_factor: float, dust_amount: int) -> void:
 		sprite.scale *= 1.2
 
 
+func configure_ranged_attack(params: Dictionary) -> void:
+	if params.is_empty() or not bool(params.get("enabled", true)):
+		ranged_params.clear()
+		_clear_ranged_warning()
+		return
+	ranged_params = params.duplicate()
+	_ranged_cooldown = randf_range(0.8, max(0.9, float(ranged_params.get("cooldown", 4.0))))
+
+
 func _process(delta: float) -> void:
 	if _dying:
 		_process_death_animation(delta)
@@ -133,13 +150,19 @@ func _process(delta: float) -> void:
 	if sprite == null or sprite.texture == null or hframes_count <= 1:
 		return
 	anim_time += delta
-	# 移動時走 row 1（行走），靜止時 row 0（待機）；若沒有 row 1 則只用 row 0
+	# 待機 / 行走列：預設 row0 待機、row1 走；可選 anim_row_idle、anim_row_walk（例：殭屍第 0 列出土、第 1 列 IDLE）
 	var moving: bool = velocity.length_squared() > 1.0
-	var row: int = ROW_IDLE
-	if moving and vframes_count > 1 and frames_per_row.size() > 1 and frames_per_row[1] > 0:
-		row = ROW_WALK
-	elif moving and vframes_count > 1 and frames_per_row.size() <= 1:
-		row = ROW_WALK
+	var idle_r: int = clampi(int(slime_def.get("anim_row_idle", ROW_IDLE)), 0, maxi(0, vframes_count - 1))
+	var walk_r: int = clampi(int(slime_def.get("anim_row_walk", ROW_WALK)), 0, maxi(0, vframes_count - 1))
+	var row: int = idle_r
+	if moving and vframes_count > 1:
+		if walk_r != idle_r:
+			row = walk_r
+		else:
+			if frames_per_row.size() > 1 and int(frames_per_row[1]) > 0:
+				row = ROW_WALK
+			elif frames_per_row.is_empty():
+				row = mini(ROW_WALK, vframes_count - 1)
 	var fcount: int = _frame_count_for_row(row)
 	var f: int = int(anim_time * ANIM_FPS) % fcount
 	sprite.frame = row * hframes_count + f
@@ -154,6 +177,12 @@ func _physics_process(delta: float) -> void:
 		return
 	_advance_enemy_status(delta)
 	if _dying or hp <= 0.0:
+		return
+	if _stun_time > 0.0:
+		velocity = Vector2.ZERO
+		_clear_ranged_warning()
+		_update_hit_cooldowns(delta)
+		move_and_slide()
 		return
 	var target: Node2D = null
 	var best: float = 1e9
@@ -170,8 +199,14 @@ func _physics_process(delta: float) -> void:
 
 	if target == null:
 		velocity = Vector2.ZERO
+		_update_ranged_attack(delta, null, 0.0)
 	else:
 		var dir: Vector2 = (target.global_position - global_position).normalized()
+		if _update_ranged_attack(delta, target, best):
+			velocity = Vector2.ZERO
+			_update_hit_cooldowns(delta)
+			move_and_slide()
+			return
 		var spd_mult: float = _slow_speed_factor if _slow_time > 0.0 else 1.0
 		if special_ai_mode == "flee":
 			var flee_dir: Vector2 = -dir
@@ -194,8 +229,7 @@ func _physics_process(delta: float) -> void:
 			elif dir.x > 0.05:
 				sprite.flip_h = false
 
-	for k in hit_cooldowns.keys():
-		hit_cooldowns[k] = max(0.0, hit_cooldowns[k] - delta)
+	_update_hit_cooldowns(delta)
 
 	# 地圖阻擋（水/高地）— 軸分離測試
 	if game_ref and game_ref.has_method("is_world_blocked_at"):
@@ -211,12 +245,94 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 
+func _update_hit_cooldowns(delta: float) -> void:
+	for k in hit_cooldowns.keys():
+		hit_cooldowns[k] = max(0.0, hit_cooldowns[k] - delta)
+
+
+func _update_ranged_attack(delta: float, target: Node2D, distance: float) -> bool:
+	if ranged_params.is_empty() or special_ai_mode != "":
+		return false
+	_ranged_cooldown = max(0.0, _ranged_cooldown - delta)
+	if _ranged_warning != null and is_instance_valid(_ranged_warning):
+		_ranged_windup_left = max(0.0, _ranged_windup_left - delta)
+		_ranged_warning.set_meta("time_left", _ranged_windup_left)
+		_ranged_warning.queue_redraw()
+		if _ranged_windup_left <= 0.0:
+			_fire_ranged_attack()
+		return true
+	var range: float = float(ranged_params.get("range", 280.0))
+	var min_range: float = float(ranged_params.get("min_range", 80.0))
+	if target == null or distance < min_range or distance > range or _ranged_cooldown > 0.0:
+		return false
+	_start_ranged_attack(target, range)
+	return true
+
+
+func _start_ranged_attack(target: Node2D, range: float) -> void:
+	_ranged_origin = global_position
+	_ranged_dir = (target.global_position - _ranged_origin).normalized()
+	if _ranged_dir.length_squared() <= 0.001:
+		_ranged_dir = Vector2.RIGHT
+	_ranged_length = min(range, _ranged_origin.distance_to(target.global_position) + 44.0)
+	_ranged_windup_left = max(0.15, float(ranged_params.get("windup", 0.9)))
+	_ranged_warning = DrawerNode2D.new()
+	_ranged_warning.z_index = 11
+	_ranged_warning.fn = Callable(self, "_draw_ranged_warning")
+	_ranged_warning.global_position = _ranged_origin
+	_ranged_warning.rotation = _ranged_dir.angle()
+	_ranged_warning.set_meta("length", _ranged_length)
+	_ranged_warning.set_meta("width", float(ranged_params.get("width", 42.0)))
+	_ranged_warning.set_meta("windup", _ranged_windup_left)
+	_ranged_warning.set_meta("time_left", _ranged_windup_left)
+	get_tree().current_scene.add_child(_ranged_warning)
+
+
+func _draw_ranged_warning(node: Node2D) -> void:
+	var length: float = float(node.get_meta("length", 260.0))
+	var width: float = float(node.get_meta("width", 42.0))
+	var windup: float = max(0.01, float(node.get_meta("windup", 1.0)))
+	var time_left: float = float(node.get_meta("time_left", 0.0))
+	var ready: float = clampf(1.0 - time_left / windup, 0.0, 1.0)
+	var rect := Rect2(0.0, -width * 0.5, length, width)
+	node.draw_rect(rect, Color(1.0, 0.12, 0.08, 0.16 + ready * 0.22))
+	node.draw_rect(Rect2(0.0, -width * 0.5, length * ready, width), Color(1.0, 0.82, 0.18, 0.18))
+	node.draw_line(Vector2.ZERO, Vector2(length, 0.0), Color(1.0, 0.35, 0.16, 0.95), 3.0)
+	node.draw_arc(Vector2(length, 0.0), width * 0.5, 0.0, TAU, 32, Color(1.0, 0.35, 0.16, 0.9), 2.0)
+
+
+func _fire_ranged_attack() -> void:
+	var width: float = float(ranged_params.get("width", 42.0))
+	var dmg: float = damage * float(ranged_params.get("damage_mult", 0.75))
+	for p in get_tree().get_nodes_in_group("players"):
+		if p == null or not is_instance_valid(p) or p.hp <= 0:
+			continue
+		var rel: Vector2 = p.global_position - _ranged_origin
+		var along: float = rel.dot(_ranged_dir)
+		if along < 0.0 or along > _ranged_length:
+			continue
+		var perp: float = abs(rel.cross(_ranged_dir))
+		if perp <= width * 0.5 + 18.0:
+			p.take_damage(dmg)
+	_clear_ranged_warning()
+	_ranged_cooldown = max(0.3, float(ranged_params.get("cooldown", 4.0)))
+
+
+func _clear_ranged_warning() -> void:
+	if _ranged_warning != null and is_instance_valid(_ranged_warning):
+		_ranged_warning.queue_free()
+	_ranged_warning = null
+	_ranged_windup_left = 0.0
+
+
 func take_damage(d: float, source: Node = null, opts: Dictionary = {}) -> void:
 	if _dying or hp <= 0.0:
 		return
 	var dmg: float = d
 	if _vuln_time > 0.0 and _vuln_stacks > 0:
 		dmg *= 1.0 + float(_vuln_stacks) * GameData.ENEMY_STATUS_MELODY_VULN_PER_STACK
+	var def_def: float = float(slime_def.get("defense", 0.0))
+	dmg *= 1.0 - clampf(def_def, 0.0, 0.35)
 	# 先計算實際扣血（不能超過剩餘 hp，避免超殺把統計灌爆）
 	var taken: float = clamp(dmg, 0.0, max(0.0, hp))
 	hp -= dmg
@@ -240,9 +356,28 @@ func is_status_bleeding() -> bool:
 	return _bleed_time > 0.0 and _bleed_dps > 0.0
 
 
+## 被技能等效果沿某方向平推（會檢查地形阻擋）
+func apply_position_push(offset: Vector2) -> void:
+	if offset.length_squared() < 1.0:
+		return
+	var dest: Vector2 = global_position + offset
+	if game_ref != null and game_ref.has_method("is_world_blocked_at"):
+		if game_ref.is_world_blocked_at(dest, radius):
+			var half: Vector2 = offset * 0.5
+			dest = global_position + half
+			if game_ref.is_world_blocked_at(dest, radius):
+				return
+	global_position = dest
+
+
 func apply_status_slow(duration: float, speed_factor: float = 0.55) -> void:
 	_slow_time = max(_slow_time, duration)
 	_slow_speed_factor = min(_slow_speed_factor, clamp(speed_factor, 0.15, 1.0))
+
+
+func apply_stun(duration: float) -> void:
+	_stun_time = max(_stun_time, duration)
+	_clear_ranged_warning()
 
 
 func apply_status_vulnerable(duration: float, stack_cap: int) -> void:
@@ -292,6 +427,7 @@ func _advance_enemy_status(delta: float) -> void:
 	_slow_time = max(0.0, _slow_time - delta)
 	if _slow_time <= 0.0:
 		_slow_speed_factor = 1.0
+	_stun_time = max(0.0, _stun_time - delta)
 	_vuln_time = max(0.0, _vuln_time - delta)
 	if _vuln_time <= 0.0:
 		_vuln_stacks = 0
@@ -332,6 +468,7 @@ func _resolve_player_from_source(source: Node) -> Node:
 func _die(source: Node) -> void:
 	if _dying:
 		return
+	_clear_ranged_warning()
 	if source and source.has_method("on_enemy_killed"):
 		source.on_enemy_killed(self)
 	elif source and source is Node and source.get("owner_player"):
@@ -344,6 +481,7 @@ func _die(source: Node) -> void:
 	orb.value = xp_value
 	get_tree().current_scene.add_child(orb)
 	_try_drop_gold()
+	_try_drop_material()
 	_try_grant_rune_dust()
 	if _has_death_animation():
 		_begin_death_animation()
@@ -368,6 +506,23 @@ func _try_drop_gold() -> void:
 	gold.global_position = global_position + Vector2(randf_range(-10.0, 10.0), randf_range(-8.0, 8.0))
 	gold.value = amount
 	get_tree().current_scene.add_child(gold)
+
+
+func _try_drop_material() -> void:
+	if bool(slime_def.get("boss", false)):
+		return
+	if special_ai_mode != "":
+		return
+	if game_ref == null or not game_ref.has_method("roll_enemy_material_drop"):
+		return
+	var drop: Dictionary = game_ref.roll_enemy_material_drop(slime_def)
+	var id: String = String(drop.get("id", ""))
+	var amount: int = int(drop.get("amount", 0))
+	if id == "" or amount <= 0:
+		return
+	if is_instance_valid(GameState) and GameState.grant_material(id, amount):
+		if game_ref.has_method("notify_material_drop"):
+			game_ref.notify_material_drop(id, amount)
 
 
 func _roll_gold_drop_amount() -> int:

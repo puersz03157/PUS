@@ -27,6 +27,13 @@ const BLACKSMITH_DODGE_HAZARD_WINDUP := 0.95
 const BLACKSMITH_DODGE_HAZARD_TTL := 1.28
 const BLACKSMITH_RUNNER_DUST_MIN := 8
 const BLACKSMITH_RUNNER_DUST_MAX := 14
+## 事件完成後再生成偶發標記：與上一處／玩家／畫面保持距離
+const REPEAT_EVENT_MIN_DIST_FROM_LAST := 480.0
+const REPEAT_EVENT_MIN_DIST_FROM_LAST_RELAXED := 300.0
+const REPEAT_EVENT_MIN_DIST_FROM_PLAYER := 400.0
+const REPEAT_EVENT_MIN_DIST_FROM_PLAYER_RELAXED := 260.0
+const REPEAT_EVENT_CAMERA_VIEW_MARGIN := 110.0
+const REPEAT_EVENT_CAMERA_VIEW_MARGIN_RELAXED := 36.0
 
 @onready var camera: Camera2D = $Camera
 @onready var spawn_timer: Timer = $SpawnTimer
@@ -67,6 +74,9 @@ var pending_levelers: Array = []
 var pinball_active: bool = false
 var difficulty: float = 0.0
 var paused_for_pinball: bool = false
+var pinball_run_destroyed_reward_keys: Array[String] = []
+var pinball_judgment_destroy_count: int = 0
+const PINBALL_JUDGMENT_DESTROY_LIMIT := 3
 
 # 共用（隊伍）等級系統 — P1 / P2 共享
 var team_level: int = 1
@@ -82,6 +92,7 @@ var boss_spawned: bool = false
 var stage_completed: bool = false
 var blacksmith_rescue_node: Node2D = null
 var blacksmith_event_rescues_npc: bool = false
+var blacksmith_rescue_kind: String = ""
 var blacksmith_rescue_event_active: bool = false
 var blacksmith_rescue_event_kind: String = ""
 var blacksmith_rescue_event_enemy_ids: Array[int] = []
@@ -303,18 +314,36 @@ func _format_start_weapon_line(p: Node, info: Dictionary) -> String:
 	var source: String = tr("START_REWARD_SOURCE_CHARACTER")
 	if String(info.get("source_kind", "")) == "armament":
 		source = GameData.tr_armament_name(String(info.get("source_id", "")))
-	var wid: String = String(info.get("weapon_id", ""))
-	var weapon_name: String = GameData.tr_weapon_name(wid)
+	elif String(info.get("source_kind", "")) == "house":
+		source = tr("START_REWARD_SOURCE_HOUSE")
 	match String(info.get("kind", "")):
+		"house_favorites":
+			var hstats: Dictionary = info.get("stats", {})
+			if hstats is Dictionary and not (hstats as Dictionary).is_empty():
+				return tr("START_REWARD_HOUSE_FAVORITES_FMT") % [
+					pname, source, GameData.format_armament_favorite_bonus_text(hstats)]
+			return tr("START_REWARD_HOUSE_FAVORITES_NONE_FMT") % [pname, source]
+		"common_upgrade":
+			var cid: String = String(info.get("upgrade_id", ""))
+			var cdef: Dictionary = GameData.get_common_upgrade_def(cid)
+			return tr("START_REWARD_COMMON_FMT") % [
+				pname, source, GameData.tr_name(cdef),
+				int(info.get("current", 0)), int(info.get("max", 0))]
 		"weapon_new":
-			return tr("START_REWARD_WEAPON_NEW_FMT") % [pname, source, weapon_name]
+			var wid0: String = String(info.get("weapon_id", ""))
+			var weapon_name0: String = GameData.tr_weapon_name(wid0)
+			return tr("START_REWARD_WEAPON_NEW_FMT") % [pname, source, weapon_name0]
 		"weapon_upgrade":
+			var wid1: String = String(info.get("weapon_id", ""))
+			var weapon_name1: String = GameData.tr_weapon_name(wid1)
 			var udef: Dictionary = GameData.get_weapon_upgrade_def(String(info.get("upgrade_id", "")))
 			return tr("START_REWARD_WEAPON_UP_FMT") % [
-				pname, source, weapon_name, GameData.tr_name(udef),
+				pname, source, weapon_name1, GameData.tr_name(udef),
 				int(info.get("current", 0)), int(info.get("max", 0))]
 		"weapon_upgrade_max":
-			return tr("START_REWARD_WEAPON_MAX_FMT") % [pname, source, weapon_name]
+			var wid2: String = String(info.get("weapon_id", ""))
+			var weapon_name2: String = GameData.tr_weapon_name(wid2)
+			return tr("START_REWARD_WEAPON_MAX_FMT") % [pname, source, weapon_name2]
 		_:
 			return tr("START_REWARD_NOOP_FMT") % [pname, source]
 
@@ -324,13 +353,19 @@ func _process(delta: float) -> void:
 		_position_camera()
 		return
 	run_time += delta
-	# 第一關曲線：每 44 秒提升一階（再放慢一點，雙人純近戰前 5 分鐘也撐得住）
-	difficulty = run_time / 44.0
+	difficulty = _current_stage_difficulty()
 	_position_camera()
 	_update_blacksmith_rescue(delta)
 	_update_hud()
 	_update_stage_progress()
 	# ESC 由 PauseMenu (PROCESS_MODE_ALWAYS) 處理
+
+
+func _current_stage_difficulty() -> float:
+	var seconds_per_tier: float = max(1.0, float(stage_def.get("difficulty_seconds_per_tier", 44.0)))
+	var base: float = float(stage_def.get("difficulty_base", 0.0))
+	var scale: float = float(stage_def.get("difficulty_scale", 1.0))
+	return max(0.0, base + run_time / seconds_per_tier * scale)
 
 
 # ---------------- 關卡 / Boss 流程 ----------------
@@ -360,13 +395,27 @@ func _show_center_notice(text: String) -> void:
 
 
 func _spawn_blacksmith_rescue_if_needed() -> void:
-	if not bool(stage_def.get("rescue_blacksmith", false)):
+	var has_blacksmith_rescue: bool = bool(stage_def.get("rescue_blacksmith", false)) \
+		and not bool(GameState.blacksmith_rescued)
+	var has_merchant_rescue: bool = bool(stage_def.get("rescue_merchant", false)) \
+		and not bool(GameState.merchant_rescued)
+	var has_rescue_event: bool = bool(stage_def.get("rescue_blacksmith", false)) \
+		or bool(stage_def.get("rescue_merchant", false))
+	var has_random_event: bool = bool(stage_def.get("random_event", false))
+	if not has_rescue_event and not has_random_event:
 		return
-	blacksmith_event_rescues_npc = not bool(GameState.blacksmith_rescued)
+	blacksmith_event_rescues_npc = has_blacksmith_rescue or has_merchant_rescue
+	if has_blacksmith_rescue:
+		blacksmith_rescue_kind = "blacksmith"
+	elif has_merchant_rescue:
+		blacksmith_rescue_kind = "merchant"
+	else:
+		blacksmith_rescue_kind = ""
 	blacksmith_rescue_node = _make_blacksmith_marker(
 		_blacksmith_event_title(),
 		_blacksmith_event_idle_hint())
 	blacksmith_rescue_node.set_meta("rescues_npc", blacksmith_event_rescues_npc)
+	blacksmith_rescue_node.set_meta("rescue_kind", blacksmith_rescue_kind)
 	blacksmith_rescue_node.global_position = _pick_blacksmith_rescue_position()
 	add_child(blacksmith_rescue_node)
 
@@ -384,6 +433,86 @@ func _pick_blacksmith_rescue_position() -> Vector2:
 		if _is_open_rescue_position(pos):
 			return pos
 	return fallback
+
+
+func _camera_world_view_rect() -> Rect2:
+	if camera == null:
+		return Rect2()
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	var half := Vector2(
+		(vp_size.x * 0.5) / maxf(0.001, camera.zoom.x),
+		(vp_size.y * 0.5) / maxf(0.001, camera.zoom.y),
+	)
+	return Rect2(camera.global_position - half, half * 2.0)
+
+
+func _is_pos_inside_camera_view_grow(p: Vector2, grow_px: float) -> bool:
+	return _camera_world_view_rect().grow(grow_px).has_point(p)
+
+
+func _pick_repeat_world_event_position(exclude: Vector2) -> Vector2:
+	var center: Vector2 = spawn_origin
+	if map_bounds.size != Vector2.ZERO:
+		center = map_bounds.get_center()
+	var fallback: Vector2 = _pick_blacksmith_rescue_position()
+	for phase in range(3):
+		var min_from_last: float = REPEAT_EVENT_MIN_DIST_FROM_LAST
+		var min_from_player: float = REPEAT_EVENT_MIN_DIST_FROM_PLAYER
+		var view_margin: float = REPEAT_EVENT_CAMERA_VIEW_MARGIN
+		if phase == 1:
+			min_from_last = REPEAT_EVENT_MIN_DIST_FROM_LAST_RELAXED
+			min_from_player = REPEAT_EVENT_MIN_DIST_FROM_PLAYER_RELAXED
+			view_margin = REPEAT_EVENT_CAMERA_VIEW_MARGIN_RELAXED
+		elif phase == 2:
+			min_from_last = 0.0
+			min_from_player = 180.0
+			view_margin = 0.0
+		for _attempt in range(56):
+			var ang: float = randf() * TAU
+			var dist: float = randf_range(420.0, 1180.0)
+			var pos: Vector2 = center + Vector2(cos(ang), sin(ang)) * dist
+			if map_bounds.size != Vector2.ZERO:
+				pos.x = clamp(pos.x, map_bounds.position.x + 160.0, map_bounds.end.x - 160.0)
+				pos.y = clamp(pos.y, map_bounds.position.y + 160.0, map_bounds.end.y - 160.0)
+			if exclude != Vector2.ZERO and pos.distance_to(exclude) < min_from_last:
+				continue
+			if view_margin > 0.0 and _is_pos_inside_camera_view_grow(pos, view_margin):
+				continue
+			var too_close_player: bool = false
+			for pl in players:
+				if pl == null or not is_instance_valid(pl) or pl.hp <= 0:
+					continue
+				if pos.distance_to(pl.global_position) < min_from_player:
+					too_close_player = true
+					break
+			if too_close_player:
+				continue
+			if pos.distance_to(spawn_origin) < 220.0:
+				continue
+			if _is_open_rescue_position(pos):
+				return pos
+	return fallback
+
+
+func _maybe_spawn_next_world_event_marker(last_completed_pos: Vector2) -> void:
+	if stage_completed:
+		return
+	var has_stage_events: bool = bool(stage_def.get("random_event", false)) \
+		or bool(stage_def.get("rescue_blacksmith", false)) \
+		or bool(stage_def.get("rescue_merchant", false))
+	if not has_stage_events:
+		return
+	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
+		return
+	blacksmith_event_rescues_npc = false
+	blacksmith_rescue_kind = ""
+	blacksmith_rescue_node = _make_blacksmith_marker(
+		_blacksmith_event_title(),
+		_blacksmith_event_idle_hint())
+	blacksmith_rescue_node.set_meta("rescues_npc", false)
+	blacksmith_rescue_node.set_meta("rescue_kind", "")
+	blacksmith_rescue_node.global_position = _pick_repeat_world_event_position(last_completed_pos)
+	add_child(blacksmith_rescue_node)
 
 
 func _is_open_rescue_position(pos: Vector2) -> bool:
@@ -461,7 +590,8 @@ func _start_blacksmith_ambush_event() -> void:
 		BLACKSMITH_EVENT_MIN_ENEMIES + maxi(0, alive_count - 1) * 2 + int(floor(difficulty * 0.35)),
 		BLACKSMITH_EVENT_MIN_ENEMIES,
 		BLACKSMITH_EVENT_MAX_ENEMIES)
-	var event_difficulty: float = max(1.0, difficulty + 1.0)
+	var event_bonus: float = float(stage_def.get("event_difficulty_bonus", 1.0))
+	var event_difficulty: float = max(1.0, difficulty + event_bonus)
 	for i in range(count):
 		_spawn_blacksmith_event_enemy(center, i, count, event_difficulty)
 	_update_blacksmith_event_progress()
@@ -476,10 +606,12 @@ func _start_blacksmith_runner_event() -> void:
 	var e = ENEMY_SCENE.instantiate()
 	e.global_position = _pick_blacksmith_event_spawn_position(blacksmith_rescue_node.global_position, 0, 1)
 	add_child(e)
+	var event_bonus: float = float(stage_def.get("event_difficulty_bonus", 1.0))
+	var event_difficulty: float = max(1.0, difficulty + event_bonus)
 	if e.has_method("setup_rescue_runner"):
-		e.setup_rescue_runner(max(1.0, difficulty + 1.0), dust_amount)
+		e.setup_rescue_runner(event_difficulty, dust_amount)
 	else:
-		e.setup(max(1.0, difficulty + 1.0))
+		e.setup(event_difficulty)
 	var eid: int = e.get_instance_id()
 	blacksmith_rescue_event_enemy_ids.append(eid)
 	e.tree_exited.connect(_on_blacksmith_rescue_enemy_removed.bind(eid))
@@ -501,11 +633,13 @@ func _start_blacksmith_dodge_event() -> void:
 
 
 func _spawn_blacksmith_event_enemy(center: Vector2, index: int, count: int, event_difficulty: float) -> void:
-	var def: Dictionary = GameData.pick_slime(event_difficulty)
+	var pool_id: String = String(stage_def.get("enemy_pool", "slime"))
+	var def: Dictionary = GameData.pick_enemy_from_pool(pool_id, event_difficulty)
 	var e = ENEMY_SCENE.instantiate()
 	e.global_position = _pick_blacksmith_event_spawn_position(center, index, count)
 	add_child(e)
 	e.setup_with_slime(def, event_difficulty)
+	_configure_stage_ranged_enemy(e)
 	var eid: int = e.get_instance_id()
 	blacksmith_rescue_event_enemy_ids.append(eid)
 	e.tree_exited.connect(_on_blacksmith_rescue_enemy_removed.bind(eid))
@@ -650,14 +784,24 @@ func _clear_blacksmith_dodge_hazards() -> void:
 func _complete_blacksmith_rescue_event() -> void:
 	if not blacksmith_rescue_event_active:
 		return
+	var last_marker_pos: Vector2 = Vector2.ZERO
+	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
+		last_marker_pos = blacksmith_rescue_node.global_position
+	var completed_event_kind: String = blacksmith_rescue_event_kind
 	blacksmith_rescue_event_active = false
 	blacksmith_rescue_event_kind = ""
 	blacksmith_rescue_event_enemy_ids.clear()
 	_clear_blacksmith_dodge_hazards()
 	if blacksmith_event_rescues_npc:
-		_rescue_blacksmith()
+		if blacksmith_rescue_kind == "merchant":
+			_rescue_merchant()
+		else:
+			_rescue_blacksmith()
 	else:
 		_complete_incident_event()
+	if completed_event_kind != "runner":
+		_grant_event_material_pack()
+	_maybe_spawn_next_world_event_marker(last_marker_pos)
 
 
 func _rescue_blacksmith() -> void:
@@ -668,11 +812,57 @@ func _rescue_blacksmith() -> void:
 	_show_center_notice(_tr_text("BLACKSMITH_RESCUED_NOTICE", "鐵匠已獲救！回村莊看看吧。"))
 
 
+func _rescue_merchant() -> void:
+	GameState.rescue_merchant()
+	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
+		blacksmith_rescue_node.queue_free()
+	blacksmith_rescue_node = null
+	_show_center_notice(_tr_text("MERCHANT_RESCUED_NOTICE", "雜貨商已獲救！回村莊看看吧。"))
+
+
 func _complete_incident_event() -> void:
 	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
 		blacksmith_rescue_node.queue_free()
 	blacksmith_rescue_node = null
+	_grant_stage_event_armament_book()
 	_show_center_notice(_tr_text("BLACKSMITH_INCIDENT_DONE_NOTICE", "偶發事件已完成！"))
+
+
+func _grant_stage_event_armament_book() -> void:
+	var stage_id: String = String(stage_def.get("id", ""))
+	var pool: Array[String] = GameData.stage_event_armament_book_ids(stage_id)
+	if pool.is_empty():
+		return
+	var candidates: Array[String] = []
+	for aid in pool:
+		if not GameState.has_armament_recipe(aid):
+			candidates.append(aid)
+	if candidates.is_empty():
+		return
+	var picked: String = candidates.pick_random()
+	if GameState.unlock_armament_recipe(picked):
+		_show_center_notice(tr("EVENT_ARMAMENT_BOOK_NOTICE_FMT") % GameData.tr_armament_name(picked))
+
+
+func _grant_event_material_pack() -> void:
+	var drops: Array = stage_def.get("material_drops", [])
+	if drops.is_empty():
+		return
+	var valid_drops: Array[Dictionary] = []
+	for drop in drops:
+		if not (drop is Dictionary):
+			continue
+		var id: String = String(drop.get("id", ""))
+		if id != "" and not GameData.get_material_def(id).is_empty():
+			valid_drops.append(drop)
+	if valid_drops.is_empty():
+		return
+	var picked: Dictionary = valid_drops.pick_random()
+	var material_id: String = String(picked.get("id", ""))
+	var amount: int = randi_range(3, 6)
+	if GameState.grant_material(material_id, amount):
+		_show_center_notice(tr("EVENT_MATERIAL_PACK_NOTICE_FMT") % [
+			GameData.tr_material_name(material_id), amount])
 
 
 func _make_blacksmith_marker(title: String, hint: String) -> Node2D:
@@ -705,12 +895,16 @@ func _set_blacksmith_marker_text(title: String, hint: String) -> void:
 
 func _blacksmith_event_title() -> String:
 	if blacksmith_event_rescues_npc:
+		if blacksmith_rescue_kind == "merchant":
+			return _tr_text("MERCHANT_RESCUE_NAME", "被困的雜貨商")
 		return _tr_text("BLACKSMITH_RESCUE_NAME", "被困的鐵匠")
 	return _tr_text("RANDOM_EVENT_NAME", "偶發事件")
 
 
 func _blacksmith_event_idle_hint() -> String:
 	if blacksmith_event_rescues_npc:
+		if blacksmith_rescue_kind == "merchant":
+			return _tr_text("MERCHANT_RESCUE_HINT", "靠近觸發救援事件")
 		return _tr_text("BLACKSMITH_RESCUE_HINT", "靠近觸發救援事件")
 	return _tr_text("RANDOM_EVENT_HINT", "靠近觸發偶發事件")
 
@@ -735,6 +929,15 @@ func _draw_blacksmith_marker(node: Node2D) -> void:
 		node.draw_arc(Vector2.ZERO, 32.0, -0.4, TAU - 0.4, 36, Color(1.0, 0.9, 0.45, 0.9), 3.0)
 		node.draw_string(ThemeDB.fallback_font, Vector2(-5, 9), "!",
 			HORIZONTAL_ALIGNMENT_CENTER, 10, 26, Color(1.0, 0.9, 0.45))
+		return
+	if String(node.get_meta("rescue_kind", "blacksmith")) == "merchant":
+		node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(0.35, 0.85, 1.0, 0.12))
+		node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(0.45, 0.9, 1.0, 0.70), 2.0)
+		node.draw_circle(Vector2(0, -20), 14.0, Color(0.95, 0.76, 0.55))
+		node.draw_rect(Rect2(-18, -5, 36, 38), Color(0.25, 0.36, 0.42))
+		node.draw_rect(Rect2(-28, 8, 56, 24), Color(0.55, 0.32, 0.16))
+		node.draw_string(ThemeDB.fallback_font, Vector2(-7, 8), "$",
+			HORIZONTAL_ALIGNMENT_CENTER, 14, 22, Color(1.0, 0.92, 0.45))
 		return
 	node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(1.0, 0.82, 0.22, 0.12))
 	node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(1.0, 0.82, 0.22, 0.65), 2.0)
@@ -766,7 +969,7 @@ func _update_stage_progress() -> void:
 
 func _show_boss_warning() -> void:
 	var bid: String = String(stage_def.get("boss_id", ""))
-	var bname: String = GameData.tr_slime_name(bid)
+	var bname: String = GameData.tr_enemy_name(bid)
 	if bname.is_empty():
 		bname = tr("GAME_BOSS_NAME_FALLBACK")
 	boss_warning.text = tr("GAME_BOSS_WARN_FMT") % bname
@@ -783,7 +986,7 @@ func _spawn_stage_boss() -> void:
 	var boss_id: String = String(stage_def.get("boss_id", ""))
 	if boss_id.is_empty():
 		return
-	var def: Dictionary = GameData.get_slime_def(boss_id)
+	var def: Dictionary = GameData.get_enemy_def(boss_id)
 	if def.is_empty():
 		push_warning("[Game] 找不到 Boss 定義：%s" % boss_id)
 		return
@@ -791,8 +994,8 @@ func _spawn_stage_boss() -> void:
 	var e = ENEMY_SCENE.instantiate()
 	e.global_position = pos
 	add_child(e)
-	# Boss 用「最高難度」推算數值，避免靠 difficulty 而變弱
-	e.setup_with_slime(def, max(difficulty, 12.0))
+	var boss_level: float = max(difficulty, float(stage_def.get("boss_level_factor", 12.0)))
+	e.setup_with_slime(def, boss_level)
 	boss_node = e
 	e.tree_exited.connect(_on_boss_tree_exited)
 	# Boss HP UI
@@ -895,7 +1098,7 @@ func _on_spawn_tick() -> void:
 	# Boss 出現後降低小怪生成量，讓玩家專注打 Boss
 	var boss_active: bool = boss_spawned and is_instance_valid(boss_node)
 	# 0.45 → 0.40：每階難度增加的怪量更少，加上 /44 的曲線可以放慢前期壓力
-	var batch_f: float = (1.0 + difficulty * 0.40) * p_scale
+	var batch_f: float = (1.0 + difficulty * 0.40) * p_scale * float(stage_def.get("spawn_batch_mult", 1.0))
 	var batch: int = clamp(int(round(batch_f)), 1, 10)
 	if boss_active:
 		batch = max(1, batch / 2)
@@ -905,6 +1108,7 @@ func _on_spawn_tick() -> void:
 	var wt: float = max(0.55, 1.6 - difficulty * 0.08)
 	if alive_count >= 2:
 		wt = max(0.45, wt * 0.9)
+	wt /= max(0.1, float(stage_def.get("spawn_rate_mult", 1.0)))
 	if boss_active:
 		wt = max(wt, 2.0)
 	spawn_timer.wait_time = wt
@@ -914,7 +1118,8 @@ func _spawn_one_enemy() -> void:
 	if players.is_empty(): return
 	var center: Vector2 = camera.global_position
 	var pos: Vector2 = _random_spawn_position(center)
-	var def: Dictionary = GameData.pick_slime(difficulty)
+	var pool_id: String = String(stage_def.get("enemy_pool", "slime"))
+	var def: Dictionary = GameData.pick_enemy_from_pool(pool_id, difficulty)
 	var e = ENEMY_SCENE.instantiate()
 	e.global_position = pos
 	add_child(e)
@@ -925,6 +1130,20 @@ func _spawn_one_enemy() -> void:
 			alive_count += 1
 	var eff_diff: float = difficulty * (1.06 if alive_count >= 2 else 1.0)
 	e.setup_with_slime(def, eff_diff)
+	_configure_stage_ranged_enemy(e)
+
+
+func _configure_stage_ranged_enemy(e: Node) -> void:
+	if not e.has_method("configure_ranged_attack"):
+		return
+	if "slime_def" in e:
+		var sdf: Dictionary = e.slime_def
+		if sdf.get("ranged", null) is Dictionary:
+			return
+	var ranged: Dictionary = stage_def.get("enemy_ranged", {})
+	if ranged.is_empty():
+		return
+	e.configure_ranged_attack(ranged)
 
 
 func _random_spawn_position(center: Vector2) -> Vector2:
@@ -961,6 +1180,20 @@ func notify_rune_dust_drop(amount: int) -> void:
 	_show_center_notice(_tr_text("BLACKSMITH_RUNNER_DUST_NOTICE_FMT", "取得符文粉塵 +%d") % amount)
 
 
+func notify_material_drop(id: String, amount: int) -> void:
+	if amount <= 0:
+		return
+	_show_center_notice(tr("MATERIAL_DROP_NOTICE_FMT") % [GameData.tr_material_name(id), amount])
+
+
+func roll_enemy_material_drop(slime_def: Dictionary) -> Dictionary:
+	var enemy_drops: Variant = slime_def.get("material_drops", [])
+	var table: Array = stage_def.get("material_drops", [])
+	if enemy_drops is Array and not enemy_drops.is_empty():
+		table = enemy_drops
+	return GameData.roll_material_drop_table(table)
+
+
 func _team_level_up() -> void:
 	team_level += 1
 	# 1.32 倍 + 3：每升一級的需求成長更快（之前 1.25 + 2 太溫和）
@@ -994,7 +1227,8 @@ func _start_pinball_round() -> void:
 	var batch: Array = pending_levelers.duplicate()
 	pending_levelers.clear()
 	var pb = PINBALL_SCENE.instantiate()
-	pb.setup(batch)
+	pb.setup(batch, pinball_run_destroyed_reward_keys, pinball_judgment_destroy_count,
+		PINBALL_JUDGMENT_DESTROY_LIMIT)
 	add_child(pb)
 	pb.tree_exited.connect(_on_pinball_closed)
 
@@ -1004,6 +1238,20 @@ func _on_pinball_closed() -> void:
 	if not pending_levelers.is_empty():
 		# 玩過程中又升級的留到下一波
 		_start_pinball_round()
+
+
+func pinball_can_judgment_destroy_reward(key: String) -> bool:
+	if key == "" or pinball_run_destroyed_reward_keys.has(key):
+		return false
+	return pinball_judgment_destroy_count < PINBALL_JUDGMENT_DESTROY_LIMIT
+
+
+func pinball_register_judgment_destroyed_reward(key: String) -> bool:
+	if not pinball_can_judgment_destroy_reward(key):
+		return false
+	pinball_run_destroyed_reward_keys.append(key)
+	pinball_judgment_destroy_count += 1
+	return true
 
 
 # ---------------- 玩家死亡 ----------------
@@ -1026,18 +1274,38 @@ func _game_over(won: bool) -> void:
 	GameState.last_result["time"] = run_time
 	GameState.last_result["kills_p1"] = players[0].kills if players.size() > 0 else 0
 	GameState.last_result["kills_p2"] = players[1].kills if players.size() > 1 else 0
+	var achievement_unlocks: Array[String] = _record_achievement_progress()
+	GameState.last_result["achievement_unlocks"] = achievement_unlocks
 	spawn_timer.stop()
 	boss_hp_panel.visible = false
 
 	var reward: int = 0
 	if won:
 		reward = int(stage_def.get("victory_gold", 0))
+		GameState.mark_stage_completed(String(stage_def.get("id", "")))
 		GameState.grant_run_gold(reward)
 		_clear_remaining_enemies()
 		AudioManager.play_sfx("reward", 0.02)
 	reward = int(GameState.last_result.get("gold_reward", reward))
 	gameover_panel.visible = true
 	_populate_summary(won, reward)
+
+
+func _record_achievement_progress() -> Array[String]:
+	var run_stats: Dictionary = {
+		"damage_taken": 0.0,
+		"damage_dealt": 0.0,
+		"kills": 0,
+		"pinball_score": 0,
+	}
+	for p in players:
+		if p == null:
+			continue
+		run_stats["damage_taken"] = float(run_stats["damage_taken"]) + float(p.damage_taken)
+		run_stats["damage_dealt"] = float(run_stats["damage_dealt"]) + float(p.damage_dealt)
+		run_stats["kills"] = int(run_stats["kills"]) + int(p.kills)
+		run_stats["pinball_score"] = int(run_stats["pinball_score"]) + int(p.pinball_score)
+	return GameState.record_achievement_progress(run_stats)
 
 
 func _clear_remaining_enemies() -> void:
@@ -1062,6 +1330,12 @@ func _populate_summary(won: bool, reward: int) -> void:
 	var lines: Array[String] = []
 	# 隊伍 / 局外總結
 	lines.append(tr("GAME_TEAM_LINE_FMT") % [team_level, reward, GameState.gold])
+	var achievement_unlocks: Array = GameState.last_result.get("achievement_unlocks", [])
+	if not achievement_unlocks.is_empty():
+		var names: Array[String] = []
+		for cid in achievement_unlocks:
+			names.append(GameData.tr_character_name(String(cid)))
+		lines.append(tr("GAME_ACHIEVEMENT_UNLOCK_FMT") % "、".join(names))
 	lines.append("")
 
 	for p in players:
@@ -1125,6 +1399,11 @@ func _build_stat_stacks(p: Node) -> Array[String]:
 		stacks.append(tr("STAT_ATK_FMT") % int((p.damage_mult - 1.0) * 100))
 	if p.rate_mult > 1.001:
 		stacks.append(tr("STAT_RATE_FMT") % int((p.rate_mult - 1.0) * 100))
+	if p.get("crit_chance") != null and float(p.crit_chance) > 0.001:
+		stacks.append(tr("STAT_CRIT_RATE_FMT") % int(float(p.crit_chance) * 100))
+	if p.get("crit_damage_mult") != null \
+			and float(p.crit_damage_mult) > GameData.CRIT_DAMAGE_MULT_BASE + 0.001:
+		stacks.append(tr("STAT_CRIT_DMG_FMT") % int((float(p.crit_damage_mult) - 1.0) * 100))
 	if p.pickup_mult > 1.001:
 		stacks.append(tr("STAT_PICKUP_FMT") % int((p.pickup_mult - 1.0) * 100))
 	if p.xp_mult > 1.001:

@@ -13,6 +13,7 @@ var eff_range: float = 100.0
 var eff_count: int = 1
 
 var _timer: float = 0.0
+var _attack_serial: int = 0
 
 
 func setup(p: Node, e: Dictionary) -> void:
@@ -60,9 +61,14 @@ func _process(delta: float) -> void:
 	_timer -= delta
 	if _timer <= 0.0:
 		_timer = 1.0 / max(0.1, eff_rate)
+		_attack_serial += 1
 		var fired: bool = fire()
 		if fired and owner_player.has_method("play_attack_anim"):
 			owner_player.play_attack_anim()
+
+
+func get_attack_token() -> String:
+	return "%s:%d" % [str(get_instance_id()), _attack_serial]
 
 
 # 子類別實作；回傳 true 表示真的有攻擊發生（會觸發攻擊動畫）
@@ -87,6 +93,11 @@ func damage_enemy(e: Node, mult: float = 1.0) -> void:
 		var n_p: int = _count_alive_enemies_near(owner_player.global_position, eff_range * 1.2)
 		hit_mult *= GameData.weapon_max_spear_damage_mult(n_p)
 	var dealt: float = eff_damage * hit_mult
+	var crit_chance_total: float = owner_player.crit_chance + float(def.get("crit_chance", 0.0))
+	crit_chance_total = clampf(crit_chance_total, 0.0, 0.95)
+	if crit_chance_total > 0.001 and randf() < crit_chance_total:
+		var weapon_crit_mult: float = float(def.get("crit_damage_mult", GameData.CRIT_DAMAGE_MULT_BASE))
+		dealt *= maxf(owner_player.crit_damage_mult, weapon_crit_mult)
 	if e.has_method("take_damage"):
 		e.take_damage(dealt, self)
 		# 通知玩家：武器命中事件（給「快射節奏」等被動使用）
@@ -122,11 +133,13 @@ func _apply_on_hit_status_effects(e: Node, mult: float) -> void:
 		if weapon_upgrades_maxed():
 			cap = GameData.ENEMY_STATUS_MELODY_VULN_STACK_CAP_MAXED
 		e.apply_status_vulnerable(GameData.ENEMY_STATUS_MELODY_VULN_DURATION, cap)
+		_notify_owner_status_applied()
 	if wid == "claw" and e.has_method("apply_status_bleed"):
 		e.apply_status_bleed(
 			hit_damage * GameData.ENEMY_STATUS_CLAW_BLEED_DPS_RATIO,
 			GameData.ENEMY_STATUS_CLAW_BLEED_DURATION,
 			self)
+		_notify_owner_status_applied()
 	if wid == "flame" and bool(def.get("params", {}).get("burn", false)) \
 			and e.has_method("apply_status_burn"):
 		var br: float = GameData.ENEMY_STATUS_FLAME_BURN_DPS_RATIO
@@ -136,3 +149,9 @@ func _apply_on_hit_status_effects(e: Node, mult: float) -> void:
 			hit_damage * br,
 			GameData.ENEMY_STATUS_FLAME_BURN_DURATION,
 			self)
+		_notify_owner_status_applied()
+
+
+func _notify_owner_status_applied() -> void:
+	if owner_player != null and owner_player.has_method("passive_sword_aura_resonance_on_status"):
+		owner_player.passive_sword_aura_resonance_on_status()

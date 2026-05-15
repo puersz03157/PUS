@@ -477,7 +477,7 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 		eq_lbl.text = "%s\n%s" % [
 			_row_text(tr("CSEL_ARMAMENT_LBL"), arm_name,
 				arm_opts.size() > 1, focus == FOCUS_ARMAMENT and not ready),
-			GameData.tr_desc(arm_def) if not arm_def.is_empty() else ""]
+			GameData.tr_armament_desc_with_flat_stats(arm_id) if not arm_def.is_empty() else ""]
 		eq_lbl.modulate = Color(1, 1, 1) if (focus == FOCUS_ARMAMENT and not ready) else Color(0.7, 0.78, 0.92)
 	if rune_lbl:
 		rune_lbl.text = tr("CSEL_ROW_FMT") % [tr("CSEL_RUNE_LBL"), empty_txt]

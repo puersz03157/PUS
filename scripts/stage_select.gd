@@ -2,7 +2,7 @@ extends Control
 ## 關卡選擇：在 CharacterSelect 完成後出現，玩家挑選要打的關卡再進入戰鬥。
 ## - 鍵盤 / 手把：← → 切換關卡，Enter / Space / p1_action 確認，ESC / ui_back 返回
 ## - 觸控：◀ ▶ 切換、出發 / 返回大按鈕
-## 目前只有 1 個關卡（史萊姆平原），但 UI 已支援多筆，加新關卡到 GameData.STAGES 即可。
+## 關卡資料來自 GameData.STAGES，UI 會依資料自動支援多關切換。
 
 const STAGE_PANEL_W := 720.0
 const STAGE_PANEL_H := 360.0
@@ -214,7 +214,7 @@ func _refresh() -> void:
 	# 頭目資訊（若有）
 	var boss_id: String = String(stage.get("boss_id", ""))
 	if boss_id != "":
-		var boss_name: String = GameData.tr_slime_name(boss_id)
+		var boss_name: String = GameData.tr_enemy_name(boss_id)
 		if boss_name == "":
 			boss_name = tr("GAME_BOSS_NAME_FALLBACK")
 		stage_boss_label.text = tr("STAGE_SELECT_BOSS_FMT") % boss_name
@@ -231,6 +231,21 @@ func _refresh() -> void:
 			rewards.append(tr("STAGE_SELECT_RESCUE_BLACKSMITH_DONE"))
 		else:
 			rewards.append(tr("STAGE_SELECT_RESCUE_BLACKSMITH"))
+	if bool(stage.get("rescue_merchant", false)):
+		if bool(GameState.merchant_rescued):
+			rewards.append(tr("STAGE_SELECT_RESCUE_MERCHANT_DONE"))
+		else:
+			rewards.append(tr("STAGE_SELECT_RESCUE_MERCHANT"))
+	var book_pool: Array[String] = GameData.stage_event_armament_book_ids(String(stage.get("id", "")))
+	if not book_pool.is_empty():
+		var missing: int = 0
+		for aid in book_pool:
+			if not GameState.has_armament_recipe(aid):
+				missing += 1
+		if missing > 0:
+			rewards.append(tr("STAGE_SELECT_EVENT_ARMAMENT_BOOK"))
+		else:
+			rewards.append(tr("STAGE_SELECT_EVENT_ARMAMENT_BOOK_DONE"))
 	stage_reward_label.text = "\n".join(rewards)
 
 	# 金幣與切換鈕可見性

@@ -35,7 +35,7 @@ func _process(_delta: float) -> void:
 
 func _refresh_meta() -> void:
 	if gold_label:
-		gold_label.text = tr("MAIN_GOLD_FMT") % GameState.gold
+		gold_label.visible = false
 
 
 func _on_solo() -> void:

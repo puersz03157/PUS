@@ -91,3 +91,5 @@ func _apply_tick() -> void:
 					GameData.ENEMY_STATUS_POISON_DURATION,
 					weapon,
 					weaken_poison)
+				if weapon and weapon.has_method("_notify_owner_status_applied"):
+					weapon._notify_owner_status_applied()

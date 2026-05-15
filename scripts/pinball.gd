@@ -59,10 +59,22 @@ var _closing := false
 # 獎勵確認視窗：佇列顯示，顯示期間暫停彈珠物理以免在讀完前關閉場景
 var _reward_modal_block: bool = false
 var _reward_queue: Array[String] = []
+var run_destroyed_reward_keys: Array[String] = []
+var judgment_destroy_count: int = 0
+var judgment_destroy_limit: int = 3
+## 野性衝動：準星選彈針 — Player -> 狀態字典
+var wolf_impulse_targeting: Dictionary = {}
 
 
-func setup(_levelers: Array) -> void:
+func setup(
+		_levelers: Array,
+		_destroyed_reward_keys: Array[String] = [],
+		_judgment_destroy_count: int = 0,
+		_judgment_destroy_limit: int = 3) -> void:
 	levelers = _levelers
+	run_destroyed_reward_keys = _destroyed_reward_keys.duplicate()
+	judgment_destroy_count = _judgment_destroy_count
+	judgment_destroy_limit = _judgment_destroy_limit
 
 
 func _ready() -> void:
@@ -78,6 +90,9 @@ func _ready() -> void:
 	_build_skill_icons()
 	_build_touch_launch_buttons()
 	_update_instructions()
+	for pl in levelers:
+		if pl != null and pl.has_method("reset_wild_impulse_chain"):
+			pl.reset_wild_impulse_chain()
 
 
 func _build_ui() -> void:
@@ -148,6 +163,8 @@ func _update_instructions() -> void:
 			break
 	if energy_flying:
 		lines.append(tr("PINBALL_ENERGY_FLYING"))
+	if not wolf_impulse_targeting.is_empty():
+		lines.append(tr("PINBALL_WILD_IMPULSE_HINT"))
 	for b in player_balls:
 		if b.get("is_energy_wave", false):
 			continue
@@ -374,7 +391,7 @@ func _build_reward_pool() -> Array:
 		for w in p.weapons:
 			var owned_id: String = String(w["id"])
 			owned[owned_id] = true
-			if _weapon_entry_can_upgrade(w):
+			if _pinball_can_upgrade_weapon(owned_id) and _weapon_entry_can_upgrade(w):
 				upgradable[owned_id] = true
 	for w in GameData.WEAPONS:
 		var wid: String = String(w["id"])
@@ -402,7 +419,36 @@ func _build_reward_pool() -> Array:
 				"reward": {"type": "weapon_up", "id": wid},
 			})
 	pool.shuffle()
-	return pool
+	return _filter_run_destroyed_rewards(pool)
+
+
+func _filter_run_destroyed_rewards(pool: Array) -> Array:
+	if run_destroyed_reward_keys.is_empty():
+		return pool
+	var out: Array = []
+	for item in pool:
+		if not (item is Dictionary):
+			continue
+		var key: String = _reward_key_from_reward(item.get("reward", {}))
+		if key == "" or not run_destroyed_reward_keys.has(key):
+			out.append(item)
+	return out
+
+
+func _reward_key_from_reward(reward: Dictionary) -> String:
+	var rtype: String = String(reward.get("type", "noop"))
+	var rid: String = String(reward.get("id", ""))
+	if rtype == "noop":
+		return ""
+	return "%s:%s" % [rtype, rid]
+
+
+func _reward_key_from_slot(slot: Dictionary) -> String:
+	return _reward_key_from_reward(slot.get("reward", {}))
+
+
+func _pinball_can_upgrade_weapon(weapon_id: String) -> bool:
+	return weapon_id != "" and GameState.is_weapon_unlocked(weapon_id)
 
 
 func _weapon_entry_can_upgrade(entry: Dictionary) -> bool:
@@ -433,6 +479,8 @@ func _player_weapon_entry(p: Node, weapon_id: String) -> Dictionary:
 
 
 func _player_weapon_can_upgrade(p: Node, weapon_id: String) -> bool:
+	if not _pinball_can_upgrade_weapon(weapon_id):
+		return false
 	var entry: Dictionary = _player_weapon_entry(p, weapon_id)
 	return not entry.is_empty() and _weapon_entry_can_upgrade(entry)
 
@@ -442,6 +490,8 @@ func _pick_player_upgradable_weapon_id(p: Node, excluded_id: String = "") -> Str
 	for w in p.weapons:
 		var wid: String = String(w.get("id", ""))
 		if wid == "" or wid == excluded_id:
+			continue
+		if not _pinball_can_upgrade_weapon(wid):
 			continue
 		if _weapon_entry_can_upgrade(w):
 			candidates.append(wid)
@@ -491,6 +541,8 @@ func _process(delta: float) -> void:
 		_update_instructions()
 		balls_node.queue_redraw()
 		return
+	if not wolf_impulse_targeting.is_empty():
+		_wolf_impulse_step(delta)
 	for b in player_balls:
 		if b["finished"]:
 			continue
@@ -499,17 +551,31 @@ func _process(delta: float) -> void:
 			continue
 		if not b["launched"]:
 			_step_launcher(b, delta)
-			if Input.is_action_just_pressed(b["action"]):
+			var p0: Node = b["player"]
+			var can_launch: bool = not wolf_impulse_targeting.has(p0)
+			if can_launch and Input.is_action_just_pressed(b["action"]):
 				_launch_ball(b)
 				b["launched"] = true
 		# 技能鍵：玩家在彈珠台中也能發動技能（共用同一個冷卻）
 		var p = b["player"]
 		var skill_action: String = "p1_skill" if p.slot_index == 0 else "p2_skill"
 		if Input.is_action_just_pressed(skill_action):
-			if p.has_method("try_consume_skill"):
+			if wolf_impulse_targeting.has(p):
+				var rc: int = _wolf_impulse_try_confirm(p, b)
+				if rc == 2:
+					p.skill_cooldown = 0.0
+				elif rc == 1:
+					if p.has_method("passive_arcane_mastery_on_skill_hit"):
+						p.passive_arcane_mastery_on_skill_hit()
+					AudioManager.play_sfx("skill_cast", 0.03)
+			elif p.has_method("try_consume_skill"):
 				var skd: Dictionary = p.call("try_consume_skill")
 				if not skd.is_empty():
-					if _handle_pinball_skill(skd, b):
+					var sid: String = String(skd.get("id", "none"))
+					if sid == "wild_impulse":
+						_start_wolf_impulse_targeting(p, skd)
+						AudioManager.play_sfx("skill_cast", 0.03)
+					elif _handle_pinball_skill(skd, b):
 						AudioManager.play_sfx("skill_cast", 0.03)
 					else:
 						# 技能未生效（目標格已摧毀／不能再降）→ 退還冷卻
@@ -548,7 +614,98 @@ func _handle_pinball_skill(s: Dictionary, b: Dictionary) -> bool:
 			return _spawn_energy_wave_ball(b["player"], s)
 		"agile_tactics":
 			return _activate_light_ball(b, s)
+		"heavenly_judgment":
+			return _activate_judgment_drop_ball(b, s)
+		"mirror_moon":
+			return _reroll_alive_reward_slots()
 	return false
+
+
+func _start_wolf_impulse_targeting(p: Node, s: Dictionary) -> void:
+	if wolf_impulse_targeting.has(p):
+		return
+	var prm: Dictionary = s.get("params", {})
+	var cx: float = board_rect.position.x + board_rect.size.x * 0.5
+	var cy: float = board_rect.position.y + board_rect.size.y * 0.42
+	wolf_impulse_targeting[p] = {
+		"cursor": Vector2(cx, cy),
+		"ignore_until_ms": Time.get_ticks_msec() + int(prm.get("pinball_confirm_delay_ms", 280)),
+		"params": prm,
+	}
+	pegs_node.queue_redraw()
+
+
+func _wolf_impulse_step(delta: float) -> void:
+	for p in wolf_impulse_targeting.keys():
+		if p == null or not is_instance_valid(p):
+			wolf_impulse_targeting.erase(p)
+			continue
+		var st: Dictionary = wolf_impulse_targeting[p]
+		var prm: Dictionary = st.get("params", {})
+		var spd: float = float(prm.get("pinball_cursor_speed", 340.0))
+		var prefix: String = "p1_" if int(p.slot_index) == 0 else "p2_"
+		var kb: Vector2 = Input.get_vector(
+			prefix + "left", prefix + "right", prefix + "up", prefix + "down")
+		var cur: Vector2 = st["cursor"]
+		if kb.length_squared() > 0.04:
+			cur += kb.normalized() * spd * delta
+		else:
+			cur = get_viewport().get_mouse_position()
+		cur.x = clampf(cur.x, board_rect.position.x + 16.0, board_rect.end.x - 16.0)
+		cur.y = clampf(cur.y, board_rect.position.y + 24.0, board_rect.end.y - 24.0)
+		st["cursor"] = cur
+
+
+## 1=成功摧毀、2=失敗（退還冷卻）、3=忽略（防誤觸同一幀）
+func _wolf_impulse_try_confirm(p: Node, _b: Dictionary) -> int:
+	var st: Dictionary = wolf_impulse_targeting.get(p, {})
+	if st.is_empty():
+		return 2
+	if Time.get_ticks_msec() < int(st.get("ignore_until_ms", 0)):
+		return 3
+	var prm: Dictionary = st.get("params", {})
+	var destroyed: int = _wolf_impulse_destroy_at_cursor(p, Vector2(st["cursor"]), prm)
+	wolf_impulse_targeting.erase(p)
+	pegs_node.queue_redraw()
+	if destroyed <= 0:
+		return 2
+	return 1
+
+
+func _wolf_impulse_destroy_at_cursor(p: Node, cursor_world: Vector2, prm: Dictionary) -> int:
+	var blast_r: float = float(prm.get("pinball_blast_radius", 72.0))
+	var score_cap: int = maxi(0, int(prm.get("pinball_score_cap", 20)))
+	var budget: int = score_cap
+	var best_i: int = -1
+	var best_d: float = 1e12
+	for i in range(pegs.size()):
+		var peg: Dictionary = pegs[i]
+		if not bool(peg.get("alive", true)):
+			continue
+		var d: float = cursor_world.distance_squared_to(peg["pos"])
+		if d < best_d:
+			best_d = d
+			best_i = i
+	if best_i < 0:
+		return 0
+	if best_d > (PEG_RADIUS + 48.0) * (PEG_RADIUS + 48.0):
+		return 0
+	var center: Vector2 = pegs[best_i]["pos"]
+	var per_peg: int = PEG_HIT_SCORE + PEG_DESTROY_EXTRA_SCORE
+	var n_destroyed: int = 0
+	for pi in range(pegs.size()):
+		var peg2: Dictionary = pegs[pi]
+		if not bool(peg2.get("alive", true)):
+			continue
+		if center.distance_squared_to(peg2["pos"]) > blast_r * blast_r:
+			continue
+		pegs[pi]["alive"] = false
+		n_destroyed += 1
+		var give: int = mini(per_peg, budget)
+		if give > 0:
+			_grant_peg_score({"player": p}, give)
+			budget -= give
+	return n_destroyed
 
 
 # 靈敏戰技（彈珠台）：自身彈珠變輕，每 3 次彈針撞擊給玩家 1 支箭矢
@@ -575,6 +732,91 @@ func _activate_heavy_ball(b: Dictionary, s: Dictionary) -> bool:
 	b["gravity_mult"] = float(params.get("pinball_gravity_mult", 1.45))
 	b["peg_break_threshold"] = int(params.get("pinball_peg_hits_to_break", 2))
 	return true
+
+
+func _activate_judgment_drop_ball(b: Dictionary, s: Dictionary) -> bool:
+	if b.get("judgment_drop", false):
+		return false
+	if judgment_destroy_count >= judgment_destroy_limit:
+		return false
+	var params: Dictionary = s.get("params", {})
+	b["judgment_drop"] = true
+	b["gravity_mult"] = float(params.get("pinball_gravity_mult", 3.0))
+	b["launched"] = true
+	b["pos"] = Vector2(float(b.get("launcher_x", b["pos"].x)), float(b.get("launcher_y", b["pos"].y)) + 18.0)
+	b["vel"] = Vector2(0.0, 620.0)
+	return true
+
+
+func _reroll_alive_reward_slots() -> bool:
+	var alive_idxs: Array[int] = []
+	var current_keys: Dictionary = {}
+	for i in SLOT_COUNT:
+		if slots[i].get("destroyed", false):
+			continue
+		alive_idxs.append(i)
+		var key: String = _reward_key_from_slot(slots[i])
+		if key != "":
+			current_keys[key] = true
+	if alive_idxs.is_empty():
+		return false
+	var pool: Array = _build_reward_pool()
+	if pool.is_empty():
+		return false
+	pool.shuffle()
+	var used_keys: Dictionary = {}
+	var planned: Dictionary = {}
+	var changed: bool = false
+	for idx in alive_idxs:
+		var old_slot: Dictionary = slots[idx]
+		var old_key: String = _reward_key_from_slot(old_slot)
+		var next_slot: Dictionary = _pick_mirror_moon_reward(pool, current_keys, used_keys, old_key)
+		if next_slot.is_empty():
+			continue
+		next_slot = next_slot.duplicate(true)
+		next_slot["reward_mult"] = int(old_slot.get("reward_mult", 1))
+		if bool(old_slot.get("upgraded", false)):
+			next_slot["upgraded"] = true
+		planned[idx] = next_slot
+		var next_key: String = _reward_key_from_slot(next_slot)
+		if next_key != "":
+			used_keys[next_key] = true
+		if next_key != old_key:
+			changed = true
+	if planned.is_empty() or not changed:
+		return false
+	for idx in planned.keys():
+		slots[int(idx)] = planned[idx]
+		var lbl: Label = slot_labels[int(idx)]
+		lbl.text = _slot_display_name(slots[int(idx)])
+		lbl.add_theme_color_override("font_color", Color(0.78, 0.95, 1.0))
+		lbl.modulate = Color(1.25, 1.45, 1.6)
+		var t := lbl.create_tween()
+		t.tween_property(lbl, "modulate", Color(1, 1, 1), 0.5)
+	slots_node.queue_redraw()
+	return true
+
+
+func _pick_mirror_moon_reward(
+		pool: Array,
+		current_keys: Dictionary,
+		used_keys: Dictionary,
+		old_key: String) -> Dictionary:
+	for r in pool:
+		var key: String = _reward_key_from_reward(r.get("reward", {}))
+		if key == "" or current_keys.has(key) or used_keys.has(key):
+			continue
+		return r
+	for r in pool:
+		var key2: String = _reward_key_from_reward(r.get("reward", {}))
+		if key2 == "" or key2 == old_key or used_keys.has(key2):
+			continue
+		return r
+	for r in pool:
+		var key3: String = _reward_key_from_reward(r.get("reward", {}))
+		if key3 != "" and key3 != old_key:
+			return r
+	return {}
 
 
 # 摧毀「目前發射器正下方」那格獎勵；4 選 1 → 3 選 1
@@ -651,6 +893,9 @@ func _launch_ball(b: Dictionary) -> void:
 
 func _step_ball(b: Dictionary, delta: float) -> void:
 	if b["finished"]:
+		return
+	if b.get("judgment_drop", false):
+		_step_judgment_drop_ball(b, delta)
 		return
 	# 重裝彈珠重力上升 / 輕盈彈珠重力下降
 	var g: float = GRAVITY
@@ -743,6 +988,79 @@ func _step_ball(b: Dictionary, delta: float) -> void:
 			_apply_reward(b, slot_idx)
 			b["finished"] = true
 			done_count += 1
+
+
+func _step_judgment_drop_ball(b: Dictionary, delta: float) -> void:
+	var g: float = GRAVITY * float(b.get("gravity_mult", 3.0))
+	var old_pos: Vector2 = b["pos"]
+	b["vel"].x = 0.0
+	b["vel"].y = min(1150.0, float(b["vel"].y) + g * delta)
+	var new_pos: Vector2 = old_pos + Vector2(0.0, float(b["vel"].y) * delta)
+	var pegs_changed: bool = false
+	var hit_r: float = PEG_RADIUS + BALL_RADIUS
+	for peg in pegs:
+		if not peg.get("alive", true):
+			continue
+		var ppos: Vector2 = peg["pos"]
+		if _point_segment_distance_sq(ppos, old_pos, new_pos) <= hit_r * hit_r:
+			peg["alive"] = false
+			_grant_peg_score(b, PEG_HIT_SCORE + PEG_DESTROY_EXTRA_SCORE)
+			pegs_changed = true
+	if pegs_changed:
+		pegs_node.queue_redraw()
+	b["pos"] = new_pos
+	if b["pos"].y >= board_rect.end.y - BALL_RADIUS:
+		var slot_idx: int = int(floor((b["pos"].x - board_rect.position.x) / slot_w))
+		slot_idx = clamp(slot_idx, 0, SLOT_COUNT - 1)
+		_resolve_judgment_drop_slot(b, slot_idx)
+		b["finished"] = true
+		done_count += 1
+
+
+func _resolve_judgment_drop_slot(b: Dictionary, slot_idx: int) -> void:
+	var slot: Dictionary = slots[slot_idx]
+	var key: String = _reward_key_from_slot(slot)
+	var p: Node = b.get("player", null)
+	if key != "" and _register_run_destroyed_reward(key):
+		var lbl: Label = slot_labels[slot_idx]
+		lbl.text = tr("PINBALL_JUDGMENT_DESTROY_FMT") % String(slot.get("name", ""))
+		lbl.add_theme_color_override("font_color", Color(1.0, 0.55, 0.35))
+		var t := lbl.create_tween()
+		lbl.modulate = Color(1.6, 0.9, 0.55)
+		t.tween_property(lbl, "modulate", Color(1, 1, 1), 0.65)
+		_reward_queue.append(tr("PINBALL_JUDGMENT_NO_REWARD_FMT") % String(slot.get("name", "")))
+		if not _reward_modal_block:
+			_show_next_pinball_reward_modal()
+	else:
+		_reward_queue.append(tr("PINBALL_JUDGMENT_LIMIT"))
+		if not _reward_modal_block:
+			_show_next_pinball_reward_modal()
+		if p != null:
+			_apply_reward_to_player(p, slot_idx)
+
+
+func _register_run_destroyed_reward(key: String) -> bool:
+	if key == "" or run_destroyed_reward_keys.has(key):
+		return false
+	if judgment_destroy_count >= judgment_destroy_limit:
+		return false
+	var game = get_parent()
+	if game != null and game.has_method("pinball_register_judgment_destroyed_reward"):
+		if not bool(game.call("pinball_register_judgment_destroyed_reward", key)):
+			return false
+	run_destroyed_reward_keys.append(key)
+	judgment_destroy_count += 1
+	return true
+
+
+func _point_segment_distance_sq(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab: Vector2 = b - a
+	var len_sq: float = ab.length_squared()
+	if len_sq < 0.0001:
+		return p.distance_squared_to(a)
+	var t: float = clamp(ab.dot(p - a) / len_sq, 0.0, 1.0)
+	var proj: Vector2 = a + ab * t
+	return p.distance_squared_to(proj)
 
 
 func _step_energy_wave_ball(b: Dictionary, delta: float) -> void:
@@ -872,7 +1190,7 @@ func _apply_reward_once_to_player(p: Node, reward: Dictionary) -> Dictionary:
 			var wid: String = String(reward.get("id", ""))
 			if String(reward.get("type", "")) == "weapon_up" and not _player_weapon_can_upgrade(p, wid):
 				return _apply_fallback_reward_to_player(p, wid)
-			var info: Dictionary = p.add_weapon(wid)
+			var info: Dictionary = p.add_weapon(wid, false)
 			if String(info.get("kind", "")) == "weapon_upgrade_max":
 				return _apply_fallback_reward_to_player(p, wid)
 			return info
@@ -887,7 +1205,7 @@ func _apply_reward_once_to_player(p: Node, reward: Dictionary) -> Dictionary:
 func _apply_fallback_reward_to_player(p: Node, excluded_weapon_id: String = "") -> Dictionary:
 	var alt_weapon_id: String = _pick_player_upgradable_weapon_id(p, excluded_weapon_id)
 	if alt_weapon_id != "":
-		var info: Dictionary = p.add_weapon(alt_weapon_id)
+		var info: Dictionary = p.add_weapon(alt_weapon_id, false)
 		if String(info.get("kind", "")) != "weapon_upgrade_max":
 			info["fallback"] = true
 			return info
@@ -988,6 +1306,16 @@ func _draw_balls(node: Node2D) -> void:
 		if not b.get("is_energy_wave", false) and not b["launched"] and not b["finished"]:
 			_draw_launcher(node, b)
 		_draw_one_ball(node, b)
+	for p in wolf_impulse_targeting.keys():
+		if p == null or not is_instance_valid(p):
+			continue
+		var st: Dictionary = wolf_impulse_targeting[p]
+		var cc: Vector2 = st.get("cursor", Vector2.ZERO)
+		var col: Color = p.color if p.get("color") != null else Color(1.0, 0.55, 0.35)
+		var arm: float = 14.0
+		node.draw_line(cc + Vector2(-arm, -arm), cc + Vector2(arm, arm), Color(1, 1, 1, 0.95), 2.5)
+		node.draw_line(cc + Vector2(-arm, arm), cc + Vector2(arm, -arm), Color(1, 1, 1, 0.95), 2.5)
+		node.draw_circle(cc, 6.0, Color(col.r, col.g, col.b, 0.55))
 
 
 func _draw_launcher(node: Node2D, b: Dictionary) -> void:
@@ -1207,6 +1535,9 @@ func _on_touch_launch(idx: int) -> void:
 		return
 	var b: Dictionary = player_balls[idx]
 	if b["launched"] or b["finished"]:
+		return
+	var pl: Node = b["player"]
+	if wolf_impulse_targeting.has(pl):
 		return
 	# 注入一幀的按下訊號，由 _process 內既有的 just_pressed 偵測接手 _launch_ball
 	Input.action_press(b["action"])

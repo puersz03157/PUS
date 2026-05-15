@@ -114,8 +114,8 @@ ui_back={
 
 [internationalization]
 
-locale/fallback="zh_TW"
 locale/translations=PackedStringArray("res://translations/strings.zh_TW.translation")
+locale/fallback="zh_TW"
 
 [layer_names]
 

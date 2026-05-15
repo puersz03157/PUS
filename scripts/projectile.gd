@@ -87,6 +87,8 @@ func _try_hit(body: Node) -> void:
 		body.apply_status_slow(
 			GameData.ENEMY_STATUS_ICE_SLOW_DURATION,
 			GameData.ENEMY_STATUS_ICE_SLOW_FACTOR)
+		if weapon.has_method("_notify_owner_status_applied"):
+			weapon._notify_owner_status_applied()
 	if pierce_left > 0:
 		pierce_left -= 1
 		return
