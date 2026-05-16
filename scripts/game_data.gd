@@ -44,8 +44,41 @@ const DREAMIR_CHARACTER_ANIMS: Dictionary = {
 	},
 }
 var _dreamir_sprite_frames_cache: Dictionary = {}
+var _chierit_sprite_frames_cache: Dictionary = {}
 var _sprite_sheet_row_bands_cache: Dictionary = {}
 var _sprite_sheet_anim_frames_cache: Dictionary = {}
+
+const FIRE_KNIGHT_ROOT := "res://assets/characters/chierit/fire_knight/"
+## chierit 逐幀素材（單幀約 288×128）— 戰鬥顯示倍率（相對 CHARACTERS 預設 scale=1）
+const CHIERIT_CHARACTER_SCALE := 1
+## chierit 造型在房屋／選角預覽的顯示倍率（可與戰鬥分開調）
+const CHIERIT_PREVIEW_SCALE := 0.88
+## chierit 村莊腳底微調（正值＝角色往下，加在角色 village_sprite_feet_fine 上）
+const CHIERIT_VILLAGE_FEET_FINE_Y := 10.0
+## chierit 房屋預覽框內略下沉（TextureRect position.y）
+const CHIERIT_PREVIEW_FEET_FINE_Y := 8.0
+## 使用 chierit 資產的房屋造型 id（新增造型時加入此表）
+const CHIERIT_HOUSE_SKIN_IDS: Array[String] = ["fire_knight", "leaf_ranger"]
+## 劍士專屬造型 fire_knight（chierit）— 08_sp_atk 為技能施放
+const FIRE_KNIGHT_ANIM_FOLDERS: Dictionary = {
+	"idle": "01_idle",
+	"walk": "02_run",
+	"attack": "05_1_atk",
+	"skill": "08_sp_atk",
+	"hurt": "10_take_hit",
+	"death": "11_death",
+}
+const LEAF_RANGER_ROOT := "res://assets/characters/chierit/Leaf_Ranger/"
+## 遊俠專屬造型 leaf_ranger（chierit）— sp_atk 為技能施放
+const LEAF_RANGER_ANIM_FOLDERS: Dictionary = {
+	"idle": "idle",
+	"walk": "run",
+	"attack": "atk",
+	"skill": "sp_atk",
+	"hurt": "take_hit",
+	"death": "death",
+}
+const BOW_ARROW_PROJECTILE_TEXTURE := "res://assets/Effects/arrow/arrow_.png"
 
 ## 戰士 dreamir 大圖：列號 1 起算（與美術表一致），執行時轉 0-based
 const WARRIOR_SPRITE_SHEET: Dictionary = {
@@ -131,7 +164,10 @@ const WEAPONS: Array[Dictionary] = [
 		"crit_chance": 0.08,
 		"crit_damage_mult": 1.75,
 		"range": 380.0,       # 15 米
-		"params": {"speed": 700.0, "count": 2, "spread_deg": 18.0, "pierce": 0, "color": Color(0.8, 1.0, 0.6)},
+		"params": {
+			"speed": 700.0, "count": 2, "spread_deg": 18.0, "pierce": 0,
+			"color": Color(0.8, 1.0, 0.6), "arrow_sprite": true,
+		},
 		"max_effect": "投射物附加貫穿", "max_effect_key": "WEAPON_BOW_MAX",
 	},
 	{
@@ -652,6 +688,10 @@ func character_house_skin_options(char_id: String, unlocked_character_ids: Array
 	out.append({"id": "default", "label": tr("HOUSE_SKIN_DEFAULT")})
 	if char_id == "werewolf":
 		out.append({"id": "human", "label": tr("HOUSE_SKIN_WEREWOLF_HUMAN")})
+	if char_id == "swordsman":
+		out.append({"id": "fire_knight", "label": tr("HOUSE_SKIN_FIRE_KNIGHT")})
+	if char_id == "ranger":
+		out.append({"id": "leaf_ranger", "label": tr("HOUSE_SKIN_LEAF_RANGER")})
 	for raw in unlocked_character_ids:
 		var uid: String = String(raw)
 		if uid == "" or uid == char_id:
@@ -663,6 +703,59 @@ func character_house_skin_options(char_id: String, unlocked_character_ids: Array
 			"label": tr("HOUSE_SKIN_LOOK_FMT") % tr_character_name(uid),
 		})
 	return out
+
+
+func is_chierit_house_skin(skin_id: String) -> bool:
+	return skin_id in CHIERIT_HOUSE_SKIN_IDS
+
+
+func get_chierit_sprite_frames(root: String, folder_map: Dictionary, cache_key: String) -> Dictionary:
+	if _chierit_sprite_frames_cache.has(cache_key):
+		return _chierit_sprite_frames_cache[cache_key]
+	var out: Dictionary = {}
+	for anim_key in folder_map:
+		var subdir: String = root.path_join(String(folder_map[anim_key]))
+		var frames: Array = _list_dreamir_png_paths(subdir)
+		if not frames.is_empty():
+			out[anim_key] = frames
+	_chierit_sprite_frames_cache[cache_key] = out
+	return out
+
+
+func _build_chierit_house_skin_visual(
+		base: Dictionary, frames: Dictionary, feet_fine: float = 4.0) -> Dictionary:
+	var vis: Dictionary = base.duplicate(true)
+	if not frames.is_empty():
+		vis["sprite_frames"] = frames
+		vis.erase("sprite_sheet")
+	apply_chierit_visual_scale(vis, base)
+	vis["sprite_feet_fine"] = feet_fine
+	vis["walk_anim_over_attack"] = false
+	vis["anim_fps"] = 14.0
+	vis["strip_fps"] = {"skill": 16.0, "attack": 15.0}
+	return vis
+
+
+func _resolve_chierit_house_skin(char_id: String, skin_id: String, base: Dictionary) -> Dictionary:
+	if skin_id == "fire_knight" and char_id == "swordsman":
+		return _build_chierit_house_skin_visual(
+			base,
+			get_chierit_sprite_frames(FIRE_KNIGHT_ROOT, FIRE_KNIGHT_ANIM_FOLDERS, "fire_knight"))
+	if skin_id == "leaf_ranger" and char_id == "ranger":
+		return _build_chierit_house_skin_visual(
+			base,
+			get_chierit_sprite_frames(LEAF_RANGER_ROOT, LEAF_RANGER_ANIM_FOLDERS, "leaf_ranger"))
+	return {}
+
+
+func apply_chierit_visual_scale(visual: Dictionary, base: Dictionary) -> void:
+	var base_scale: float = float(base.get("scale", 1.0))
+	visual["scale"] = base_scale * CHIERIT_CHARACTER_SCALE
+	visual["visual_pack"] = "chierit"
+	visual["preview_scale"] = CHIERIT_PREVIEW_SCALE
+	visual["village_sprite_feet_fine"] = float(base.get("village_sprite_feet_fine", 0)) \
+		+ CHIERIT_VILLAGE_FEET_FINE_Y
+	visual["preview_feet_fine_y"] = CHIERIT_PREVIEW_FEET_FINE_Y
 
 
 func resolve_character_visual_def(char_id: String, skin_id: String) -> Dictionary:
@@ -680,6 +773,10 @@ func resolve_character_visual_def(char_id: String, skin_id: String) -> Dictionar
 				strips["idle"] = strips["human_idle"]
 			d["sprite_strips"] = strips
 		return d
+	if is_chierit_house_skin(skin_id):
+		var chierit_vis: Dictionary = _resolve_chierit_house_skin(char_id, skin_id, base)
+		if not chierit_vis.is_empty():
+			return chierit_vis
 	if skin_id.begins_with("look_"):
 		var look_id: String = skin_id.substr(5)
 		var look_def: Dictionary = get_character_def(look_id)
@@ -880,7 +977,7 @@ const VILLAGE_FACILITIES: Array[Dictionary] = [
 		"fallback_x_mult": 0.66,
 		"npc_strip": "miner",
 		"collect_cooldown_sec": 50.0,
-		"output": {"stone": {"min": 3, "max": 5}},
+		"resource_collect": true,
 	},
 	{
 		"id": "lumberyard",
@@ -893,7 +990,7 @@ const VILLAGE_FACILITIES: Array[Dictionary] = [
 		"fallback_x_mult": 0.63,
 		"npc_strip": "woodcutter",
 		"collect_cooldown_sec": 50.0,
-		"output": {"wood": {"min": 3, "max": 5}},
+		"resource_collect": true,
 	},
 	{
 		"id": "well",
@@ -1103,6 +1200,151 @@ func get_village_facility_def(facility_id: String) -> Dictionary:
 	return {}
 
 
+## 村莊「資源」分頁四種基礎素材：木工場／礦場額外收取（機率受通關進度影響；戰鬥仍會掉落）
+const VILLAGE_BASE_RESOURCE_IDS: Array[String] = ["wood", "stone", "iron", "copper"]
+
+const VILLAGE_FACILITY_RESOURCE_IDS: Dictionary = {
+	"lumberyard": ["wood"],
+	"quarry": ["stone", "iron", "copper"],
+}
+
+## 通關對應關卡後，該資源才會進入收取權重池
+const VILLAGE_RESOURCE_UNLOCK_STAGE: Dictionary = {
+	"wood": "slime_forest",
+	"stone": "slime_forest",
+	"iron": "crimson_marsh",
+	"copper": "crimson_marsh",
+}
+
+const VILLAGE_RESOURCE_BASE_WEIGHT: Dictionary = {
+	"wood": 100.0,
+	"stone": 100.0,
+	"iron": 50.0,
+	"copper": 44.0,
+}
+
+
+func is_village_base_resource(mat_id: String) -> bool:
+	return VILLAGE_BASE_RESOURCE_IDS.has(mat_id)
+
+
+func stage_index(stage_id: String) -> int:
+	for i in range(STAGES.size()):
+		if String(STAGES[i].get("id", "")) == stage_id:
+			return i
+	return -1
+
+
+func highest_completed_stage_index(completed_stage_ids: Array[String]) -> int:
+	var hi: int = -1
+	for sid in completed_stage_ids:
+		var idx: int = stage_index(String(sid))
+		if idx > hi:
+			hi = idx
+	return hi
+
+
+func village_resource_collect_weight(
+		mat_id: String,
+		facility_id: String,
+		completed_stage_ids: Array[String]) -> float:
+	var pool: Variant = VILLAGE_FACILITY_RESOURCE_IDS.get(facility_id, [])
+	if not (pool is Array) or not (pool as Array).has(mat_id):
+		return 0.0
+	var unlock_stage: String = String(VILLAGE_RESOURCE_UNLOCK_STAGE.get(mat_id, ""))
+	if unlock_stage == "":
+		return 0.0
+	var unlock_idx: int = stage_index(unlock_stage)
+	if unlock_idx < 0:
+		return 0.0
+	var hi: int = highest_completed_stage_index(completed_stage_ids)
+	if hi < unlock_idx:
+		return 0.0
+	var w: float = float(VILLAGE_RESOURCE_BASE_WEIGHT.get(mat_id, 40.0))
+	var bonus_stages: int = hi - unlock_idx
+	w *= 1.0 + 0.14 * float(bonus_stages)
+	return w
+
+
+func village_resource_amount_range(
+		mat_id: String,
+		completed_stage_ids: Array[String]) -> Vector2i:
+	var unlock_stage: String = String(VILLAGE_RESOURCE_UNLOCK_STAGE.get(mat_id, ""))
+	var unlock_idx: int = stage_index(unlock_stage)
+	var hi: int = highest_completed_stage_index(completed_stage_ids)
+	var tier: int = maxi(0, hi - unlock_idx)
+	var mn: int = 2 + tier
+	var mx: int = 4 + tier * 2
+	if mat_id == "wood" or mat_id == "stone":
+		mn = 3 + tier
+		mx = 5 + tier * 2
+	return Vector2i(mn, mx)
+
+
+func roll_village_facility_collect(
+		facility_id: String,
+		completed_stage_ids: Array[String]) -> Dictionary:
+	var pool: Variant = VILLAGE_FACILITY_RESOURCE_IDS.get(facility_id, [])
+	if not (pool is Array):
+		return {}
+	var weights: Dictionary = {}
+	var total: float = 0.0
+	for raw_id in pool:
+		var mid: String = String(raw_id)
+		var w: float = village_resource_collect_weight(mid, facility_id, completed_stage_ids)
+		if w <= 0.0:
+			continue
+		weights[mid] = w
+		total += w
+	if total <= 0.0 or weights.is_empty():
+		return {}
+	var roll: float = randf() * total
+	var pick: String = ""
+	for mid in weights.keys():
+		roll -= float(weights[mid])
+		if roll <= 0.0:
+			pick = mid
+			break
+	if pick == "":
+		var keys: Array = weights.keys()
+		pick = String(keys[keys.size() - 1])
+	var band: Vector2i = village_resource_amount_range(pick, completed_stage_ids)
+	var amount: int = randi_range(band.x, band.y)
+	return {pick: amount}
+
+
+func village_facility_resource_odds_lines(
+		facility_id: String,
+		completed_stage_ids: Array[String]) -> PackedStringArray:
+	var lines: PackedStringArray = PackedStringArray()
+	var pool: Variant = VILLAGE_FACILITY_RESOURCE_IDS.get(facility_id, [])
+	if not (pool is Array):
+		return lines
+	var weights: Dictionary = {}
+	var total: float = 0.0
+	for raw_id in pool:
+		var mid: String = String(raw_id)
+		var w: float = village_resource_collect_weight(mid, facility_id, completed_stage_ids)
+		if w <= 0.0:
+			continue
+		weights[mid] = w
+		total += w
+	if total <= 0.0:
+		lines.append(tr("VILLAGE_RESOURCE_ODDS_LOCKED"))
+		return lines
+	var ordered: Array[String] = []
+	for raw_id in pool:
+		var mid: String = String(raw_id)
+		if weights.has(mid):
+			ordered.append(mid)
+	for mid in ordered:
+		var pct: int = int(round(float(weights[mid]) / total * 100.0))
+		var band: Vector2i = village_resource_amount_range(mid, completed_stage_ids)
+		lines.append(tr("VILLAGE_RESOURCE_ODDS_LINE_FMT") % [
+			tr_material_name(mid), pct, band.x, band.y])
+	return lines
+
+
 func stage_rescue_npc_id(stage: Dictionary) -> String:
 	if stage.has("rescue_npc"):
 		return String(stage["rescue_npc"])
@@ -1213,6 +1455,152 @@ func visible_texture_region(tex: Texture2D, source_rect: Rect2 = Rect2(), paddin
 	max_x = mini(x1, max_x + padding)
 	max_y = mini(y1, max_y + padding)
 	return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
+
+
+func trim_preview_texture(tex: Texture2D) -> Dictionary:
+	if tex == null:
+		return {"texture": null, "w": 1.0, "h": 1.0}
+	if tex is AtlasTexture:
+		var at := tex as AtlasTexture
+		var reg: Rect2 = visible_texture_region(at.atlas, at.region)
+		var out := AtlasTexture.new()
+		out.atlas = at.atlas
+		out.region = reg
+		return {"texture": out, "w": reg.size.x, "h": reg.size.y}
+	var pw: float = float(maxi(1, tex.get_width()))
+	var ph: float = float(maxi(1, tex.get_height()))
+	var reg2: Rect2 = visible_texture_region(tex, Rect2(0.0, 0.0, pw, ph))
+	var out2 := AtlasTexture.new()
+	out2.atlas = tex
+	out2.region = reg2
+	return {"texture": out2, "w": reg2.size.x, "h": reg2.size.y}
+
+
+func resolve_character_preview_source_texture(cdef: Dictionary) -> Texture2D:
+	if cdef.is_empty():
+		return null
+	if cdef.has("sprite_frames") and cdef["sprite_frames"] is Dictionary:
+		return sprite_frames_first_texture((cdef["sprite_frames"] as Dictionary).get("idle", null))
+	if cdef.has("sprite_strips") and cdef["sprite_strips"] is Dictionary:
+		var strips: Dictionary = cdef["sprite_strips"]
+		var preview_key: String = String(cdef.get("preview_strip", "idle"))
+		if not strips.has(preview_key):
+			preview_key = "idle"
+		if not strips.has(preview_key):
+			return null
+		var atlas: Texture2D = load(String(strips[preview_key])) as Texture2D
+		if atlas == null:
+			return null
+		var hf: int = maxi(1, int(cdef.get("strip_hframes", 8)))
+		if cdef.has("strip_hframes_by_strip") and cdef["strip_hframes_by_strip"] is Dictionary \
+				and (cdef["strip_hframes_by_strip"] as Dictionary).has(preview_key):
+			hf = maxi(1, int((cdef["strip_hframes_by_strip"] as Dictionary)[preview_key]))
+		var vf: int = maxi(1, int(cdef.get("vframes", 1)))
+		var prow: int = clampi(int(cdef.get("preview_row", cdef.get("row_idle", 0))), 0, vf - 1)
+		var pcol: int = clampi(int(cdef.get("preview_col", 0)), 0, hf - 1)
+		var fw: int = maxi(1, atlas.get_width() / hf)
+		var fh: int = maxi(1, atlas.get_height() / vf)
+		var trim_t: int = clampi(int(cdef.get("preview_trim_top", 14)), 0, fh - 4)
+		var trim_b: int = clampi(int(cdef.get("preview_trim_bottom", 1)), 0, fh - trim_t - 4)
+		var trim_l: int = clampi(int(cdef.get("preview_trim_left", 4)), 0, fw - 4)
+		var trim_r: int = clampi(int(cdef.get("preview_trim_right", 4)), 0, fw - trim_l - 4)
+		var cell_at := AtlasTexture.new()
+		cell_at.atlas = atlas
+		cell_at.region = Rect2(
+			float(pcol * fw + trim_l),
+			float(prow * fh + trim_t),
+			maxf(1.0, float(fw - trim_l - trim_r)),
+			maxf(1.0, float(fh - trim_t - trim_b)))
+		return cell_at
+	if cdef.has("sprite") and String(cdef["sprite"]) != "":
+		var sheet: Texture2D = load(String(cdef["sprite"])) as Texture2D
+		if sheet == null:
+			return null
+		var hf2: int = maxi(1, int(cdef.get("hframes", 1)))
+		var vf2: int = maxi(1, int(cdef.get("vframes", 1)))
+		var prow2: int = clampi(int(cdef.get("preview_row", cdef.get("row_idle", 0))), 0, vf2 - 1)
+		var pcol2: int = clampi(int(cdef.get("preview_col", 0)), 0, hf2 - 1)
+		var fw2: int = maxi(1, sheet.get_width() / hf2)
+		var fh2: int = maxi(1, sheet.get_height() / vf2)
+		var trim_t2: int = clampi(int(cdef.get("preview_trim_top", 14)), 0, fh2 - 4)
+		var trim_b2: int = clampi(int(cdef.get("preview_trim_bottom", 1)), 0, fh2 - trim_t2 - 4)
+		var trim_l2: int = clampi(int(cdef.get("preview_trim_left", 4)), 0, fw2 - 4)
+		var trim_r2: int = clampi(int(cdef.get("preview_trim_right", 4)), 0, fw2 - trim_l2 - 4)
+		var cell_at2 := AtlasTexture.new()
+		cell_at2.atlas = sheet
+		cell_at2.region = Rect2(
+			float(pcol2 * fw2 + trim_l2),
+			float(prow2 * fh2 + trim_t2),
+			maxf(1.0, float(fw2 - trim_l2 - trim_r2)),
+			maxf(1.0, float(fh2 - trim_t2 - trim_b2)))
+		return cell_at2
+	return null
+
+
+func layout_character_preview_texture_rect(
+		prev: TextureRect,
+		src_w: float,
+		src_h: float,
+		scale_mul: float = 1.0,
+		offset_y: float = 0.0) -> void:
+	if prev == null:
+		return
+	var parent: Control = prev.get_parent() as Control
+	if parent == null:
+		return
+	var pw: float = parent.size.x
+	var ph: float = parent.size.y
+	if pw <= 0.0 or ph <= 0.0:
+		pw = float(parent.custom_minimum_size.x)
+		ph = float(parent.custom_minimum_size.y)
+	if pw <= 0.0 or ph <= 0.0:
+		pw = 144.0
+		ph = 144.0
+	var avail_w: float = pw * 0.94
+	var avail_h: float = ph * 0.94
+	var fit_scale: int = maxi(1, mini(int(avail_w / src_w), int(avail_h / src_h)))
+	var min_fill: float = 0.86
+	var want_h: float = avail_h * min_fill
+	if src_h > 0.0 and src_h * float(fit_scale) < want_h:
+		fit_scale = maxi(fit_scale, int(ceil(want_h / src_h)))
+	if scale_mul > 0.0:
+		fit_scale = maxi(1, int(round(float(fit_scale) * scale_mul)))
+	var disp_w: float = src_w * float(fit_scale)
+	var disp_h: float = src_h * float(fit_scale)
+	prev.set_anchors_preset(Control.PRESET_TOP_LEFT, false)
+	prev.size = Vector2(disp_w, disp_h)
+	prev.position = Vector2((pw - disp_w) * 0.5, (ph - disp_h) * 0.5 + offset_y)
+	prev.stretch_mode = TextureRect.STRETCH_SCALE
+	prev.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+
+
+func apply_character_preview_to_rect(prev: TextureRect, cdef: Dictionary) -> void:
+	if prev == null:
+		return
+	if cdef.is_empty():
+		prev.texture = null
+		prev.visible = false
+		return
+	var src: Texture2D = resolve_character_preview_source_texture(cdef)
+	if src == null:
+		prev.texture = null
+		prev.visible = false
+		return
+	var trimmed: Dictionary = trim_preview_texture(src)
+	prev.texture = trimmed["texture"]
+	if trimmed["texture"] == null:
+		prev.visible = false
+		return
+	prev.modulate = cdef.get("tint", Color.WHITE)
+	prev.visible = true
+	prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	prev.flip_h = bool(cdef.get("sprite_faces_left", false))
+	layout_character_preview_texture_rect(
+		prev,
+		float(trimmed["w"]),
+		float(trimmed["h"]),
+		float(cdef.get("preview_scale", 1.0)),
+		float(cdef.get("preview_feet_fine_y", 0.0)))
 
 
 ## 讓 Sprite2D（centered）腳底落在 body_radius 圓心下方。
@@ -1429,6 +1817,10 @@ func get_dreamir_sprite_frames(char_id: String) -> Dictionary:
 			out[anim_key] = frames
 	_dreamir_sprite_frames_cache[char_id] = out
 	return out
+
+
+func get_fire_knight_sprite_frames() -> Dictionary:
+	return get_chierit_sprite_frames(FIRE_KNIGHT_ROOT, FIRE_KNIGHT_ANIM_FOLDERS, "fire_knight")
 
 
 func _character_def_with_visuals(c: Dictionary) -> Dictionary:
@@ -1828,21 +2220,21 @@ const MAT_CATEGORY_SEED := "seed"
 const MAT_CATEGORY_CROP := "crop"
 
 const MATERIALS: Array[Dictionary] = [
-	{"id": "wood", "name": "木頭", "name_key": "MAT_WOOD_NAME", "category": MAT_CATEGORY_FORGING},
-	{"id": "stone", "name": "石頭", "name_key": "MAT_STONE_NAME", "category": MAT_CATEGORY_FORGING},
-	{"id": "iron", "name": "鐵", "name_key": "MAT_IRON_NAME", "category": MAT_CATEGORY_FORGING},
-	{"id": "copper", "name": "銅", "name_key": "MAT_COPPER_NAME", "category": MAT_CATEGORY_FORGING},
+	{"id": "wood", "name": "木頭", "name_key": "MAT_WOOD_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "stone", "name": "石頭", "name_key": "MAT_STONE_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "iron", "name": "鐵", "name_key": "MAT_IRON_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "copper", "name": "銅", "name_key": "MAT_COPPER_NAME", "category": MAT_CATEGORY_RESOURCE},
 	{"id": "bone", "name": "骨頭", "name_key": "MAT_BONE_NAME", "category": MAT_CATEGORY_FORGING},
 	{"id": "rag", "name": "破布", "name_key": "MAT_RAG_NAME", "category": MAT_CATEGORY_FORGING},
 	{"id": "silver", "name": "銀", "name_key": "MAT_SILVER_NAME", "category": MAT_CATEGORY_RESOURCE},
 	{"id": "gold_ore", "name": "金", "name_key": "MAT_GOLD_ORE_NAME", "category": MAT_CATEGORY_RESOURCE},
-	{"id": "gunpowder", "name": "火藥", "name_key": "MAT_GUNPOWDER_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "gunpowder", "name": "火藥", "name_key": "MAT_GUNPOWDER_NAME", "category": MAT_CATEGORY_FORGING},
 	{"id": "sacred_wood", "name": "神木", "name_key": "MAT_SACRED_WOOD_NAME", "category": MAT_CATEGORY_RESOURCE},
-	{"id": "glow_dust", "name": "光粉", "name_key": "MAT_GLOW_DUST_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "glow_dust", "name": "光粉", "name_key": "MAT_GLOW_DUST_NAME", "category": MAT_CATEGORY_FORGING},
 	{"id": "tree_sap", "name": "樹液", "name_key": "MAT_TREE_SAP_NAME", "category": MAT_CATEGORY_RESOURCE},
-	{"id": "flame_scale", "name": "炎鱗", "name_key": "MAT_FLAME_SCALE_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "flame_scale", "name": "炎鱗", "name_key": "MAT_FLAME_SCALE_NAME", "category": MAT_CATEGORY_FORGING},
 	{"id": "obsidian", "name": "黑曜石", "name_key": "MAT_OBSIDIAN_NAME", "category": MAT_CATEGORY_RESOURCE},
-	{"id": "venom", "name": "毒液", "name_key": "MAT_VENOM_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "venom", "name": "毒液", "name_key": "MAT_VENOM_NAME", "category": MAT_CATEGORY_FORGING},
 	{"id": "wheat_seed", "name": "小麥種", "name_key": "MAT_WHEAT_SEED_NAME", "category": MAT_CATEGORY_SEED},
 	{"id": "carrot_seed", "name": "胡蘿蔔種", "name_key": "MAT_CARROT_SEED_NAME", "category": MAT_CATEGORY_SEED},
 	{"id": "potato_seed", "name": "馬鈴薯種", "name_key": "MAT_POTATO_SEED_NAME", "category": MAT_CATEGORY_SEED},

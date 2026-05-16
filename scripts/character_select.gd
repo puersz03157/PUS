@@ -41,7 +41,6 @@ const FOCUS_ARMAMENT := 3
 @onready var p2_rune_icon: TextureRect = $P2Panel/RuneIcon
 @onready var p2_color: ColorRect = $P2Panel/Color
 @onready var p2_preview: TextureRect = $P2Panel/Color/Preview
-@onready var hint_label: Label = $HintLabel
 @onready var ready_label: Label = $ReadyLabel
 @onready var title_label: Label = $Title
 
@@ -65,8 +64,11 @@ var _transitioning: bool = false  # 已開始切場景，避免重入導致 get_
 const P1_PANEL_WIDTH := 400.0  # 與 CharacterSelect.tscn 中 P1Panel 寬度一致 (480 - 80)
 const PANEL_OFFSET_TOP := -270.0
 const PANEL_OFFSET_BOTTOM := 330.0  # 與 .tscn 面板高度一致（含裝備／符文列）
-const TOUCH_BAR_HEIGHT := 96.0
-const TOUCH_BAR_MARGIN := 8.0
+const PANEL_CONTENT_PAD := 14.0
+const OPTION_ROWS_START_Y := 294.0
+const OPTION_ROW_GAP := 6.0
+const TOUCH_BAR_HEIGHT := 88.0
+const TOUCH_BAR_INSET := 6.0
 
 # ----- 觸控介面（手機 / 網頁版） -----
 var _touch_p1: Control = null
@@ -154,13 +156,14 @@ func _armament_options() -> Array:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED:
+	if what == NOTIFICATION_RESIZED and is_node_ready():
 		_apply_panel_layout()
+		_update_panels()
 
 
 ## 單人時將 P1 資訊卡水平置中；雙人維持左右並排。
 func _apply_panel_layout() -> void:
-	if p1_panel == null or p2_panel == null:
+	if not is_node_ready() or p1_panel == null or p2_panel == null:
 		return
 	if GameState.two_players:
 		p1_panel.anchor_left = 0.0
@@ -169,16 +172,12 @@ func _apply_panel_layout() -> void:
 		p1_panel.anchor_bottom = 0.5
 		p1_panel.offset_left = 80.0
 		p1_panel.offset_right = 480.0
-		p1_panel.offset_top = PANEL_OFFSET_TOP
-		p1_panel.offset_bottom = PANEL_OFFSET_BOTTOM
 		p2_panel.anchor_left = 0.0
 		p2_panel.anchor_right = 0.0
 		p2_panel.anchor_top = 0.5
 		p2_panel.anchor_bottom = 0.5
 		p2_panel.offset_left = 720.0
 		p2_panel.offset_right = 1120.0
-		p2_panel.offset_top = PANEL_OFFSET_TOP
-		p2_panel.offset_bottom = PANEL_OFFSET_BOTTOM
 	else:
 		var half_w: float = P1_PANEL_WIDTH * 0.5
 		p1_panel.anchor_left = 0.5
@@ -187,8 +186,6 @@ func _apply_panel_layout() -> void:
 		p1_panel.anchor_bottom = 0.5
 		p1_panel.offset_left = -half_w
 		p1_panel.offset_right = half_w
-		p1_panel.offset_top = PANEL_OFFSET_TOP
-		p1_panel.offset_bottom = PANEL_OFFSET_BOTTOM
 	_apply_touch_layout()
 
 
@@ -376,21 +373,23 @@ func _save_selections() -> void:
 
 
 func _update_panels() -> void:
+	if not is_node_ready() or p1_panel == null or p1_name == null:
+		return
 	_ensure_unlocked_selection()
 	_clamp_options("p1")
 	_clamp_options("p2")
+	_reset_panel_heights()
 	_apply_panel(p1_index, p1_passive_idx, p1_skill_idx, p1_armament_idx, p1_focus, p1_ready,
 		p1_name, p1_desc, p1_stats, p1_passive, p1_skill,
 		p1_passive_icon, p1_skill_icon,
 		p1_equipment, p1_rune, p1_equipment_icon, p1_rune_icon,
-		p1_color, p1_preview, p1_panel)
+		p1_color, p1_preview, p1_panel, "p1")
 	if GameState.two_players:
 		_apply_panel(p2_index, p2_passive_idx, p2_skill_idx, p2_armament_idx, p2_focus, p2_ready,
 			p2_name, p2_desc, p2_stats, p2_passive, p2_skill,
 			p2_passive_icon, p2_skill_icon,
 			p2_equipment, p2_rune, p2_equipment_icon, p2_rune_icon,
-			p2_color, p2_preview, p2_panel)
-	hint_label.text = _hint_text()
+			p2_color, p2_preview, p2_panel, "p2")
 	if bool(GameState.touch_controls_enabled):
 		_refresh_touch_buttons()
 	# 副標題僅在「準備中／完成」時顯示，避免與 Title 重複同一句「選擇你的角色」
@@ -404,6 +403,71 @@ func _update_panels() -> void:
 		else:
 			ready_label.text = ""
 			ready_label.visible = false
+	if bool(GameState.touch_controls_enabled):
+		_apply_touch_layout()
+
+
+func _reset_panel_heights() -> void:
+	for pnl in [p1_panel, p2_panel]:
+		if pnl == null:
+			continue
+		pnl.offset_top = PANEL_OFFSET_TOP
+		pnl.offset_bottom = PANEL_OFFSET_BOTTOM
+
+
+func _measure_label_height(lbl: Label, row_w: float) -> float:
+	if lbl == null or lbl.text.is_empty():
+		return 28.0
+	var font: Font = lbl.get_theme_font("font")
+	var fs: int = lbl.get_theme_font_size("font_size")
+	if font == null:
+		return 36.0
+	var sz: Vector2 = font.get_multiline_string_size(
+		lbl.text, HORIZONTAL_ALIGNMENT_LEFT, row_w, fs)
+	return maxf(28.0, sz.y + 6.0)
+
+
+func _layout_one_option_row(
+		lbl: Label, icon: TextureRect, y: float, row_w: float, min_h: float = 32.0) -> float:
+	if lbl == null:
+		return y
+	var h: float = maxf(min_h, _measure_label_height(lbl, row_w))
+	lbl.offset_top = y
+	lbl.offset_bottom = y + h
+	lbl.clip_contents = false
+	if icon:
+		icon.offset_top = y + 2.0
+		icon.offset_bottom = y + 34.0
+	return y + h + OPTION_ROW_GAP
+
+
+func _layout_panel_option_rows(
+		passive_lbl: Label, skill_lbl: Label, equip_lbl: Label, rune_lbl: Label,
+		passive_icon: TextureRect, skill_icon: TextureRect,
+		equip_icon: TextureRect, rune_icon: TextureRect,
+		pnl: Panel) -> float:
+	var row_w: float = maxf(260.0, pnl.size.x - 72.0) if pnl != null else 328.0
+	var y: float = OPTION_ROWS_START_Y
+	y = _layout_one_option_row(passive_lbl, passive_icon, y, row_w, 44.0)
+	y = _layout_one_option_row(skill_lbl, skill_icon, y, row_w, 52.0)
+	y = _layout_one_option_row(equip_lbl, equip_icon, y, row_w, 36.0)
+	y = _layout_one_option_row(rune_lbl, rune_icon, y, row_w, 28.0)
+	return y
+
+
+func _touch_bar_reserve() -> float:
+	if not bool(GameState.touch_controls_enabled):
+		return 0.0
+	return TOUCH_BAR_HEIGHT + TOUCH_BAR_INSET * 2.0
+
+
+func _ensure_panel_fits_content(pnl: Panel, content_bottom: float) -> void:
+	if pnl == null:
+		return
+	var need_h: float = content_bottom + PANEL_CONTENT_PAD + _touch_bar_reserve()
+	var cur_h: float = pnl.offset_bottom - pnl.offset_top
+	if need_h > cur_h:
+		pnl.offset_bottom = pnl.offset_top + need_h
 
 
 func _ensure_unlocked_selection() -> void:
@@ -419,8 +483,9 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 		n: Label, d: Label, s: Label, p_lbl: Label, sk_lbl: Label,
 		p_icon: TextureRect, sk_icon: TextureRect,
 		eq_lbl: Label, rune_lbl: Label, eq_icon: TextureRect, rune_icon: TextureRect,
-		col: ColorRect, prev: TextureRect, pnl: Panel) -> void:
-	var c: Dictionary = GameData.CHARACTERS[idx]
+		col: ColorRect, prev: TextureRect, pnl: Panel, player_slot: String) -> void:
+	var char_id: String = String(GameData.CHARACTERS[idx].get("id", ""))
+	var c: Dictionary = GameData.get_character_def(char_id)
 	# 角色名（focus 在角色欄時加 ◀ ▶ 提示）
 	var name_text: String = tr("CSEL_NAME_FMT") % [
 		GameData.tr_name(c), GameData.tr_rarity(String(c["rarity"]))]
@@ -491,78 +556,13 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 	d.text = GameData.tr_desc(c)
 	d.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
 
-	# 角色貼圖預覽 — 32x32 美術用最近鄰 + 整數倍縮放，避免上採樣糊掉
+	# 角色貼圖預覽：套用房屋已選造型（與村莊／戰鬥一致）
 	if prev:
-		var atlas: Texture2D = null
-		var hf: int = 1
-		var vf: int = 1
-		var prow: int = 0
-		var pcol: int = 0
-		# 逐幀 PNG（sprite_frames）→ 直接拿 idle 第 1 張當預覽，不切片
-		var frame_tex: Texture2D = null
-		if c.has("sprite_frames") and c["sprite_frames"] is Dictionary:
-			var first_path: String = _first_frame_path((c["sprite_frames"] as Dictionary).get("idle", null))
-			if first_path != "":
-				frame_tex = load(first_path) as Texture2D
-		if frame_tex:
-			var fw2: float = float(maxi(1, frame_tex.get_width()))
-			var fh2: float = float(maxi(1, frame_tex.get_height()))
-			var frame_region: Rect2 = _visible_texture_region(frame_tex, Rect2(0, 0, fw2, fh2))
-			var frame_at := AtlasTexture.new()
-			frame_at.atlas = frame_tex
-			frame_at.region = frame_region
-			prev.texture = frame_at
-			prev.modulate = c.get("tint", Color.WHITE)
-			prev.visible = true
-			prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			prev.flip_h = bool(c.get("sprite_faces_left", false))
-			_apply_integer_scale_preview(prev, frame_region.size.x, frame_region.size.y)
-		elif c.has("sprite_strips") and c["sprite_strips"].has("idle"):
-			var preview_key: String = String(c.get("preview_strip", "idle"))
-			if not c["sprite_strips"].has(preview_key):
-				preview_key = "idle"
-			atlas = load(String(c["sprite_strips"][preview_key]))
-			if atlas:
-				hf = maxi(1, int(c.get("strip_hframes", 8)))
-				if c.has("strip_hframes_by_strip") and c["strip_hframes_by_strip"] is Dictionary \
-						and c["strip_hframes_by_strip"].has(preview_key):
-					hf = maxi(1, int(c["strip_hframes_by_strip"][preview_key]))
-				vf = 1
-				prow = 0
-				pcol = clampi(int(c.get("preview_col", 0)), 0, hf - 1)
-		elif c.has("sprite") and String(c["sprite"]) != "":
-			atlas = load(c["sprite"])
-			if atlas:
-				hf = maxi(1, int(c.get("hframes", 1)))
-				vf = maxi(1, int(c.get("vframes", 1)))
-				prow = clampi(int(c.get("preview_row", c.get("row_idle", 0))), 0, vf - 1)
-				pcol = clampi(int(c.get("preview_col", 0)), 0, hf - 1)
-		if frame_tex:
-			pass
-		elif atlas:
-			var fw: int = atlas.get_width() / hf
-			var fh: int = atlas.get_height() / vf
-			var trim_t: int = clampi(int(c.get("preview_trim_top", 14)), 0, fh - 4)
-			var trim_b: int = clampi(int(c.get("preview_trim_bottom", 1)), 0, fh - trim_t - 4)
-			var trim_l: int = clampi(int(c.get("preview_trim_left", 4)), 0, fw - 4)
-			var trim_r: int = clampi(int(c.get("preview_trim_right", 4)), 0, fw - trim_l - 4)
-			var rx: float = pcol * fw + trim_l
-			var ry: float = prow * fh + trim_t
-			var rw: float = maxf(1.0, fw - trim_l - trim_r)
-			var rh: float = maxf(1.0, fh - trim_t - trim_b)
-			var visible_region: Rect2 = _visible_texture_region(atlas, Rect2(rx, ry, rw, rh))
-			var at := AtlasTexture.new()
-			at.atlas = atlas
-			at.region = visible_region
-			prev.texture = at
-			prev.modulate = c.get("tint", Color.WHITE)
-			prev.visible = true
-			prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			prev.flip_h = bool(c.get("sprite_faces_left", false))
-			_apply_integer_scale_preview(prev, visible_region.size.x, visible_region.size.y)
-		else:
-			prev.texture = null
-			prev.visible = false
+		var skin_id: String = GameState.get_house_character_skin(player_slot, char_id)
+		var visual: Dictionary = GameData.resolve_character_visual_def(char_id, skin_id)
+		if visual.is_empty():
+			visual = c
+		GameData.apply_character_preview_to_rect(prev, visual)
 
 	var sb := pnl.get_theme_stylebox("panel") as StyleBoxFlat
 	if sb == null:
@@ -579,80 +579,9 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 	sb.corner_radius_bottom_left = 10
 	sb.corner_radius_bottom_right = 10
 
-
-# sprite_frames entry 取第一張的路徑（支援 Array 或 {pattern,count,start}）
-func _first_frame_path(entry) -> String:
-	if entry == null:
-		return ""
-	if entry is Array:
-		var arr: Array = entry
-		if arr.is_empty():
-			return ""
-		return String(arr[0])
-	if entry is Dictionary:
-		var pat: String = String(entry.get("pattern", ""))
-		var start: int = int(entry.get("start", 1))
-		if pat == "" or int(entry.get("count", 0)) <= 0:
-			return ""
-		return pat.replace("{i}", str(start))
-	return ""
-
-
-# 取出來源圖中實際有像素的區域，避免角色因左右透明留白不同而看起來大小不一。
-func _visible_texture_region(tex: Texture2D, source_rect: Rect2, padding: int = 2) -> Rect2:
-	if tex == null:
-		return source_rect
-	var img: Image = tex.get_image()
-	if img == null:
-		return source_rect
-	var x0: int = clampi(int(floor(source_rect.position.x)), 0, img.get_width() - 1)
-	var y0: int = clampi(int(floor(source_rect.position.y)), 0, img.get_height() - 1)
-	var x1: int = clampi(int(ceil(source_rect.end.x)), x0 + 1, img.get_width())
-	var y1: int = clampi(int(ceil(source_rect.end.y)), y0 + 1, img.get_height())
-	var min_x: int = x1
-	var min_y: int = y1
-	var max_x: int = x0
-	var max_y: int = y0
-	for y in range(y0, y1):
-		for x in range(x0, x1):
-			if img.get_pixel(x, y).a > 0.02:
-				min_x = mini(min_x, x)
-				min_y = mini(min_y, y)
-				max_x = maxi(max_x, x + 1)
-				max_y = maxi(max_y, y + 1)
-	if min_x >= max_x or min_y >= max_y:
-		return source_rect
-	min_x = maxi(x0, min_x - padding)
-	min_y = maxi(y0, min_y - padding)
-	max_x = mini(x1, max_x + padding)
-	max_y = mini(y1, max_y + padding)
-	return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
-
-
-# 把 TextureRect 改用「整數倍」尺寸並置中於父容器，讓預覽大小一致且不裁頭。
-func _apply_integer_scale_preview(prev: TextureRect, src_w: float, src_h: float) -> void:
-	var parent: Control = prev.get_parent() as Control
-	if parent == null:
-		return
-	var pw: float = parent.size.x
-	var ph: float = parent.size.y
-	if pw <= 0.0 or ph <= 0.0:
-		# 父尺寸還沒就緒就用 .tscn 設的尺寸 (P1Panel/Color = 130x130)
-		pw = 130.0
-		ph = 130.0
-	var avail_w: float = pw * 0.94
-	var avail_h: float = ph * 0.94
-	var fit_scale: int = max(1, min(int(avail_w / src_w), int(avail_h / src_h)))
-	var disp_w: float = src_w * fit_scale
-	var disp_h: float = src_h * fit_scale
-	# 解掉錨點（.tscn 預設 anchors_preset=15 會撐滿父層），改用絕對 size + position
-	prev.set_anchors_preset(Control.PRESET_TOP_LEFT, false)
-	prev.size = Vector2(disp_w, disp_h)
-	prev.position = Vector2((pw - disp_w) * 0.5, (ph - disp_h) * 0.5)
-	# 因為 rect 是「source × N」整數倍 + NEAREST，用 STRETCH_SCALE 讓貼圖填滿 rect
-	# 等於每個 source pixel 變成 N×N 顯示像素（pixel-perfect）
-	prev.stretch_mode = TextureRect.STRETCH_SCALE
-	prev.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	var content_end: float = _layout_panel_option_rows(
+		p_lbl, sk_lbl, eq_lbl, rune_lbl, p_icon, sk_icon, eq_icon, rune_icon, pnl)
+	_ensure_panel_fits_content(pnl, content_end)
 
 
 func _row_text(label: String, value: String, multi: bool, focused: bool) -> String:
@@ -664,13 +593,6 @@ func _row_text(label: String, value: String, multi: bool, focused: bool) -> Stri
 	return tr("CSEL_ROW_FMT") % [label, value]
 
 
-func _hint_text() -> String:
-	var line1: String = tr("CSEL_HINT_LR_ARMAMENT")
-	if GameState.two_players:
-		return line1 + "\n" + tr("CSEL_HINT_DUO")
-	return line1 + "\n" + tr("CSEL_HINT_SOLO")
-
-
 # ============================================================================
 # 觸控介面（手機 / 網頁版）
 # - 每個面板下方一條觸控列：[角色][被動][技能][武裝] tab + ◀ ▶ 循環 + 出發 / 解除
@@ -680,10 +602,10 @@ func _hint_text() -> String:
 func _build_touch_controls() -> void:
 	if p1_panel:
 		_touch_p1 = _make_panel_touch_bar("p1")
-		add_child(_touch_p1)
+		p1_panel.add_child(_touch_p1)
 	if p2_panel:
 		_touch_p2 = _make_panel_touch_bar("p2")
-		add_child(_touch_p2)
+		p2_panel.add_child(_touch_p2)
 
 	_touch_back_btn = Button.new()
 	_touch_back_btn.text = tr("CSEL_TOUCH_BACK")
@@ -697,17 +619,27 @@ func _build_touch_controls() -> void:
 
 
 func _make_panel_touch_bar(prefix: String) -> Control:
-	# 觸控列掛在根節點，位置由 _apply_touch_layout() 夾在可視範圍內。
+	# 觸控列錨定在面板內底部，隨金框一起伸縮。
 	var bar := Control.new()
 	bar.name = "TouchBar_" + prefix
-	bar.size = Vector2(P1_PANEL_WIDTH, TOUCH_BAR_HEIGHT)
+	bar.layout_mode = 1
+	bar.anchor_left = 0.0
+	bar.anchor_right = 1.0
+	bar.anchor_top = 1.0
+	bar.anchor_bottom = 1.0
+	bar.offset_left = TOUCH_BAR_INSET
+	bar.offset_right = -TOUCH_BAR_INSET
+	bar.offset_top = -(TOUCH_BAR_HEIGHT + TOUCH_BAR_INSET)
+	bar.offset_bottom = -TOUCH_BAR_INSET
 	bar.mouse_filter = Control.MOUSE_FILTER_PASS
+	bar.z_index = 20
 
-	# Row 1：角色 / 被動 / 技能 tab
 	var tab_row := HBoxContainer.new()
-	tab_row.position = Vector2(8, 0)
-	tab_row.size = Vector2(P1_PANEL_WIDTH - 16, 38)
-	tab_row.add_theme_constant_override("separation", 6)
+	tab_row.layout_mode = 1
+	tab_row.anchor_right = 1.0
+	tab_row.offset_top = 0.0
+	tab_row.offset_bottom = 34.0
+	tab_row.add_theme_constant_override("separation", 4)
 	bar.add_child(tab_row)
 
 	var labels: Array = [
@@ -720,8 +652,9 @@ func _make_panel_touch_bar(prefix: String) -> Control:
 	for i in range(4):
 		var b := Button.new()
 		b.text = String(labels[i])
-		b.custom_minimum_size = Vector2((P1_PANEL_WIDTH - 34) / 4.0, 38)
-		b.add_theme_font_size_override("font_size", 13)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0.0, 34.0)
+		b.add_theme_font_size_override("font_size", 12)
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(_on_touch_focus.bind(prefix, i))
 		tab_row.add_child(b)
@@ -731,33 +664,35 @@ func _make_panel_touch_bar(prefix: String) -> Control:
 	else:
 		_touch_focus_btns_p2 = btns
 
-	# Row 2：◀ ▶ 與 出發
 	var op_row := HBoxContainer.new()
-	op_row.position = Vector2(8, 46)
-	op_row.size = Vector2(P1_PANEL_WIDTH - 16, 46)
-	op_row.add_theme_constant_override("separation", 8)
+	op_row.layout_mode = 1
+	op_row.anchor_right = 1.0
+	op_row.offset_top = 38.0
+	op_row.offset_bottom = TOUCH_BAR_HEIGHT
+	op_row.add_theme_constant_override("separation", 6)
 	bar.add_child(op_row)
 
 	var btn_left := Button.new()
 	btn_left.text = "◀"
-	btn_left.custom_minimum_size = Vector2(72, 46)
-	btn_left.add_theme_font_size_override("font_size", 22)
+	btn_left.custom_minimum_size = Vector2(64, 40)
+	btn_left.add_theme_font_size_override("font_size", 20)
 	btn_left.focus_mode = Control.FOCUS_NONE
 	btn_left.pressed.connect(_on_touch_cycle.bind(prefix, -1))
 	op_row.add_child(btn_left)
 
 	var btn_right := Button.new()
 	btn_right.text = "▶"
-	btn_right.custom_minimum_size = Vector2(72, 46)
-	btn_right.add_theme_font_size_override("font_size", 22)
+	btn_right.custom_minimum_size = Vector2(64, 40)
+	btn_right.add_theme_font_size_override("font_size", 20)
 	btn_right.focus_mode = Control.FOCUS_NONE
 	btn_right.pressed.connect(_on_touch_cycle.bind(prefix, 1))
 	op_row.add_child(btn_right)
 
 	var ready_btn := Button.new()
 	ready_btn.text = tr("CSEL_TOUCH_READY")
-	ready_btn.custom_minimum_size = Vector2(P1_PANEL_WIDTH - 16 - 72 - 72 - 16, 46)
-	ready_btn.add_theme_font_size_override("font_size", 18)
+	ready_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ready_btn.custom_minimum_size = Vector2(0.0, 40.0)
+	ready_btn.add_theme_font_size_override("font_size", 17)
 	ready_btn.focus_mode = Control.FOCUS_NONE
 	ready_btn.pressed.connect(_on_touch_ready.bind(prefix))
 	op_row.add_child(ready_btn)
@@ -770,24 +705,8 @@ func _make_panel_touch_bar(prefix: String) -> Control:
 
 
 func _apply_touch_layout() -> void:
-	var vp: Vector2 = get_viewport_rect().size
-	_position_touch_bar(_touch_p1, p1_panel, vp)
-	_position_touch_bar(_touch_p2, p2_panel, vp)
 	if _touch_back_btn:
 		_touch_back_btn.position = Vector2(16, 16)
-
-
-func _position_touch_bar(bar: Control, panel: Panel, vp: Vector2) -> void:
-	if bar == null or panel == null:
-		return
-	var rect: Rect2 = panel.get_rect()
-	var bar_w: float = rect.size.x if rect.size.x > 0.0 else P1_PANEL_WIDTH
-	bar.size = Vector2(bar_w, TOUCH_BAR_HEIGHT)
-	var max_x: float = maxf(TOUCH_BAR_MARGIN, vp.x - bar_w - TOUCH_BAR_MARGIN)
-	var x: float = clampf(rect.position.x, TOUCH_BAR_MARGIN, max_x)
-	var preferred_y: float = rect.end.y + 5.0
-	var max_y: float = maxf(TOUCH_BAR_MARGIN, vp.y - TOUCH_BAR_HEIGHT - TOUCH_BAR_MARGIN)
-	bar.position = Vector2(x, minf(preferred_y, max_y))
 
 
 func _apply_touch_visibility() -> void:
@@ -799,9 +718,9 @@ func _apply_touch_visibility() -> void:
 		_touch_p2.visible = on and GameState.two_players
 	if _touch_back_btn:
 		_touch_back_btn.visible = on
-	if hint_label:
-		hint_label.visible = not on
-	if on:
+	if is_node_ready():
+		_update_panels()
+	elif on:
 		_refresh_touch_buttons()
 
 

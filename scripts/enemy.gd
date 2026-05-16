@@ -20,6 +20,7 @@ const ROW_IDLE := 0
 const ROW_WALK := 1
 const ROW_DEATH := 6
 const GOLD_ORB_SCENE: PackedScene = preload("res://scenes/GoldOrb.tscn")
+const ENEMY_HEALTH_BAR_SCRIPT := preload("res://scripts/enemy_health_bar.gd")
 const GOLD_DROP_NORMAL_CHANCE := 0.08
 const GOLD_DROP_ELITE_CHANCE := 0.18
 const GOLD_DROP_BOSS_CHANCE := 0.60
@@ -48,7 +49,7 @@ var _base_move_speed: float = 90.0
 var _slow_time: float = 0.0
 var _slow_speed_factor: float = 1.0
 var _stun_time: float = 0.0
-# 易傷：飛鏢疊層，滿級提高層數上限（傷害乘算 1 + 層數×係數）
+# 易傷（破綻）：匕首疊層，滿級提高層數上限（傷害乘算 1 + 層數×係數）
 var _vuln_time: float = 0.0
 var _vuln_stacks: int = 0
 var _vuln_stack_cap: int = 0
@@ -64,6 +65,7 @@ var _poison_dps: float = 0.0
 var _poison_source: Node = null
 var _poison_atk_reduce: float = 0.0
 var _dot_tick_carry: float = 0.0
+var _health_bar: Node2D = null
 
 @onready var sprite: Sprite2D = $Sprite
 @onready var body_shape: CollisionShape2D = $Body
@@ -128,6 +130,7 @@ func setup_with_slime(def: Dictionary, level_factor: float) -> void:
 	_spawn_level_factor = level_factor
 	if sprite and def.has("sprite_modulate"):
 		sprite.modulate = def["sprite_modulate"]
+	_ensure_health_bar()
 
 
 # 舊介面：難度直接 setup（隨機選一隻）
@@ -153,6 +156,7 @@ func setup_rescue_runner(level_factor: float, dust_amount: int) -> void:
 	modulate = Color(1.25, 0.75, 1.8)
 	if sprite:
 		sprite.scale *= 1.2
+	_update_health_bar()
 
 
 func configure_ranged_attack(params: Dictionary) -> void:
@@ -189,6 +193,16 @@ func _process(delta: float) -> void:
 	sprite.frame = row * hframes_count + f
 
 
+static func _player_target_pos(player: Node) -> Vector2:
+	if player == null:
+		return Vector2.ZERO
+	if player.has_method("get_enemy_target_position"):
+		return player.get_enemy_target_position()
+	if player is Node2D:
+		return (player as Node2D).global_position
+	return Vector2.ZERO
+
+
 func _physics_process(delta: float) -> void:
 	if _dying or hp <= 0.0:
 		return
@@ -216,7 +230,7 @@ func _physics_process(delta: float) -> void:
 		var pp: Node2D = p as Node2D
 		if pp == null:
 			continue
-		var d: float = global_position.distance_to(pp.global_position)
+		var d: float = global_position.distance_to(_player_target_pos(pp))
 		if d < best:
 			best = d
 			target = pp
@@ -225,7 +239,7 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector2.ZERO
 		_update_ranged_attack(delta, null, 0.0)
 	else:
-		var dir: Vector2 = (target.global_position - global_position).normalized()
+		var dir: Vector2 = (_player_target_pos(target) - global_position).normalized()
 		if _update_ranged_attack(delta, target, best):
 			velocity = Vector2.ZERO
 			_update_hit_cooldowns(delta)
@@ -301,10 +315,11 @@ func _start_ranged_attack(target: Node2D, range: float) -> void:
 		_start_bomb_ranged_attack(target)
 		return
 	_ranged_origin = global_position
-	_ranged_dir = (target.global_position - _ranged_origin).normalized()
+	var tgt_pos: Vector2 = _player_target_pos(target)
+	_ranged_dir = (tgt_pos - _ranged_origin).normalized()
 	if _ranged_dir.length_squared() <= 0.001:
 		_ranged_dir = Vector2.RIGHT
-	_ranged_length = min(range, _ranged_origin.distance_to(target.global_position) + 44.0)
+	_ranged_length = min(range, _ranged_origin.distance_to(tgt_pos) + 44.0)
 	_ranged_windup_left = max(0.15, float(ranged_params.get("windup", 0.9)))
 	_ranged_warning = DrawerNode2D.new()
 	_ranged_warning.z_index = 11
@@ -332,7 +347,7 @@ func _draw_ranged_warning(node: Node2D) -> void:
 
 
 func _start_bomb_ranged_attack(target: Node2D) -> void:
-	_ranged_origin = target.global_position
+	_ranged_origin = _player_target_pos(target)
 	_ranged_windup_left = max(0.2, float(ranged_params.get("windup", 1.0)))
 	_ranged_warning = DrawerNode2D.new()
 	_ranged_warning.z_index = 11
@@ -361,7 +376,7 @@ func _fire_ranged_attack() -> void:
 		for p in get_tree().get_nodes_in_group("players"):
 			if p == null or not is_instance_valid(p) or p.hp <= 0:
 				continue
-			if _ranged_origin.distance_to(p.global_position) <= rad + 18.0:
+			if _ranged_origin.distance_to(_player_target_pos(p)) <= rad + 18.0:
 				p.take_damage(dmg)
 				_apply_player_hit_effects(p)
 		_clear_ranged_warning()
@@ -372,7 +387,7 @@ func _fire_ranged_attack() -> void:
 	for p in get_tree().get_nodes_in_group("players"):
 		if p == null or not is_instance_valid(p) or p.hp <= 0:
 			continue
-		var rel: Vector2 = p.global_position - _ranged_origin
+		var rel: Vector2 = _player_target_pos(p) - _ranged_origin
 		var along: float = rel.dot(_ranged_dir)
 		if along < 0.0 or along > _ranged_length:
 			continue
@@ -442,7 +457,7 @@ func _apply_melee_aoe_splash(primary: Node, base_damage: float) -> void:
 	for p in get_tree().get_nodes_in_group("players"):
 		if p == null or not is_instance_valid(p) or p == primary or p.hp <= 0:
 			continue
-		if global_position.distance_to(p.global_position) <= splash_radius + radius:
+		if global_position.distance_to(_player_target_pos(p)) <= splash_radius + radius:
 			p.take_damage(splash_dmg)
 			_apply_player_hit_effects(p)
 
@@ -458,6 +473,14 @@ func take_damage(d: float, source: Node = null, opts: Dictionary = {}) -> void:
 	# 先計算實際扣血（不能超過剩餘 hp，避免超殺把統計灌爆）
 	var taken: float = clamp(dmg, 0.0, max(0.0, hp))
 	hp -= dmg
+	_update_health_bar()
+	if not opts.get("suppress_popup", false) and taken >= 0.5:
+		var from_dot: bool = bool(opts.get("from_dot", false))
+		if from_dot:
+			if randf() < 0.35:
+				DamagePopup.spawn_at(self, taken, false, true)
+		else:
+			DamagePopup.spawn_at(self, taken, bool(opts.get("is_crit", false)), false)
 	# 通知造傷玩家：把實際扣血量加入該玩家的造成傷害統計
 	var p: Node = _resolve_player_from_source(source)
 	if p and p.has_method("register_damage_dealt"):
@@ -466,8 +489,38 @@ func take_damage(d: float, source: Node = null, opts: Dictionary = {}) -> void:
 		AudioManager.play_sfx("enemy_hit", 0.05)
 		modulate = Color(2.0, 2.0, 2.0)
 		create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.12)
+		if _health_bar and _health_bar.has_method("pulse_hit"):
+			_health_bar.pulse_hit()
 	if hp <= 0:
 		_die(source)
+
+
+func get_damage_popup_position() -> Vector2:
+	var off := Vector2(randf_range(-14.0, 14.0), -(radius + 18.0))
+	if sprite and sprite.texture:
+		var frame_h: float = float(sprite.texture.get_height()) / maxf(1.0, float(sprite.vframes))
+		off.y -= frame_h * absf(sprite.scale.y) * 0.38
+	return global_position + off
+
+
+func _ensure_health_bar() -> void:
+	if _health_bar != null and is_instance_valid(_health_bar):
+		_update_health_bar()
+		return
+	_health_bar = ENEMY_HEALTH_BAR_SCRIPT.new()
+	add_child(_health_bar)
+	if _health_bar.has_method("bind_enemy"):
+		_health_bar.bind_enemy(self)
+	_update_health_bar()
+
+
+func _update_health_bar() -> void:
+	if _health_bar == null or not is_instance_valid(_health_bar):
+		return
+	if max_hp <= 0.0:
+		return
+	if _health_bar.has_method("set_hp_ratio"):
+		_health_bar.set_hp_ratio(hp / max_hp)
 
 
 func is_status_slowed() -> bool:
@@ -675,6 +728,9 @@ func _has_death_animation() -> bool:
 
 func _begin_death_animation() -> void:
 	_dying = true
+	if _health_bar and is_instance_valid(_health_bar):
+		_health_bar.queue_free()
+		_health_bar = null
 	velocity = Vector2.ZERO
 	hit_cooldowns.clear()
 	remove_from_group("enemies")

@@ -45,12 +45,15 @@ var skill_id: String = "none"
 var armament_id: String = "none"
 var skill_cooldown: float = 0.0
 var heavenly_judgment_active: bool = false
+var heavenly_judgment_phase: String = ""
 var heavenly_judgment_origin: Vector2 = Vector2.ZERO
 var heavenly_judgment_target: Vector2 = Vector2.ZERO
+var heavenly_judgment_air_pos: Vector2 = Vector2.ZERO
 var heavenly_judgment_time_left: float = 0.0
 var heavenly_judgment_params: Dictionary = {}
 var heavenly_judgment_confirm_guard: float = 0.0
 var heavenly_judgment_marker: Node2D = null
+var _heavenly_judgment_tween: Tween = null
 
 # 重裝防禦：剩餘格擋次數（每次受傷扣 1，傷害無視）
 var block_charges: int = 0
@@ -143,6 +146,10 @@ var _sprite_frame_anims: Dictionary = {}  # state(idle/walk/attack/hurt/death) -
 var _anim_fps: float = ANIM_FPS
 ## 方向鍵按住時走路動畫覆蓋攻擊演出（條狀精靈 + 角色表 walk_anim_over_attack）
 var _walk_anim_over_attack: bool = false
+var _sprite_feet_fine_offset_y: float = 0.0
+var _village_feet_extra_y: float = 0.0
+## 戰鬥 HUD 血條／名牌基準 Y（愈小愈高；原 -28）
+const BATTLE_HUD_TOP_Y := -40.0
 
 
 func setup_from_character(cid: String) -> void:
@@ -173,6 +180,8 @@ func setup_from_character(cid: String) -> void:
 	_strip_hframes_by_strip.clear()
 	_strip_fps.clear()
 	_sprite_frame_anims.clear()
+	_sprite_feet_fine_offset_y = 0.0
+	_village_feet_extra_y = 0.0
 	_start_transform_pending = false
 	_start_transform_done = false
 	var skin_id: String = "default"
@@ -183,6 +192,8 @@ func setup_from_character(cid: String) -> void:
 	var visual: Dictionary = GameData.resolve_character_visual_def(cid, skin_id)
 	if visual.is_empty():
 		visual = c
+	if village_mode:
+		_village_feet_extra_y = float(visual.get("village_sprite_feet_fine", 0))
 	_anim_fps = float(visual.get("anim_fps", ANIM_FPS))
 	# 1) 逐幀 PNG（每動作一組獨立檔，可用 Array 或 {pattern, count, start} 兩種格式）
 	if char_sprite and visual.has("sprite_frames") and visual["sprite_frames"] is Dictionary:
@@ -196,7 +207,7 @@ func setup_from_character(cid: String) -> void:
 				break
 			var tex_arr: Array = []
 			for p in arr_paths:
-				var t: Texture2D = load(String(p))
+				var t: Texture2D = GameData.resolve_frame_texture(p)
 				if t == null:
 					f_ok = false
 					break
@@ -205,13 +216,13 @@ func setup_from_character(cid: String) -> void:
 				break
 			_sprite_frame_anims[fkey] = tex_arr
 		if f_ok:
-			for opt_f in ["hurt", "death"]:
+			for opt_f in ["hurt", "death", "skill"]:
 				var arr_opt: Array = _resolve_frame_paths(fdict.get(opt_f, null))
 				if arr_opt.is_empty():
 					continue
 				var tex_arr2: Array = []
 				for p2 in arr_opt:
-					var t2: Texture2D = load(String(p2))
+					var t2: Texture2D = GameData.resolve_frame_texture(p2)
 					if t2:
 						tex_arr2.append(t2)
 				if not tex_arr2.is_empty():
@@ -223,13 +234,17 @@ func setup_from_character(cid: String) -> void:
 			char_sprite.vframes = 1
 			char_sprite.frame = 0
 			char_sprite.scale = Vector2.ONE * float(visual.get("scale", 1.0))
-			char_sprite.offset = Vector2(0, float(visual.get("offset_y", 0)))
+			_sprite_feet_fine_offset_y = float(visual.get("sprite_feet_fine", 0))
 			char_sprite.modulate = c.get("tint", visual.get("tint", Color.WHITE))
 			char_sprite.visible = true
 			_sprite_faces_left = bool(visual.get("sprite_faces_left", false))
 			_walk_anim_over_attack = bool(visual.get("walk_anim_over_attack", false))
+			if visual.has("strip_fps") and visual["strip_fps"] is Dictionary:
+				for k in visual["strip_fps"]:
+					_strip_fps[String(k)] = float(visual["strip_fps"][k])
 			frames_per_row = []
 			has_sprite = true
+			_sync_char_sprite_feet_offset()
 	if not has_sprite and char_sprite and visual.has("sprite_strips") and visual["sprite_strips"] is Dictionary:
 		var strips: Dictionary = visual["sprite_strips"]
 		var need: Array[String] = ["idle", "walk", "attack"]
@@ -335,14 +350,27 @@ func setup_from_character(cid: String) -> void:
 		_apply_house_favorite_bonuses()
 
 
+func _sync_char_sprite_feet_offset() -> void:
+	if char_sprite == null or not char_sprite.visible or char_sprite.texture == null:
+		return
+	if not _use_sprite_frames:
+		return
+	var sc: float = char_sprite.scale.y
+	var fine_y: float = _sprite_feet_fine_offset_y
+	if village_mode:
+		fine_y += _village_feet_extra_y
+	char_sprite.offset.y = GameData.sprite_feet_offset_y(
+		char_sprite.texture, body_radius, sc, fine_y)
+
+
 func _apply_village_character_visual_scale() -> void:
 	if not village_mode:
 		return
 	var sm: float = GameData.VILLAGE_CHARACTER_SCALE_MULT
-	if is_equal_approx(sm, 1.0):
-		return
 	if char_sprite and char_sprite.visible:
-		char_sprite.scale *= sm
+		if not is_equal_approx(sm, 1.0):
+			char_sprite.scale *= sm
+		_sync_char_sprite_feet_offset()
 
 
 func _apply_house_favorite_bonuses() -> void:
@@ -393,8 +421,9 @@ func _physics_process(delta: float) -> void:
 
 	if iframe > 0:
 		iframe -= delta
-		modulate.a = 0.4 if int(iframe * 10) % 2 == 0 else 1.0
-	else:
+		if not heavenly_judgment_active:
+			modulate.a = 0.4 if int(iframe * 10) % 2 == 0 else 1.0
+	elif not heavenly_judgment_active:
 		modulate.a = 1.0
 
 	if regen_per_sec > 0.0:
@@ -414,7 +443,7 @@ func _physics_process(delta: float) -> void:
 	if skill_cooldown > 0.0:
 		skill_cooldown = max(0.0, skill_cooldown - delta)
 	if heavenly_judgment_active:
-		_update_heavenly_judgment_target(delta)
+		_update_heavenly_judgment(delta)
 		_update_char_anim(delta)
 		queue_redraw()
 		return
@@ -435,12 +464,23 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
-			_land_heavenly_judgment(get_global_mouse_position())
+			_confirm_heavenly_judgment_fall(get_global_mouse_position())
 	elif event is InputEventScreenTouch:
 		var touch: InputEventScreenTouch = event as InputEventScreenTouch
 		if touch.pressed:
 			var world_pos: Vector2 = get_viewport().get_canvas_transform().affine_inverse() * touch.position
-			_land_heavenly_judgment(world_pos)
+			_confirm_heavenly_judgment_fall(world_pos)
+
+
+## 攝影機／敵人索敵：天罰全程以起跳地面位置為準，不吸引怪物追空中角色。
+func get_camera_anchor_position() -> Vector2:
+	if heavenly_judgment_active:
+		return heavenly_judgment_origin
+	return global_position
+
+
+func get_enemy_target_position() -> Vector2:
+	return get_camera_anchor_position()
 
 
 func get_level_growth_steps() -> int:
@@ -801,6 +841,8 @@ func _update_char_anim_frames(delta: float) -> void:
 			key = "walk"
 		"attack":
 			key = "attack"
+		"skill":
+			key = "skill" if _sprite_frame_anims.has("skill") else "attack"
 		"hit":
 			key = "hurt" if _sprite_frame_anims.has("hurt") else "idle"
 		"death":
@@ -808,9 +850,10 @@ func _update_char_anim_frames(delta: float) -> void:
 
 	var arr: Array = _sprite_frame_anims.get(key, _sprite_frame_anims["idle"])
 	var fc: int = maxi(1, arr.size())
-	var f_idx: int = int(anim_time * _anim_fps) % fc
-	if anim_state == "death":
-		var f: int = int(anim_time * _anim_fps)
+	var anim_fps_use: float = _strip_fps_for_anim(key) if key == "skill" or key == "attack" else _anim_fps
+	var f_idx: int = int(anim_time * anim_fps_use) % fc
+	if anim_state == "death" or anim_state == "skill":
+		var f: int = int(anim_time * anim_fps_use)
 		f_idx = mini(f, fc - 1)
 	char_sprite.texture = arr[f_idx]
 	char_sprite.hframes = 1
@@ -836,10 +879,7 @@ func _resolve_frame_paths(entry: Variant) -> Array:
 	if entry == null:
 		return []
 	if entry is Array:
-		var out: Array = []
-		for x in entry:
-			out.append(String(x))
-		return out
+		return (entry as Array).duplicate()
 	if entry is Dictionary:
 		var pat: String = String(entry.get("pattern", ""))
 		var cnt: int = int(entry.get("count", 0))
@@ -899,6 +939,23 @@ func play_attack_anim() -> void:
 		anim_locked_for = max(anim_locked_for, _row_frame_count(row_attack) / _anim_fps)
 
 
+func play_skill_cast_anim() -> void:
+	if hp <= 0:
+		return
+	if _is_transform_anim_active():
+		return
+	if char_sprite == null or not char_sprite.visible:
+		return
+	if _use_sprite_frames and _sprite_frame_anims.has("skill"):
+		anim_state = "skill"
+		anim_time = 0.0
+		var sk_arr: Array = _sprite_frame_anims["skill"]
+		var sk_f: int = maxi(1, sk_arr.size())
+		anim_locked_for = max(anim_locked_for, float(sk_f) / _strip_fps_for_anim("skill"))
+	else:
+		play_attack_anim()
+
+
 func _play_hit_anim() -> void:
 	if char_sprite == null or not char_sprite.visible:
 		return
@@ -926,31 +983,18 @@ func _draw() -> void:
 		return
 	var w: float = 36.0
 	var h: float = 4.0
-	var top := Vector2(-w * 0.5, -28.0)
+	var top := Vector2(-w * 0.5, BATTLE_HUD_TOP_Y)
 	draw_rect(Rect2(top, Vector2(w, h)), Color(0.1, 0.05, 0.05))
 	var pct: float = clamp(hp / max(1.0, get_effective_max_hp()), 0.0, 1.0)
 	draw_rect(Rect2(top, Vector2(w * pct, h)), Color(0.95, 0.3, 0.3))
-	var top2 := top + Vector2(0, h + 1.0)
-	draw_rect(Rect2(top2, Vector2(w, 2.0)), Color(0.05, 0.15, 0.25))
-	var xp_pct: float = clamp(xp / max(1.0, xp_to_next), 0.0, 1.0)
-	draw_rect(Rect2(top2, Vector2(w * xp_pct, 2.0)), Color(0.4, 0.85, 1.0))
-	# 技能冷卻條（只在有選技能時顯示）
 	if skill_id != "none":
-		var s_def: Dictionary = GameData.get_skill_def(skill_id)
-		var s_cd_max: float = max(0.001, float(s_def.get("cooldown", 1.0)))
-		var ready_pct: float = clamp(1.0 - skill_cooldown / s_cd_max, 0.0, 1.0)
-		var top3 := top2 + Vector2(0, 3.0)
-		draw_rect(Rect2(top3, Vector2(w, 2.0)), Color(0.1, 0.08, 0.0))
-		var col := Color(1.0, 0.85, 0.35) if skill_cooldown <= 0.0 else Color(0.55, 0.55, 0.6)
-		draw_rect(Rect2(top3, Vector2(w * ready_pct, 2.0)), col)
-		# 技能量表（被動充能）
-		var top4 := top3 + Vector2(0, 3.0)
-		draw_rect(Rect2(top4, Vector2(w, 2.0)), Color(0.05, 0.12, 0.08))
+		var top_skill := top + Vector2(0, h + 2.0)
+		draw_rect(Rect2(top_skill, Vector2(w, 3.0)), Color(0.12, 0.10, 0.0))
 		var m_pct: float = clamp(skill_meter / SKILL_METER_MAX, 0.0, 1.0)
-		draw_rect(Rect2(top4, Vector2(w * m_pct, 2.0)), Color(0.35, 1.0, 0.55))
+		draw_rect(Rect2(top_skill, Vector2(w * m_pct, 3.0)), Color(1.0, 0.88, 0.32))
 	var s: String = "Lv%d %s" % [level, GameData.get_character_def(character_id).get("name", "")]
 	var fnt := ThemeDB.fallback_font
-	draw_string(fnt, top2 + Vector2(-4, -16), s,
+	draw_string(fnt, top + Vector2(-4, -6), s,
 		HORIZONTAL_ALIGNMENT_LEFT, w + 8.0, 12, Color.WHITE)
 	# 程序圖案後備時，畫朝向指引
 	if sprite and sprite.visible:
@@ -978,6 +1022,18 @@ func _draw() -> void:
 			HORIZONTAL_ALIGNMENT_CENTER, 24, 12, Color(0.85, 0.95, 1.0))
 
 
+func _village_overhead_label_y() -> float:
+	var y_off: float = -body_radius - 18.0
+	if char_sprite and char_sprite.visible and char_sprite.texture:
+		var tex: Texture2D = char_sprite.texture
+		var vis: Rect2 = GameData.visible_texture_region(tex)
+		var tex_h: float = float(maxi(1, tex.get_height()))
+		var top_from_center: float = vis.position.y - tex_h * 0.5
+		var sprite_top_y: float = char_sprite.offset.y + top_from_center * char_sprite.scale.y
+		y_off = minf(y_off, sprite_top_y - 14.0)
+	return y_off
+
+
 func _draw_village_overhead_label() -> void:
 	var slot_lbl: String = tr("INPUT_PROMPT_PLAYER_P2") if input_prefix == "p2" \
 			else tr("INPUT_PROMPT_PLAYER_P1")
@@ -985,7 +1041,7 @@ func _draw_village_overhead_label() -> void:
 	var text: String = "%s  %s" % [slot_lbl, cname]
 	var fnt: Font = ThemeDB.fallback_font
 	var font_size: int = 14
-	var y_off: float = -body_radius - 18.0
+	var y_off: float = _village_overhead_label_y()
 	var col: Color = Color(0.65, 0.88, 1.0) if input_prefix == "p2" \
 			else Color(1.0, 0.95, 0.72)
 	draw_string(fnt, Vector2(-56, y_off), text,
@@ -1182,6 +1238,7 @@ func _skill_agile_tactics_combat(s: Dictionary) -> void:
 			"speed": speed,
 			"pierce": 1,
 			"color": Color(0.7, 1.0, 0.55),
+			"arrow_sprite": true,
 		},
 	}
 	adapter.owner_player = self
@@ -1200,7 +1257,7 @@ func _skill_agile_tactics_combat(s: Dictionary) -> void:
 		if is_instance_valid(adapter):
 			adapter.queue_free()
 	)
-	play_attack_anim()
+	play_skill_cast_anim()
 
 
 # 「靈敏戰技」彈珠台：每 3 次彈針撞擊得 1 箭矢（外部呼叫）
@@ -1395,8 +1452,7 @@ func _skill_whirl_slash_combat(s: Dictionary) -> void:
 	vfx.global_position = global_position
 	get_parent().add_child(vfx)
 	vfx.setup(radius, color, 0.55)
-	# 玩家自身播放攻擊動畫
-	play_attack_anim()
+	play_skill_cast_anim()
 
 
 # 重裝防禦（戰鬥）：賦予自身 N 層格擋（取較大者，避免覆寫剩餘層數）
@@ -1452,23 +1508,66 @@ func _skill_energy_wave_combat(s: Dictionary) -> void:
 	get_parent().add_child(vfx)
 	vfx.global_position = start
 	vfx.setup(face_dir, beam_len, half_w, Color(0.78, 0.42, 1.0, 0.62), 0.34)
-	play_attack_anim()
+	play_skill_cast_anim()
 
 
 func _skill_heavenly_judgment_combat(s: Dictionary) -> void:
+	_kill_heavenly_judgment_tween()
 	heavenly_judgment_params = s.get("params", {})
 	heavenly_judgment_active = true
+	heavenly_judgment_phase = "rise"
 	heavenly_judgment_origin = global_position
 	heavenly_judgment_target = global_position
+	heavenly_judgment_air_pos = _compute_heavenly_judgment_air_pos()
 	heavenly_judgment_time_left = float(heavenly_judgment_params.get("combat_select_time", 3.0))
 	heavenly_judgment_confirm_guard = 0.16
 	velocity = Vector2.ZERO
-	modulate.a = 0.42
+	modulate.a = 1.0
+	iframe = 0.25
+	_start_heavenly_judgment_rise()
+
+
+func _kill_heavenly_judgment_tween() -> void:
+	if _heavenly_judgment_tween != null and is_instance_valid(_heavenly_judgment_tween):
+		_heavenly_judgment_tween.kill()
+	_heavenly_judgment_tween = null
+
+
+func _compute_heavenly_judgment_air_pos() -> Vector2:
+	var air_y: float = global_position.y - 480.0
+	var cam: Camera2D = get_viewport().get_camera_2d()
+	if cam != null:
+		var half_h: float = get_viewport().get_visible_rect().size.y * 0.5 / maxf(0.001, cam.zoom.y)
+		var extra: float = float(heavenly_judgment_params.get("combat_air_offset_y", 180.0))
+		air_y = cam.global_position.y - half_h - extra
+	return Vector2(global_position.x, air_y)
+
+
+func _start_heavenly_judgment_rise() -> void:
+	var rise_t: float = maxf(0.12, float(heavenly_judgment_params.get("combat_rise_time", 0.45)))
+	_heavenly_judgment_tween = create_tween()
+	_heavenly_judgment_tween.tween_property(
+		self, "global_position", heavenly_judgment_air_pos, rise_t,
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_heavenly_judgment_tween.tween_callback(_begin_heavenly_judgment_select)
+
+
+func _begin_heavenly_judgment_select() -> void:
+	if not heavenly_judgment_active or heavenly_judgment_phase != "rise":
+		return
+	heavenly_judgment_phase = "select"
+	global_position = heavenly_judgment_air_pos
+	modulate.a = 0.35
 	_ensure_heavenly_judgment_marker()
 
 
-func _update_heavenly_judgment_target(delta: float) -> void:
+func _update_heavenly_judgment(delta: float) -> void:
 	velocity = Vector2.ZERO
+	iframe = maxf(iframe, 0.12)
+	if heavenly_judgment_phase == "rise" or heavenly_judgment_phase == "fall":
+		return
+	if heavenly_judgment_phase != "select":
+		return
 	heavenly_judgment_confirm_guard = max(0.0, heavenly_judgment_confirm_guard - delta)
 	heavenly_judgment_time_left -= delta
 	var dir := Vector2(
@@ -1487,10 +1586,30 @@ func _update_heavenly_judgment_target(delta: float) -> void:
 			Input.is_action_just_pressed(input_prefix + "_skill")
 			or Input.is_action_just_pressed(input_prefix + "_action")
 			or Input.is_action_just_pressed("ui_accept")):
-		_land_heavenly_judgment(heavenly_judgment_target)
+		_confirm_heavenly_judgment_fall(heavenly_judgment_target)
 		return
 	if heavenly_judgment_time_left <= 0.0:
-		_land_heavenly_judgment(heavenly_judgment_origin)
+		_confirm_heavenly_judgment_fall(heavenly_judgment_origin)
+
+
+func _confirm_heavenly_judgment_fall(pos: Vector2) -> void:
+	if not heavenly_judgment_active or heavenly_judgment_phase != "select":
+		return
+	heavenly_judgment_target = _clamp_heavenly_judgment_target(pos)
+	_begin_heavenly_judgment_fall(heavenly_judgment_target)
+
+
+func _begin_heavenly_judgment_fall(ground_pos: Vector2) -> void:
+	_kill_heavenly_judgment_tween()
+	heavenly_judgment_phase = "fall"
+	_clear_heavenly_judgment_marker()
+	modulate.a = 1.0
+	var fall_t: float = maxf(0.1, float(heavenly_judgment_params.get("combat_fall_time", 0.32)))
+	_heavenly_judgment_tween = create_tween()
+	_heavenly_judgment_tween.tween_property(
+		self, "global_position", ground_pos, fall_t,
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_heavenly_judgment_tween.tween_callback(_land_heavenly_judgment.bind(ground_pos))
 
 
 func _clamp_heavenly_judgment_target(pos: Vector2) -> Vector2:
@@ -1508,9 +1627,12 @@ func _clamp_heavenly_judgment_target(pos: Vector2) -> Vector2:
 func _land_heavenly_judgment(pos: Vector2) -> void:
 	if not heavenly_judgment_active:
 		return
+	_kill_heavenly_judgment_tween()
 	heavenly_judgment_active = false
+	heavenly_judgment_phase = ""
 	global_position = _clamp_heavenly_judgment_target(pos)
 	modulate.a = 1.0
+	iframe = float(heavenly_judgment_params.get("combat_landing_iframe", 0.35))
 	_clear_heavenly_judgment_marker()
 	var radius: float = float(heavenly_judgment_params.get("combat_radius", 150.0))
 	var dmg_mul: float = float(heavenly_judgment_params.get("combat_damage_mult", 5.2))
@@ -1537,7 +1659,7 @@ func _land_heavenly_judgment(pos: Vector2) -> void:
 	if any_hit:
 		AudioManager.play_sfx("skill_cast", 0.04)
 	_spawn_heavenly_judgment_impact(radius)
-	play_attack_anim()
+	play_skill_cast_anim()
 
 
 func _ensure_heavenly_judgment_marker() -> void:
@@ -1616,7 +1738,7 @@ func _skill_mirror_moon_combat(s: Dictionary) -> void:
 	global_position = end_pos
 	_spawn_mirror_moon_dash_vfx(origin, end_pos, dash_width)
 	_spawn_mirror_moon_clone(origin, dir, params)
-	play_attack_anim()
+	play_skill_cast_anim()
 
 
 func _mirror_moon_dash_end(origin: Vector2, dir: Vector2, distance: float) -> Vector2:
@@ -1695,7 +1817,7 @@ func _skill_wild_impulse_combat(s: Dictionary) -> void:
 				e.apply_position_push(push_vec)
 	global_position = end_pos
 	_spawn_mirror_moon_dash_vfx(origin, end_pos, dash_width * 0.85)
-	play_attack_anim()
+	play_skill_cast_anim()
 
 
 func add_weapon(weapon_id: String, allow_unaccounted_upgrade: bool = true) -> Dictionary:

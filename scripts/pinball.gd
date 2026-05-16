@@ -89,6 +89,7 @@ func _ready() -> void:
 	_build_scoreboard()
 	_build_skill_icons()
 	_build_touch_launch_buttons()
+	get_viewport().size_changed.connect(_layout_pinball_touch_buttons)
 	_update_instructions()
 	for pl in levelers:
 		if pl != null and pl.has_method("reset_wild_impulse_chain"):
@@ -1458,53 +1459,72 @@ func _build_skill_icons() -> void:
 
 
 # ---------------- 觸控按鈕（發球 / 技能） ----------------
-# 每位玩家一組大按鈕：左「發球」（未發射時顯示），右「技能」（未結束時顯示）。
+# 每位玩家一組：棋盤左側「發球」、右側「技能」（避免貼底被裁切）。
 # 按下時注入 p?_action / p?_skill 動作一幀；既有的 _process 偵測 just_pressed 接手。
 # Buttons 都掛 PROCESS_MODE_ALWAYS，因為彈珠台會把整棵 Tree paused。
-const _PB_BTN_W := 200.0
+const _PB_BTN_W := 168.0
 const _PB_BTN_H := 56.0
+const _PB_BTN_SIDE_GAP := 14.0
+const _PB_BTN_ROW_GAP := 68.0
 
 
 func _build_touch_launch_buttons() -> void:
 	var n: int = player_balls.size()
 	if n == 0:
 		return
-	var pair_w: float = _PB_BTN_W * 2.0 + 16.0
-	var below_y: float = board_rect.end.y + slot_h + 24.0
-	var center_x: float = board_rect.position.x + board_rect.size.x * 0.5
 
 	for i in n:
 		var b: Dictionary = player_balls[i]
 		var p: Node = b["player"]
-		var pair_x: float
-		if n <= 1:
-			pair_x = center_x - pair_w * 0.5
-		else:
-			var off: float = (float(i) - 0.5) * (pair_w + 28.0)
-			pair_x = center_x - pair_w * 0.5 + off
 
-		# 發球
 		var launch_btn := _make_pinball_touch_button(
 			tr("PINBALL_TOUCH_LAUNCH_FMT") % (int(p.slot_index) + 1))
 		launch_btn.size = Vector2(_PB_BTN_W, _PB_BTN_H)
-		launch_btn.position = Vector2(pair_x, below_y)
 		var captured_idx: int = i
 		launch_btn.pressed.connect(func() -> void: _on_touch_launch(captured_idx))
 		add_child(launch_btn)
 		touch_launch_buttons.append(launch_btn)
 
-		# 技能（未結束的回合都可按）
 		var skill_btn := _make_pinball_touch_button(
 			tr("PINBALL_TOUCH_SKILL_FMT") % (int(p.slot_index) + 1))
 		skill_btn.size = Vector2(_PB_BTN_W, _PB_BTN_H)
-		skill_btn.position = Vector2(pair_x + _PB_BTN_W + 16.0, below_y)
 		var skill_action: String = "p1_skill" if p.slot_index == 0 else "p2_skill"
 		skill_btn.button_down.connect(func() -> void: Input.action_press(skill_action))
 		skill_btn.button_up.connect(func() -> void: Input.action_release(skill_action))
 		add_child(skill_btn)
 		touch_skill_buttons.append(skill_btn)
 
+	_layout_pinball_touch_buttons()
 	_refresh_touch_buttons_visibility()
+
+
+func _layout_pinball_touch_buttons() -> void:
+	if touch_launch_buttons.is_empty():
+		return
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var n: int = mini(
+		mini(touch_launch_buttons.size(), touch_skill_buttons.size()),
+		player_balls.size())
+	var board_mid_y: float = board_rect.position.y + board_rect.size.y * 0.5
+	var launch_x: float = maxf(8.0, board_rect.position.x - _PB_BTN_W - _PB_BTN_SIDE_GAP)
+	var skill_x: float = minf(
+		vp.x - _PB_BTN_W - 8.0,
+		board_rect.end.x + _PB_BTN_SIDE_GAP)
+
+	for i in n:
+		var row_off: float = 0.0
+		if n > 1:
+			row_off = (float(i) - 0.5) * _PB_BTN_ROW_GAP
+		var y: float = clampf(
+			board_mid_y - _PB_BTN_H * 0.5 + row_off,
+			12.0,
+			vp.y - _PB_BTN_H - 12.0)
+		var launch_btn: Button = touch_launch_buttons[i]
+		var skill_btn: Button = touch_skill_buttons[i]
+		if launch_btn != null:
+			launch_btn.position = Vector2(launch_x, y)
+		if skill_btn != null:
+			skill_btn.position = Vector2(skill_x, y)
 
 
 func _make_pinball_touch_button(text: String) -> Button:

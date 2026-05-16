@@ -42,14 +42,15 @@ const REPEAT_EVENT_CAMERA_VIEW_MARGIN_RELAXED := 36.0
 @onready var hud: CanvasLayer = $HUD
 @onready var hud_p1_lv: Label = $HUD/P1Panel/Lv
 @onready var hud_p1_hp: ProgressBar = $HUD/P1Panel/HP
-@onready var hud_p1_xp: ProgressBar = $HUD/P1Panel/XP
+@onready var hud_p1_skill: ProgressBar = $HUD/P1Panel/Skill
 @onready var hud_p1_kills: Label = $HUD/P1Panel/Kills
 @onready var hud_p2_panel: Control = $HUD/P2Panel
 @onready var hud_p2_lv: Label = $HUD/P2Panel/Lv
 @onready var hud_p2_hp: ProgressBar = $HUD/P2Panel/HP
-@onready var hud_p2_xp: ProgressBar = $HUD/P2Panel/XP
+@onready var hud_p2_skill: ProgressBar = $HUD/P2Panel/Skill
 @onready var hud_p2_kills: Label = $HUD/P2Panel/Kills
 @onready var time_label: Label = $HUD/TimeLabel
+@onready var hud_team_xp: ProgressBar = $HUD/TeamXP
 @onready var background: DrawerNode2D = $Background
 @onready var gameover_panel: Control = $HUD/GameOverPanel
 @onready var gameover_label: Label = $HUD/GameOverPanel/Label
@@ -65,6 +66,10 @@ const REPEAT_EVENT_CAMERA_VIEW_MARGIN_RELAXED := 36.0
 
 const SKILL_ICON_SCRIPT := preload("res://scripts/skill_icon.gd")
 const TOUCH_HUD_SCRIPT := preload("res://scripts/touch_hud.gd")
+const HUD_COLOR_HP := Color(0.92, 0.28, 0.28)
+const HUD_COLOR_XP := Color(0.38, 0.72, 1.0)
+const HUD_COLOR_SKILL := Color(1.0, 0.88, 0.32)
+const HUD_BAR_BG := Color(0.12, 0.12, 0.16)
 var p1_skill_icon: Panel = null
 var p2_skill_icon: Panel = null
 var touch_hud: CanvasLayer = null
@@ -128,6 +133,7 @@ func _ready() -> void:
 	spawn_timer.timeout.connect(_on_spawn_tick)
 	_draw_background()
 	hud_p2_panel.visible = GameState.two_players
+	_setup_hud_bar_styles()
 	_show_stage_banner()
 	if not _present_start_weapon_notice():
 		spawn_timer.start()
@@ -1046,6 +1052,39 @@ func _position_camera() -> void:
 	Coop.clamp_camera_position(camera, MAP_SIZE, vp_size)
 
 
+func _setup_hud_bar_styles() -> void:
+	_style_hud_progress_bar(hud_p1_hp, HUD_COLOR_HP)
+	_style_hud_progress_bar(hud_p2_hp, HUD_COLOR_HP)
+	_style_hud_progress_bar(hud_team_xp, HUD_COLOR_XP)
+	_style_hud_progress_bar(hud_p1_skill, HUD_COLOR_SKILL)
+	_style_hud_progress_bar(hud_p2_skill, HUD_COLOR_SKILL)
+
+
+func _style_hud_progress_bar(bar: ProgressBar, fill_color: Color) -> void:
+	if bar == null:
+		return
+	bar.show_percentage = false
+	var bg_sb := StyleBoxFlat.new()
+	bg_sb.bg_color = HUD_BAR_BG
+	bg_sb.set_corner_radius_all(3)
+	var fill_sb := StyleBoxFlat.new()
+	fill_sb.bg_color = fill_color
+	fill_sb.set_corner_radius_all(3)
+	bar.add_theme_stylebox_override("background", bg_sb)
+	bar.add_theme_stylebox_override("fill", fill_sb)
+
+
+func _update_hud_player_skill_bar(bar: ProgressBar, p: Node) -> void:
+	if bar == null or p == null:
+		return
+	var has_skill: bool = String(p.skill_id) != "none"
+	bar.visible = has_skill
+	if not has_skill:
+		return
+	bar.max_value = 100.0
+	bar.value = float(p.skill_meter)
+
+
 func _update_hud() -> void:
 	var time_str: String = tr("HUD_TIME_FMT") % [team_level, int(run_time / 60), int(run_time) % 60]
 	if not boss_spawned and not stage_def.is_empty():
@@ -1054,21 +1093,21 @@ func _update_hud() -> void:
 		if remain <= 60.0:
 			time_str += tr("HUD_BOSS_TIMER_FMT") % int(ceil(remain))
 	time_label.text = time_str
+	hud_team_xp.max_value = team_xp_to_next
+	hud_team_xp.value = team_xp
 	if players.size() >= 1:
 		var p = players[0]
 		hud_p1_lv.text = tr("HUD_PLAYER_LV_FMT") % [1, GameData.tr_character_name(p.character_id)]
 		hud_p1_hp.max_value = p.get_effective_max_hp() if p.has_method("get_effective_max_hp") else p.max_hp * p.hp_mult
 		hud_p1_hp.value = p.hp
-		hud_p1_xp.max_value = team_xp_to_next
-		hud_p1_xp.value = team_xp
+		_update_hud_player_skill_bar(hud_p1_skill, p)
 		hud_p1_kills.text = tr("HUD_KILLS_FMT") % p.kills
 	if GameState.two_players and players.size() >= 2:
 		var p = players[1]
 		hud_p2_lv.text = tr("HUD_PLAYER_LV_FMT") % [2, GameData.tr_character_name(p.character_id)]
 		hud_p2_hp.max_value = p.get_effective_max_hp() if p.has_method("get_effective_max_hp") else p.max_hp * p.hp_mult
 		hud_p2_hp.value = p.hp
-		hud_p2_xp.max_value = team_xp_to_next
-		hud_p2_xp.value = team_xp
+		_update_hud_player_skill_bar(hud_p2_skill, p)
 		hud_p2_kills.text = tr("HUD_KILLS_FMT") % p.kills
 
 

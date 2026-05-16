@@ -1,6 +1,10 @@
 extends Area2D
 ## 投射物：直線/波浪移動，命中敵人扣血，可貫穿。
 
+const BOW_ARROW_TEX: Texture2D = preload("res://assets/Effects/arrow/arrow_.png")
+const ARROW_DISPLAY_LEN := 48.0
+const ARROW_Z_INDEX := 55
+
 var velocity: Vector2 = Vector2.ZERO
 var weapon: Node = null
 var pierce_left: int = 0
@@ -17,6 +21,8 @@ var origin: Vector2 = Vector2.ZERO
 var max_distance: float = 800.0
 
 @onready var sprite: Polygon2D = $Sprite
+
+var _arrow_sprite: Sprite2D = null
 
 
 func setup(w: Node, vel: Vector2, col: Color) -> void:
@@ -44,13 +50,92 @@ func setup(w: Node, vel: Vector2, col: Color) -> void:
 	wave_seed = randf() * TAU
 	max_distance = float(w.eff_range)
 	lifetime = clamp(max_distance / max(60.0, vel.length()) + 0.4, 0.4, 4.0)
+	if _uses_arrow_sprite():
+		call_deferred("_apply_arrow_visual")
+
+
+func _weapon_def() -> Dictionary:
+	if weapon == null:
+		return {}
+	var raw: Variant = weapon.get("def")
+	return raw if raw is Dictionary else {}
+
+
+func _uses_arrow_sprite() -> bool:
+	var def: Dictionary = _weapon_def()
+	var prm: Dictionary = def.get("params", {})
+	if bool(prm.get("arrow_sprite", false)):
+		return true
+	return String(def.get("id", "")) == "bow"
+
+
+func _prepare_arrow_display(tex: Texture2D) -> Dictionary:
+	if tex == null:
+		return {}
+	var tw: float = float(maxi(1, tex.get_width()))
+	var th: float = float(maxi(1, tex.get_height()))
+	var trim: Dictionary = GameData.trim_preview_texture(tex)
+	var use_tex: Texture2D = trim.get("texture")
+	var w: float = float(trim.get("w", 1.0))
+	var h: float = float(trim.get("h", 1.0))
+	# 不透明大底圖時 trim 會含整張 → 改取中央橫帶再裁一次
+	if w >= tw * 0.7 and h >= th * 0.7 and maxf(tw, th) > 64.0:
+		var band_h: float = clampf(th * 0.25, 10.0, 72.0)
+		var band := AtlasTexture.new()
+		band.atlas = tex
+		band.region = Rect2(0.0, (th - band_h) * 0.5, tw, band_h)
+		trim = GameData.trim_preview_texture(band)
+		use_tex = trim.get("texture")
+		w = float(trim.get("w", 1.0))
+		h = float(trim.get("h", 1.0))
+	if use_tex == null or w < 1.0 or h < 1.0:
+		return {}
+	var sc: float = ARROW_DISPLAY_LEN / maxf(w, h)
+	# 裁切失敗或底圖過大時，避免縮到幾乎看不見
+	if sc < 0.35:
+		sc = ARROW_DISPLAY_LEN / maxf(16.0, minf(tw, th) * 0.12)
+	sc = clampf(sc, 0.75, 8.0)
+	return {"texture": use_tex, "scale": Vector2(sc, sc)}
+
+
+func _apply_arrow_visual() -> void:
+	if _arrow_sprite != null and is_instance_valid(_arrow_sprite):
+		return
+	if not _uses_arrow_sprite():
+		return
+	var prepared: Dictionary = _prepare_arrow_display(BOW_ARROW_TEX)
+	if prepared.is_empty():
+		push_warning("[Projectile] 無法建立箭矢貼圖：%s" % GameData.BOW_ARROW_PROJECTILE_TEXTURE)
+		if sprite:
+			sprite.visible = true
+			sprite.color = color
+		return
+	if sprite:
+		sprite.visible = false
+	_arrow_sprite = Sprite2D.new()
+	_arrow_sprite.texture = prepared["texture"]
+	_arrow_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_arrow_sprite.centered = true
+	_arrow_sprite.scale = prepared["scale"]
+	_arrow_sprite.modulate = Color(
+		minf(1.25, color.r * 1.15),
+		minf(1.25, color.g * 1.15),
+		minf(1.25, color.b * 1.15),
+		1.0)
+	add_child(_arrow_sprite)
+	z_index = ARROW_Z_INDEX
+	rotation = velocity.angle()
 
 
 func _ready() -> void:
 	add_to_group("projectiles")
 	origin = global_position
-	$Sprite.color = color
-	rotation = velocity.angle()
+	_apply_arrow_visual()
+	if _arrow_sprite == null and sprite:
+		sprite.visible = true
+		sprite.color = color
+	else:
+		rotation = velocity.angle()
 
 
 func _physics_process(delta: float) -> void:

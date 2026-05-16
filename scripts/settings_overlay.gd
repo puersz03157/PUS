@@ -12,6 +12,18 @@ const ITEMS_PANEL_W := 640.0
 const ITEMS_PANEL_H := 520.0
 const CODEX_PANEL_W := 760.0
 const CODEX_PANEL_H := 560.0
+const QUESTS_PANEL_W := 620.0
+const QUESTS_PANEL_H := 480.0
+const CREDITS_PANEL_W := 560.0
+const CREDITS_PANEL_H := 420.0
+const CREDIT_ENTRY_KEYS: Array[String] = [
+	"CREDITS_ENTRY_ELEMENTALS",
+	"CREDITS_ENTRY_ELVES_PACK",
+	"CREDITS_ENTRY_VILLAGE",
+	"CREDITS_ENTRY_NPC_PACK",
+	"CREDITS_ENTRY_MONSTERS",
+	"CREDITS_ENTRY_CHARACTERS",
+]
 const GEAR_TEXT := "⚙"
 const Z_LAYER := 100
 ## 右上角成就／物品／圖鑑按鈕可出現的場景
@@ -24,6 +36,8 @@ var _open: bool = false
 var _achievements_open: bool = false
 var _items_open: bool = false
 var _codex_open: bool = false
+var _quests_open: bool = false
+var _credits_open: bool = false
 var _was_paused: bool = false
 var _codex_tab: String = "characters"
 
@@ -31,6 +45,7 @@ var gear_button: Button
 var achievement_button: Button
 var items_button: Button
 var codex_button: Button
+var quest_button: Button
 var dim: ColorRect
 var panel: Panel
 var title_label: Label
@@ -46,7 +61,12 @@ var unlock_village_button: Button
 var add_gold_button: Button
 var max_team_weapons_button: Button
 var reset_account_button: Button
+var credits_button: Button
 var close_button: Button
+var credits_panel: Panel
+var credits_title_label: Label
+var credits_list: RichTextLabel
+var credits_close_button: Button
 var achievements_panel: Panel
 var achievements_title_label: Label
 var achievements_list: RichTextLabel
@@ -68,6 +88,10 @@ var codex_monsters_item_list: ItemList
 var codex_close_button: Button
 var codex_tab_buttons: Dictionary = {}
 var codex_detail_dialog: AcceptDialog
+var quests_panel: Panel
+var quests_title_label: Label
+var quests_list: RichTextLabel
+var quests_close_button: Button
 var _reset_confirm_armed: bool = false
 
 
@@ -166,6 +190,20 @@ func _build_ui() -> void:
 	codex_button.add_theme_stylebox_override("pressed", achievement_sb)
 	codex_button.add_theme_stylebox_override("focus", achievement_sb)
 	add_child(codex_button)
+
+	quest_button = Button.new()
+	quest_button.text = tr("QUEST_BUTTON")
+	quest_button.custom_minimum_size = Vector2(92, 40)
+	quest_button.add_theme_font_size_override("font_size", 16)
+	quest_button.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55))
+	quest_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	quest_button.focus_mode = Control.FOCUS_NONE
+	quest_button.pressed.connect(_open_quests)
+	quest_button.add_theme_stylebox_override("normal", achievement_sb)
+	quest_button.add_theme_stylebox_override("hover", achievement_sb)
+	quest_button.add_theme_stylebox_override("pressed", achievement_sb)
+	quest_button.add_theme_stylebox_override("focus", achievement_sb)
+	add_child(quest_button)
 
 	# 暗化背景
 	dim = ColorRect.new()
@@ -350,6 +388,16 @@ func _build_ui() -> void:
 	reset_account_button.pressed.connect(_on_reset_account_pressed)
 	row4.add_child(reset_account_button)
 
+	credits_button = Button.new()
+	credits_button.text = tr("SETTINGS_CREDITS_BUTTON")
+	credits_button.size = Vector2(200, 40)
+	credits_button.position = Vector2((PANEL_W - 200) * 0.5, PANEL_H - 112)
+	credits_button.add_theme_font_size_override("font_size", 16)
+	credits_button.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
+	credits_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	credits_button.pressed.connect(_open_credits)
+	panel.add_child(credits_button)
+
 	# 關閉按鈕
 	close_button = Button.new()
 	close_button.text = tr("SETTINGS_CLOSE")
@@ -363,6 +411,53 @@ func _build_ui() -> void:
 	_build_achievements_panel()
 	_build_items_panel()
 	_build_codex_panel()
+	_build_quests_panel()
+	_build_credits_panel()
+
+
+func _build_credits_panel() -> void:
+	credits_panel = Panel.new()
+	credits_panel.size = Vector2(CREDITS_PANEL_W, CREDITS_PANEL_H)
+	credits_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.06, 0.08, 0.18, 1.0)
+	sb.border_color = Color(0.95, 0.65, 0.18)
+	sb.border_width_left = 4
+	sb.border_width_right = 4
+	sb.border_width_top = 4
+	sb.border_width_bottom = 4
+	sb.corner_radius_top_left = 12
+	sb.corner_radius_top_right = 12
+	sb.corner_radius_bottom_left = 12
+	sb.corner_radius_bottom_right = 12
+	credits_panel.add_theme_stylebox_override("panel", sb)
+	add_child(credits_panel)
+
+	credits_title_label = Label.new()
+	credits_title_label.position = Vector2(0, 18)
+	credits_title_label.size = Vector2(CREDITS_PANEL_W, 38)
+	credits_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	credits_title_label.add_theme_font_size_override("font_size", 26)
+	credits_title_label.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
+	credits_panel.add_child(credits_title_label)
+
+	credits_list = RichTextLabel.new()
+	credits_list.position = Vector2(30, 74)
+	credits_list.size = Vector2(CREDITS_PANEL_W - 60, CREDITS_PANEL_H - 148)
+	credits_list.bbcode_enabled = true
+	credits_list.scroll_active = true
+	credits_list.fit_content = false
+	credits_list.add_theme_font_size_override("normal_font_size", 15)
+	credits_list.add_theme_color_override("default_color", Color(0.86, 0.9, 1.0))
+	credits_panel.add_child(credits_list)
+
+	credits_close_button = Button.new()
+	credits_close_button.size = Vector2(180, 44)
+	credits_close_button.position = Vector2((CREDITS_PANEL_W - 180) * 0.5, CREDITS_PANEL_H - 60)
+	credits_close_button.add_theme_font_size_override("font_size", 18)
+	credits_close_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	credits_close_button.pressed.connect(_close_credits)
+	credits_panel.add_child(credits_close_button)
 
 
 func _build_achievements_panel() -> void:
@@ -408,6 +503,51 @@ func _build_achievements_panel() -> void:
 	achievements_close_button.process_mode = Node.PROCESS_MODE_ALWAYS
 	achievements_close_button.pressed.connect(_close_achievements)
 	achievements_panel.add_child(achievements_close_button)
+
+
+func _build_quests_panel() -> void:
+	quests_panel = Panel.new()
+	quests_panel.size = Vector2(QUESTS_PANEL_W, QUESTS_PANEL_H)
+	quests_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.06, 0.08, 0.18, 1.0)
+	sb.border_color = Color(0.95, 0.65, 0.18)
+	sb.border_width_left = 4
+	sb.border_width_right = 4
+	sb.border_width_top = 4
+	sb.border_width_bottom = 4
+	sb.corner_radius_top_left = 12
+	sb.corner_radius_top_right = 12
+	sb.corner_radius_bottom_left = 12
+	sb.corner_radius_bottom_right = 12
+	quests_panel.add_theme_stylebox_override("panel", sb)
+	add_child(quests_panel)
+
+	quests_title_label = Label.new()
+	quests_title_label.position = Vector2(0, 18)
+	quests_title_label.size = Vector2(QUESTS_PANEL_W, 38)
+	quests_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	quests_title_label.add_theme_font_size_override("font_size", 26)
+	quests_title_label.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
+	quests_panel.add_child(quests_title_label)
+
+	quests_list = RichTextLabel.new()
+	quests_list.position = Vector2(30, 74)
+	quests_list.size = Vector2(QUESTS_PANEL_W - 60, QUESTS_PANEL_H - 148)
+	quests_list.bbcode_enabled = true
+	quests_list.scroll_active = true
+	quests_list.fit_content = false
+	quests_list.add_theme_font_size_override("normal_font_size", 16)
+	quests_list.add_theme_color_override("default_color", Color(0.86, 0.9, 1.0))
+	quests_panel.add_child(quests_list)
+
+	quests_close_button = Button.new()
+	quests_close_button.size = Vector2(180, 44)
+	quests_close_button.position = Vector2((QUESTS_PANEL_W - 180) * 0.5, QUESTS_PANEL_H - 60)
+	quests_close_button.add_theme_font_size_override("font_size", 18)
+	quests_close_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	quests_close_button.pressed.connect(_close_quests)
+	quests_panel.add_child(quests_close_button)
 
 
 func _build_items_panel() -> void:
@@ -595,6 +735,10 @@ func _apply_layout() -> void:
 	codex_button.position = Vector2(
 		vp.x - codex_button.custom_minimum_size.x - 12,
 		items_button.position.y + items_button.size.y + 8)
+	quest_button.size = quest_button.custom_minimum_size
+	quest_button.position = Vector2(
+		vp.x - quest_button.custom_minimum_size.x - 12,
+		codex_button.position.y + codex_button.size.y + 8)
 	dim.size = vp
 	panel.position = Vector2((vp.x - PANEL_W) * 0.5, (vp.y - PANEL_H) * 0.5)
 	achievements_panel.position = Vector2(
@@ -602,6 +746,8 @@ func _apply_layout() -> void:
 		(vp.y - ACHIEVEMENTS_PANEL_H) * 0.5)
 	items_panel.position = Vector2((vp.x - ITEMS_PANEL_W) * 0.5, (vp.y - ITEMS_PANEL_H) * 0.5)
 	codex_panel.position = Vector2((vp.x - CODEX_PANEL_W) * 0.5, (vp.y - CODEX_PANEL_H) * 0.5)
+	quests_panel.position = Vector2((vp.x - QUESTS_PANEL_W) * 0.5, (vp.y - QUESTS_PANEL_H) * 0.5)
+	credits_panel.position = Vector2((vp.x - CREDITS_PANEL_W) * 0.5, (vp.y - CREDITS_PANEL_H) * 0.5)
 	_refresh_floating_button_visibility()
 
 
@@ -626,12 +772,17 @@ func _refresh_from_state() -> void:
 	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT_CONFIRM") \
 		if _reset_confirm_armed else tr("SETTINGS_RESET_ACCOUNT")
 	close_button.text = tr("SETTINGS_CLOSE")
+	if credits_button != null:
+		credits_button.text = tr("SETTINGS_CREDITS_BUTTON")
 	achievement_button.text = tr("ACHIEVEMENTS_BUTTON")
 	items_button.text = tr("ITEMS_BUTTON")
 	codex_button.text = tr("CODEX_BUTTON")
+	quest_button.text = tr("QUEST_BUTTON")
 	_refresh_achievements_panel()
 	_refresh_items_panel()
 	_refresh_codex_panel()
+	_refresh_quests_panel()
+	_refresh_credits_panel()
 
 
 func _toggle() -> void:
@@ -648,9 +799,13 @@ func _set_open(v: bool) -> void:
 		_achievements_open = false
 		_items_open = false
 		_codex_open = false
+		_quests_open = false
+		_credits_open = false
 		achievements_panel.visible = false
 		items_panel.visible = false
 		codex_panel.visible = false
+		quests_panel.visible = false
+		credits_panel.visible = false
 	dim.visible = v
 	panel.visible = v
 	if v:
@@ -663,9 +818,58 @@ func _set_open(v: bool) -> void:
 		achievements_panel.visible = false
 		items_panel.visible = false
 		codex_panel.visible = false
+		quests_panel.visible = false
+		credits_panel.visible = false
 		# 還原原本的暫停狀態（避免和 PauseMenu / Pinball 互踩）
 		get_tree().paused = _was_paused
 	_refresh_floating_button_visibility()
+
+
+func _open_credits() -> void:
+	_set_credits_open(true)
+
+
+func _close_credits() -> void:
+	_set_credits_open(false)
+
+
+func _set_credits_open(v: bool) -> void:
+	_credits_open = v
+	if v:
+		_open = false
+		_achievements_open = false
+		_items_open = false
+		_codex_open = false
+		_quests_open = false
+		panel.visible = false
+		achievements_panel.visible = false
+		items_panel.visible = false
+		codex_panel.visible = false
+		quests_panel.visible = false
+		_reset_confirm_armed = false
+		_refresh_credits_panel()
+		_was_paused = get_tree().paused
+		get_tree().paused = true
+		credits_close_button.grab_focus()
+	else:
+		get_tree().paused = _was_paused
+	dim.visible = v
+	credits_panel.visible = v
+	_refresh_floating_button_visibility()
+
+
+func _refresh_credits_panel() -> void:
+	if credits_panel == null or credits_list == null:
+		return
+	credits_title_label.text = tr("CREDITS_TITLE")
+	credits_close_button.text = tr("CREDITS_CLOSE")
+	var lines: Array[String] = [
+		"[color=#b8c8e8]%s[/color]" % tr("CREDITS_INTRO"),
+		"",
+	]
+	for key in CREDIT_ENTRY_KEYS:
+		lines.append("• %s" % tr(key))
+	credits_list.text = "\n".join(lines)
 
 
 func _open_achievements() -> void:
@@ -682,9 +886,13 @@ func _set_achievements_open(v: bool) -> void:
 		_open = false
 		_items_open = false
 		_codex_open = false
+		_quests_open = false
+		_credits_open = false
 		panel.visible = false
 		items_panel.visible = false
 		codex_panel.visible = false
+		quests_panel.visible = false
+		credits_panel.visible = false
 		_reset_confirm_armed = false
 		_refresh_achievements_panel()
 		_was_paused = get_tree().paused
@@ -711,9 +919,13 @@ func _set_items_open(v: bool) -> void:
 		_open = false
 		_achievements_open = false
 		_codex_open = false
+		_quests_open = false
+		_credits_open = false
 		panel.visible = false
 		achievements_panel.visible = false
 		codex_panel.visible = false
+		quests_panel.visible = false
+		credits_panel.visible = false
 		_reset_confirm_armed = false
 		_refresh_items_panel()
 		_was_paused = get_tree().paused
@@ -740,9 +952,13 @@ func _set_codex_open(v: bool) -> void:
 		_open = false
 		_achievements_open = false
 		_items_open = false
+		_quests_open = false
+		_credits_open = false
 		panel.visible = false
 		achievements_panel.visible = false
 		items_panel.visible = false
+		quests_panel.visible = false
+		credits_panel.visible = false
 		_reset_confirm_armed = false
 		_refresh_codex_panel()
 		_was_paused = get_tree().paused
@@ -752,6 +968,39 @@ func _set_codex_open(v: bool) -> void:
 		get_tree().paused = _was_paused
 	dim.visible = v
 	codex_panel.visible = v
+	_refresh_floating_button_visibility()
+
+
+func _open_quests() -> void:
+	_set_quests_open(true)
+
+
+func _close_quests() -> void:
+	_set_quests_open(false)
+
+
+func _set_quests_open(v: bool) -> void:
+	_quests_open = v
+	if v:
+		_open = false
+		_achievements_open = false
+		_items_open = false
+		_codex_open = false
+		_credits_open = false
+		panel.visible = false
+		achievements_panel.visible = false
+		items_panel.visible = false
+		codex_panel.visible = false
+		credits_panel.visible = false
+		_reset_confirm_armed = false
+		_refresh_quests_panel()
+		_was_paused = get_tree().paused
+		get_tree().paused = true
+		quests_close_button.grab_focus()
+	else:
+		get_tree().paused = _was_paused
+	dim.visible = v
+	quests_panel.visible = v
 	_refresh_floating_button_visibility()
 
 
@@ -768,13 +1017,24 @@ func _scene_allows_floating_meta_buttons() -> bool:
 
 
 func _refresh_floating_button_visibility() -> void:
-	if achievement_button == null or items_button == null or codex_button == null:
+	if achievement_button == null or items_button == null or codex_button == null \
+			or quest_button == null:
 		return
 	var show_buttons: bool = _scene_allows_floating_meta_buttons() \
-		and not _open and not _achievements_open and not _items_open and not _codex_open
+		and not _open and not _achievements_open and not _items_open \
+		and not _codex_open and not _quests_open and not _credits_open
 	achievement_button.visible = show_buttons
 	items_button.visible = show_buttons
 	codex_button.visible = show_buttons
+	quest_button.visible = show_buttons
+
+
+func _refresh_quests_panel() -> void:
+	if quests_panel == null or quests_list == null:
+		return
+	quests_title_label.text = tr("QUESTS_TITLE")
+	quests_close_button.text = tr("QUESTS_CLOSE")
+	quests_list.text = "%s\n\n%s" % [tr("QUESTS_HINT"), tr("QUESTS_EMPTY")]
 
 
 func _refresh_achievements_panel() -> void:
@@ -860,6 +1120,8 @@ func _refresh_items_panel() -> void:
 			lines.append_array(_items_lines_for_material_category(
 				GameData.MAT_CATEGORY_SEED, false))
 		GameData.ITEMS_TAB_RESOURCES:
+			lines.append("[color=#9ec8ff]%s[/color]" % tr("ITEMS_RESOURCES_SOURCE_HINT"))
+			lines.append("")
 			lines.append_array(_items_lines_for_material_category(
 				GameData.MAT_CATEGORY_RESOURCE, true))
 		GameData.ITEMS_TAB_FORGING:

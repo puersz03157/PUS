@@ -1424,10 +1424,19 @@ func _refresh_facility_dialog(status: String = "") -> void:
 		_facility_status_label.text = status
 		return
 	var left: float = GameState.village_facility_collect_cooldown_left(_facility_dialog_id)
+	var fdef: Dictionary = GameData.get_village_facility_def(_facility_dialog_id)
+	var parts: Array[String] = []
+	if bool(fdef.get("resource_collect", false)):
+		parts.append(tr("VILLAGE_RESOURCE_COLLECT_HINT"))
+		for line in GameData.village_facility_resource_odds_lines(
+				_facility_dialog_id, GameState.completed_stage_ids):
+			parts.append(line)
+		parts.append("")
 	if left > 0.0:
-		_facility_status_label.text = tr("VILLAGE_FACILITY_COOLDOWN_FMT") % int(ceil(left))
+		parts.append(tr("VILLAGE_FACILITY_COOLDOWN_FMT") % int(ceil(left)))
 	else:
-		_facility_status_label.text = tr("VILLAGE_FACILITY_READY")
+		parts.append(tr("VILLAGE_FACILITY_READY"))
+	_facility_status_label.text = "\n".join(parts)
 
 
 func _on_facility_collect_pressed() -> void:
@@ -1599,8 +1608,6 @@ func _open_house_dialog(player_slot: String) -> void:
 	_house_preview.offset_top = 8.0
 	_house_preview.offset_right = -8.0
 	_house_preview.offset_bottom = -8.0
-	_house_preview.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
-	_house_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_house_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	preview_panel.add_child(_house_preview)
 
@@ -1868,46 +1875,19 @@ func _house_update_character_preview(char_id: String) -> void:
 	var visual: Dictionary = GameData.resolve_character_visual_def(char_id, skin_id)
 	if visual.is_empty():
 		visual = GameData.get_character_def(char_id)
-	if visual.is_empty():
-		_house_preview.texture = null
-		_house_preview.visible = false
+	GameData.apply_character_preview_to_rect(_house_preview, visual)
+	if _house_preview.visible:
+		call_deferred("_relayout_house_preview", char_id)
+
+
+func _relayout_house_preview(char_id: String) -> void:
+	if _house_preview == null or _house_dialog == null:
 		return
-	# 逐幀 PNG
-	if visual.has("sprite_frames") and visual["sprite_frames"] is Dictionary:
-		var fdict: Dictionary = visual["sprite_frames"]
-		var tex: Texture2D = GameData.sprite_frames_first_texture(fdict.get("idle", null))
-		if tex:
-			_house_set_preview_texture(tex, visual)
-			return
-	# 條狀圖
-	if visual.has("sprite_strips") and visual["sprite_strips"] is Dictionary:
-		var strips: Dictionary = visual["sprite_strips"]
-		var strip_key: String = String(visual.get("preview_strip", "idle"))
-		if not strips.has(strip_key):
-			strip_key = "idle"
-		if strips.has(strip_key):
-			var atlas: Texture2D = load(String(strips[strip_key])) as Texture2D
-			if atlas:
-				var hf: int = maxi(1, int(visual.get("strip_hframes", 8)))
-				if visual.has("strip_hframes_by_strip") and visual["strip_hframes_by_strip"] is Dictionary \
-						and (visual["strip_hframes_by_strip"] as Dictionary).has(strip_key):
-					hf = maxi(1, int((visual["strip_hframes_by_strip"] as Dictionary)[strip_key]))
-				var fw: int = maxi(1, atlas.get_width() / hf)
-				var fh: int = maxi(1, atlas.get_height())
-				var at := AtlasTexture.new()
-				at.atlas = atlas
-				at.region = Rect2(0, 0, fw, fh)
-				_house_set_preview_texture(at, visual)
-				return
-	_house_preview.texture = null
-	_house_preview.visible = false
-
-
-func _house_set_preview_texture(tex: Texture2D, cdef: Dictionary) -> void:
-	_house_preview.texture = tex
-	_house_preview.modulate = cdef.get("tint", Color.WHITE)
-	_house_preview.flip_h = bool(cdef.get("sprite_faces_left", false))
-	_house_preview.visible = true
+	var skin_id: String = GameState.get_house_character_skin(_house_player_slot, char_id)
+	var visual: Dictionary = GameData.resolve_character_visual_def(char_id, skin_id)
+	if visual.is_empty():
+		visual = GameData.get_character_def(char_id)
+	GameData.apply_character_preview_to_rect(_house_preview, visual)
 
 
 func _house_first_frame_path(entry) -> String:

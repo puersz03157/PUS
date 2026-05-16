@@ -947,20 +947,27 @@ func try_collect_village_facility(facility_id: String) -> Dictionary:
 	if village_facility_collect_cooldown_left(facility_id) > 0.0:
 		return {}
 	var fdef: Dictionary = GameData.get_village_facility_def(facility_id)
-	var output_raw: Variant = fdef.get("output", {})
-	if not (output_raw is Dictionary):
-		return {}
 	var granted: Dictionary = {}
-	for mat_id in output_raw.keys():
-		var mid: String = String(mat_id)
-		var band: Variant = output_raw[mat_id]
-		if not (band is Dictionary):
-			continue
-		var mn: int = maxi(1, int(band.get("min", 1)))
-		var mx: int = maxi(mn, int(band.get("max", mn)))
-		var amount: int = randi_range(mn, mx)
-		if grant_material(mid, amount):
-			granted[mid] = amount
+	if bool(fdef.get("resource_collect", false)):
+		var rolled: Dictionary = GameData.roll_village_facility_collect(
+			facility_id, completed_stage_ids)
+		for mid in rolled.keys():
+			var amount: int = int(rolled[mid])
+			if amount > 0 and grant_material(String(mid), amount):
+				granted[String(mid)] = amount
+	else:
+		var output_raw: Variant = fdef.get("output", {})
+		if output_raw is Dictionary:
+			for mat_id in output_raw.keys():
+				var mid: String = String(mat_id)
+				var band: Variant = output_raw[mat_id]
+				if not (band is Dictionary):
+					continue
+				var mn: int = maxi(1, int(band.get("min", 1)))
+				var mx: int = maxi(mn, int(band.get("max", mn)))
+				var amount: int = randi_range(mn, mx)
+				if grant_material(mid, amount):
+					granted[mid] = amount
 	if granted.is_empty():
 		return {}
 	village_facility_last_collect_unix[facility_id] = float(Time.get_unix_time_from_system())
@@ -1090,6 +1097,9 @@ func is_stage_completed(id: String) -> bool:
 
 
 func is_merchant_material_available(id: String) -> bool:
+	if GameData.is_village_base_resource(id):
+		var unlock_stage: String = String(GameData.VILLAGE_RESOURCE_UNLOCK_STAGE.get(id, ""))
+		return unlock_stage != "" and is_stage_completed(unlock_stage)
 	return get_merchant_material_ids().has(id)
 
 

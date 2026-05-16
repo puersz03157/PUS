@@ -41,7 +41,10 @@ static func camera_center_alive(players: Array) -> Vector2:
 		if p == null:
 			continue
 		if "hp" in p and float(p.hp) > 0.0:
-			c += (p as Node2D).global_position
+			var pos: Vector2 = (p as Node2D).global_position
+			if p.has_method("get_camera_anchor_position"):
+				pos = p.call("get_camera_anchor_position")
+			c += pos
 			n += 1
 	if n > 0:
 		return c / float(n)

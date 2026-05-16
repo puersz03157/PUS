@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" tiledversion="1.12.1" orientation="orthogonal" renderorder="right-down" width="200" height="15" tilewidth="16" tileheight="16" infinite="0" nextlayerid="9" nextobjectid="23">
+<map version="1.10" tiledversion="1.12.1" orientation="orthogonal" renderorder="right-down" width="200" height="15" tilewidth="16" tileheight="16" infinite="0" nextlayerid="9" nextobjectid="26">
  <tileset firstgid="1" source="SSW/Background_day5.tsx"/>
  <tileset firstgid="3201" source="SSW/MainLevBuild.tsx"/>
  <tileset firstgid="8449" source="SSW/background_day1.tsx"/>
@@ -145,7 +145,7 @@
   <object id="1" name="entrance" x="1600" y="198"/>
   <object id="2" name="Home1" x="1505.33" y="196"/>
   <object id="3" name="Home2" x="1696" y="198.667"/>
-  <object id="4" name="Floor" x="1600" y="218.667"/>
+  <object id="4" name="Floor" x="1634" y="218.667"/>
   <object id="6" name="Blacksmith" x="2076" y="196"/>
   <object id="7" name="Grocer" x="2545.33" y="196"/>
   <object id="8" name="RuneMaster" x="2798.67" y="196"/>
@@ -163,5 +163,8 @@
   <object id="20" name="Fishing spot" x="144" y="197.333"/>
   <object id="21" name="lumberyard" x="3012" y="196"/>
   <object id="22" name="Quarry" x="3169.33" y="196"/>
+  <object id="23" name="Headman" x="1288.67" y="198"/>
+  <object id="24" name="Bard1" x="861.333" y="198"/>
+  <object id="25" name="Bard2" x="898" y="197.333"/>
  </objectgroup>
 </map>
