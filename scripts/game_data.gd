@@ -19,6 +19,48 @@ extends Node
 
 const CRIT_DAMAGE_MULT_BASE := 2.0
 
+const DREAMIR_CHAR_ROOT := "res://assets/characters/dreamir/"
+## 遊戲角色 id → dreamir 資料夾與子目錄（逐幀 PNG，執行時掃描排序）
+const DREAMIR_CHARACTER_ANIMS: Dictionary = {
+	"swordsman": {
+		"folder": "Swordsman",
+		"anims": {"idle": "IDLE", "walk": "RUN", "attack": "Attack", "hurt": "Hit", "death": "Death"},
+	},
+	"knight": {
+		"folder": "Spearman",
+		"anims": {"idle": "IDLE", "walk": "RUN", "attack": "Attack", "hurt": "Hit", "death": "Death"},
+	},
+	"ranger": {
+		"folder": "Archer",
+		"anims": {"idle": "Idle", "walk": "Run", "attack": "Attack", "hurt": "Hit", "death": "Death"},
+	},
+	"wizard": {
+		"folder": "Mage",
+		"anims": {"idle": "IDLE", "walk": "RUN", "attack": "Attack", "hurt": "Hit", "death": "Death"},
+	},
+	"bard": {
+		"folder": "Assassin",
+		"anims": {"idle": "Idle", "walk": "RUN", "attack": "ATTACK", "hurt": "Hit", "death": "Death"},
+	},
+}
+var _dreamir_sprite_frames_cache: Dictionary = {}
+var _sprite_sheet_row_bands_cache: Dictionary = {}
+var _sprite_sheet_anim_frames_cache: Dictionary = {}
+
+## 戰士 dreamir 大圖：列號 1 起算（與美術表一致），執行時轉 0-based
+const WARRIOR_SPRITE_SHEET: Dictionary = {
+	"sheet": "res://assets/characters/dreamir/Warrior.png",
+	"frame_w": 115,
+	"frame_h": 84,
+	"anims": {
+		"idle": {"rows": [1], "frames": [8]},
+		"walk": {"rows": [3], "frames": [8]},
+		"hurt": {"rows": [4], "frames": [4]},
+		"death": {"rows": [5], "frames": [11]},
+		"attack": {"rows": [9, 10], "frames": [4, 4]},
+	},
+}
+
 const WEAPONS: Array[Dictionary] = [
 	{
 		"id": "sword",
@@ -94,7 +136,7 @@ const WEAPONS: Array[Dictionary] = [
 	},
 	{
 		"id": "melody",
-		"name": "飛鏢", "name_key": "WEAPON_MELODY_NAME",
+		"name": "匕首", "name_key": "WEAPON_MELODY_NAME",
 		"kind": "projectile",
 		"damage": 10.0,
 		"rate": 1.3,
@@ -102,7 +144,7 @@ const WEAPONS: Array[Dictionary] = [
 		"crit_damage_mult": 1.7,
 		"range": 190.0,
 		"params": {"speed": 280.0, "count": 3, "wave": true, "color": Color(0.6, 0.9, 1.0)},
-		"max_effect": "擊中敵人附加易傷", "max_effect_key": "WEAPON_MELODY_MAX",
+		"max_effect": "命中附加破綻", "max_effect_key": "WEAPON_MELODY_MAX",
 	},
 	{
 		"id": "claw",
@@ -295,17 +337,12 @@ const CHARACTERS: Array[Dictionary] = [
 		"desc_key": "CHAR_SWORDSMAN_DESC",
 		"color": Color(0.95, 0.85, 0.55),
 		"sprite": "",
-		"sprite_faces_left": true,
-		"sprite_strips": {
-			"idle": "res://assets/characters/SwordMan/IDLE/idle_left.png",
-			"walk": "res://assets/characters/SwordMan/RUN/run_left.png",
-			"attack": "res://assets/characters/SwordMan/ATTACK 1/attack1_left.png",
-		},
-		"strip_hframes": 8,
-		"strip_frames": {"idle": 8, "walk": 8, "attack": 8, "hit": 8, "death": 8},
+		"sprite_faces_left": false,
+		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
 		"scale": 1,
-		"body_radius": 24,
+		"sprite_feet_fine": 3,
+		"body_radius": 16,
 		"offset_y": -7,
 		"skill_options": ["none", "whirl_slash"],
 		"passive_options": ["none", "fighting_spirit"],
@@ -320,22 +357,10 @@ const CHARACTERS: Array[Dictionary] = [
 		"color": Color(0.6, 1.0, 0.7),
 		"sprite": "",
 		"sprite_faces_left": false,
-		## 條狀圖：每格約 160×144（Idle 6 / Walk 8 / Atk 7 / Hurt 4 / Death 8）
-		"sprite_strips": {
-			"idle": "res://assets/characters/ArcherMan/Idle.png",
-			"walk": "res://assets/characters/ArcherMan/Walk.png",
-			"attack": "res://assets/characters/ArcherMan/Atk.png",
-			"hurt": "res://assets/characters/ArcherMan/Hurt.png",
-			"death": "res://assets/characters/ArcherMan/Death.png",
-		},
-		"strip_hframes": 8,
-		"strip_hframes_by_strip": {
-			"idle": 6, "walk": 8, "attack": 7, "hurt": 4, "death": 8,
-		},
-		"strip_frames": {"idle": 6, "walk": 8, "attack": 7, "hit": 4, "death": 8},
+		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
-		"scale": 0.8,
-		"body_radius": 25,
+		"scale": 1,
+		"body_radius": 16,
 		"offset_y": -7,
 		"skill_options": ["none", "agile_tactics"],
 		"passive_options": ["none", "quick_step"],
@@ -352,21 +377,10 @@ const CHARACTERS: Array[Dictionary] = [
 		"color": Color(0.7, 0.85, 1.0),
 		"sprite": "",
 		"sprite_faces_left": false,
-		"sprite_strips": {
-			"idle": "res://assets/characters/SpearMan/IDLE.png",
-			"walk": "res://assets/characters/SpearMan/WALK.png",
-			"attack": "res://assets/characters/SpearMan/ATTACK.png",
-			"hurt": "res://assets/characters/SpearMan/HURT.png",
-			"death": "res://assets/characters/SpearMan/DEATH.png",
-		},
-		"strip_hframes": 4,
-		"strip_hframes_by_strip": {
-			"idle": 4, "walk": 6, "attack": 6, "hurt": 3, "death": 9,
-		},
-		"strip_frames": {"idle": 4, "walk": 6, "attack": 6, "hit": 3, "death": 9},
+		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
-		"scale": .8,
-		"body_radius": 24,
+		"scale": 1,
+		"body_radius": 16,
 		"offset_y": -7,
 	},
 	{
@@ -379,23 +393,14 @@ const CHARACTERS: Array[Dictionary] = [
 		"color": Color(0.88, 0.52, 0.42),
 		"sprite": "",
 		"sprite_faces_left": false,
-		"sprite_strips": {
-			"idle": "res://assets/characters/Warrior/IDLE.png",
-			"walk": "res://assets/characters/Warrior/WALK.png",
-			"attack": "res://assets/characters/Warrior/ATTACK 1.png",
-			"hurt": "res://assets/characters/Warrior/HURT.png",
-			"death": "res://assets/characters/Warrior/DEATH.png",
-		},
-		"strip_hframes": 12,
-		"strip_hframes_by_strip": {
-			"idle": 12, "walk": 12, "attack": 11, "hurt": 6, "death": 11,
-		},
-		"strip_frames": {"idle": 12, "walk": 12, "attack": 11, "hit": 6, "death": 11},
+		"sprite_sheet": "warrior",
+		"anim_fps": 14.0,
 		"strip_fps": {"attack": 14.0},
 		"walk_anim_over_attack": true,
-		"scale": 0.82,
-		"body_radius": 24,
+		"scale": 1,
+		"body_radius": 16,
 		"offset_y": -7,
+		"village_sprite_feet_fine": 2,
 		"skill_options": ["none", "heavenly_judgment"],
 		"passive_options": ["none", "breakthrough"],
 	},
@@ -408,51 +413,29 @@ const CHARACTERS: Array[Dictionary] = [
 		"desc_key": "CHAR_WIZARD_DESC",
 		"color": Color(0.85, 0.55, 1.0),
 		"sprite": "",
-		"sprite_faces_left": true,
-		"sprite_strips": {
-			"idle": "res://assets/characters/Mage/IDLE.png",
-			"walk": "res://assets/characters/Mage/WALK.png",
-			"attack": "res://assets/characters/Mage/RANGED ATTACK.png",
-			"hurt": "res://assets/characters/Mage/HURT.png",
-			"death": "res://assets/characters/Mage/DEATH.png",
-		},
-		"strip_hframes": 6,
-		"strip_hframes_by_strip": {
-			"idle": 6, "walk": 4, "attack": 10, "hurt": 4, "death": 6,
-		},
-		"strip_frames": {"idle": 6, "walk": 4, "attack": 10, "hit": 4, "death": 6},
+		"sprite_faces_left": false,
+		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
-		"scale": 0.6,
+		"scale": 1,
 		"offset_y": -7,
-		"body_radius": 24,
+		"body_radius": 16,
 		"skill_options": ["none", "energy_wave"],
 		"passive_options": ["none", "arcane_mastery"],
 	},
 	{
 		"id": "bard",
-		"name": "武士", "name_key": "CHAR_BARD_NAME",
-		"rarity": "epic",
+		"name": "刺客", "name_key": "CHAR_BARD_NAME",
+		"rarity": "rare",
 		"weapon": "melody", "hp": 100.0, "atk": 10.0, "def": 8.0, "spd": 6.0,
-		"desc": "輔助/功能：素質平庸但靈活度高，依賴武器易傷特效輔助。",
+		"desc": "機敏刺殺：高機動貼身作戰，以匕首連擊與破綻標記放大輸出。",
 		"desc_key": "CHAR_BARD_DESC",
 		"color": Color(1.0, 0.7, 0.85),
 		"sprite": "",
 		"sprite_faces_left": false,
-		"sprite_strips": {
-			"idle": "res://assets/characters/Samurai/IDLE.png",
-			"walk": "res://assets/characters/Samurai/RUN.png",
-			"attack": "res://assets/characters/Samurai/ATTACK.png",
-			"hurt": "res://assets/characters/Samurai/HURT.png",
-			"death": "res://assets/characters/Samurai/DEATH.png",
-		},
-		"strip_hframes": 8,
-		"strip_hframes_by_strip": {
-			"idle": 5, "walk": 8, "attack": 7, "hurt": 4, "death": 10,
-		},
-		"strip_frames": {"idle": 5, "walk": 8, "attack": 7, "hit": 4, "death": 10},
+		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
-		"scale": 0.95,
-		"body_radius": 24,
+		"scale": 1,
+		"body_radius": 16,
 		"offset_y": -7,
 		"skill_options": ["none", "mirror_moon"],
 		"passive_options": ["none", "sword_aura_resonance"],
@@ -476,7 +459,9 @@ const CHARACTERS: Array[Dictionary] = [
 			"hurt": "res://assets/characters/Werewolf/HURT.png",
 			"death": "res://assets/characters/Werewolf/DEATH.png",
 		},
-		"preview_strip": "human_idle",
+		"preview_strip": "idle",
+		"preview_trim_top": 8,
+		"preview_trim_bottom": 4,
 		"start_transform": true,
 		"strip_hframes": 6,
 		"strip_hframes_by_strip": {
@@ -893,6 +878,7 @@ const VILLAGE_FACILITIES: Array[Dictionary] = [
 		"collect_done_key": "VILLAGE_FACILITY_COLLECT_DONE_FMT",
 		"map_slots": ["Quarry", "quarry"],
 		"fallback_x_mult": 0.66,
+		"npc_strip": "miner",
 		"collect_cooldown_sec": 50.0,
 		"output": {"stone": {"min": 3, "max": 5}},
 	},
@@ -905,6 +891,7 @@ const VILLAGE_FACILITIES: Array[Dictionary] = [
 		"collect_done_key": "VILLAGE_FACILITY_COLLECT_DONE_FMT",
 		"map_slots": ["lumberyard", "Lumberyard"],
 		"fallback_x_mult": 0.63,
+		"npc_strip": "woodcutter",
 		"collect_cooldown_sec": 50.0,
 		"output": {"wood": {"min": 3, "max": 5}},
 	},
@@ -948,6 +935,124 @@ const VILLAGE_MAP_HOME_P2_SLOTS: Array[String] = ["Home2", "home2", "HouseSlot2"
 const VILLAGE_MAP_ENTRANCE_SLOTS: Array[String] = ["entrance", "Entrance", "ENTRANCE"]
 const VILLAGE_MAP_FLOOR_SLOTS: Array[String] = ["Floor", "floor", "Ground", "ground"]
 
+## 村莊 NPC 橫向 sprite strip（單列 hframes 循環待機）
+const VILLAGE_NPC_STRIPS: Dictionary = {
+	"blacksmith": {
+		"strip": "res://assets/characters/NPC/Blacksmith.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"merchant": {
+		"strip": "res://assets/characters/NPC/Grocer.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"rune_master": {
+		"strip": "res://assets/characters/NPC/Runemaster.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"farmer": {
+		"strip": "res://assets/characters/NPC/Farmer.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"miner": {
+		"strip": "res://assets/characters/NPC/Miner.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"woodcutter": {
+		"strip": "res://assets/characters/NPC/Woodcutter.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"headman": {
+		"strip": "res://assets/characters/NPC/Headman.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"bard": {
+		"strip": "res://assets/characters/NPC/Bard.png",
+		"hframes": 5,
+		"vframes": 2,
+		"fps": 6.0,
+	},
+}
+
+
+func get_village_npc_strip_def(strip_id: String) -> Dictionary:
+	if strip_id == "":
+		return {}
+	return VILLAGE_NPC_STRIPS.get(strip_id, {})
+
+
+## 村莊常駐 NPC（無需解救，進村即顯示）
+const VILLAGE_ALWAYS_NPCS: Array[Dictionary] = [
+	{
+		"id": "headman",
+		"strip_id": "headman",
+		"name_key": "VILLAGE_HEADMAN_NAME",
+		"subtitle_key": "VILLAGE_HEADMAN_PERSONAL_NAME",
+		"map_slots": ["Headman", "headman"],
+		"dialogue_keys": [
+			"VILLAGE_HEADMAN_DIALOG_1",
+			"VILLAGE_HEADMAN_DIALOG_2",
+			"VILLAGE_HEADMAN_DIALOG_3",
+		],
+	},
+	{
+		"id": "bard_1",
+		"strip_id": "bard",
+		"anim_row": 0,
+		"name_key": "VILLAGE_BARD_NAME",
+		"subtitle_key": "VILLAGE_BARD1_PERSONAL_NAME",
+		"map_slots": ["Bard1", "bard1"],
+		"dialogue_keys": [
+			"VILLAGE_BARD1_DIALOG_1",
+			"VILLAGE_BARD1_DIALOG_2",
+			"VILLAGE_BARD1_DIALOG_3",
+		],
+	},
+	{
+		"id": "bard_2",
+		"strip_id": "bard",
+		"anim_row": 1,
+		"name_key": "VILLAGE_BARD_NAME",
+		"subtitle_key": "VILLAGE_BARD2_PERSONAL_NAME",
+		"map_slots": ["Bard2", "bard2"],
+		"dialogue_keys": [
+			"VILLAGE_BARD2_DIALOG_1",
+			"VILLAGE_BARD2_DIALOG_2",
+			"VILLAGE_BARD2_DIALOG_3",
+		],
+	},
+]
+
+
+func get_village_always_npc(npc_id: String) -> Dictionary:
+	for entry in VILLAGE_ALWAYS_NPCS:
+		if String(entry.get("id", "")) == npc_id:
+			return entry
+	return {}
+
+
+## 村莊 NPC 稱號下的本名（npc_id → 翻譯鍵）
+const VILLAGE_NPC_SUBTITLE_KEYS: Dictionary = {
+	"blacksmith": "VILLAGE_BLACKSMITH_PERSONAL_NAME",
+	"merchant": "VILLAGE_MERCHANT_PERSONAL_NAME",
+	"rune_master": "VILLAGE_RUNE_MASTER_PERSONAL_NAME",
+	"farmer": "VILLAGE_FARMER_PERSONAL_NAME",
+	"headman": "VILLAGE_HEADMAN_PERSONAL_NAME",
+	"bard_1": "VILLAGE_BARD1_PERSONAL_NAME",
+	"bard_2": "VILLAGE_BARD2_PERSONAL_NAME",
+}
+
+
+func tr_village_npc_subtitle(npc_id: String) -> String:
+	var key: String = String(VILLAGE_NPC_SUBTITLE_KEYS.get(npc_id, ""))
+	return tr(key) if key != "" else ""
+
 const VILLAGE_RESCUED_NPC_MARKERS: Array[Dictionary] = [
 	{
 		"npc_id": "tavern_owner",
@@ -957,11 +1062,13 @@ const VILLAGE_RESCUED_NPC_MARKERS: Array[Dictionary] = [
 	{
 		"npc_id": "rune_master",
 		"name_key": "VILLAGE_RUNE_MASTER_NAME",
+		"subtitle_key": "VILLAGE_RUNE_MASTER_PERSONAL_NAME",
 		"map_slots": ["RuneMaster", "Rune Master", "runemaster"],
 	},
 	{
 		"npc_id": "farmer",
 		"name_key": "VILLAGE_FARMER_NAME",
+		"subtitle_key": "VILLAGE_FARMER_PERSONAL_NAME",
 		"map_slots": ["Farmer", "farmer"],
 	},
 ]
@@ -1074,10 +1181,280 @@ func format_armament_recipe_source_hint(armament_id: String) -> String:
 	return tr("CODEX_ARMAMENT_BOOK_SOURCE_FMT") % ", ".join(stage_names)
 
 
+## 掃描貼圖中非透明像素範圍（避免逐幀 PNG 留白導致對齊錯誤）。
+func visible_texture_region(tex: Texture2D, source_rect: Rect2 = Rect2(), padding: int = 2) -> Rect2:
+	if tex == null:
+		return source_rect
+	var full := Rect2(0, 0, tex.get_width(), tex.get_height())
+	if source_rect.size == Vector2.ZERO:
+		source_rect = full
+	var img: Image = tex.get_image()
+	if img == null:
+		return source_rect
+	var x0: int = clampi(int(floor(source_rect.position.x)), 0, img.get_width() - 1)
+	var y0: int = clampi(int(floor(source_rect.position.y)), 0, img.get_height() - 1)
+	var x1: int = clampi(int(ceil(source_rect.end.x)), x0 + 1, img.get_width())
+	var y1: int = clampi(int(ceil(source_rect.end.y)), y0 + 1, img.get_height())
+	var min_x: int = x1
+	var min_y: int = y1
+	var max_x: int = x0
+	var max_y: int = y0
+	for y in range(y0, y1):
+		for x in range(x0, x1):
+			if img.get_pixel(x, y).a > 0.02:
+				min_x = mini(min_x, x)
+				min_y = mini(min_y, y)
+				max_x = maxi(max_x, x + 1)
+				max_y = maxi(max_y, y + 1)
+	if min_x >= max_x or min_y >= max_y:
+		return source_rect
+	min_x = maxi(x0, min_x - padding)
+	min_y = maxi(y0, min_y - padding)
+	max_x = mini(x1, max_x + padding)
+	max_y = mini(y1, max_y + padding)
+	return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
+
+
+## 讓 Sprite2D（centered）腳底落在 body_radius 圓心下方。
+func sprite_feet_offset_y(tex: Texture2D, body_radius: float, sprite_scale: float, fine_offset_y: float = 0.0) -> float:
+	if tex == null:
+		return fine_offset_y
+	var vis: Rect2 = visible_texture_region(tex)
+	var tex_h: float = float(maxi(1, tex.get_height()))
+	var foot_from_center: float = (vis.position.y + vis.size.y) - tex_h * 0.5
+	return body_radius - foot_from_center * sprite_scale + fine_offset_y
+
+
+## 橫向 strip：依第一格可見像素，讓腳底對齊錨點 local Y（feet_anchor_y）。
+func sprite_strip_feet_offset_y(
+		tex: Texture2D,
+		hframes: int,
+		target_height: float,
+		feet_anchor_y: float,
+		frame_index: int = 0,
+		fine_offset_y: float = 0.0,
+		vframes: int = 1,
+		anim_row: int = 0,
+) -> float:
+	if tex == null:
+		return feet_anchor_y + fine_offset_y
+	var hf: int = maxi(1, hframes)
+	var vf: int = maxi(1, vframes)
+	var frame_w: float = float(tex.get_width()) / float(hf)
+	var frame_h: float = float(maxi(1, tex.get_height())) / float(vf)
+	var fx: float = float(clampi(frame_index, 0, hf - 1)) * frame_w
+	var fy: float = float(clampi(anim_row, 0, vf - 1)) * frame_h
+	var vis: Rect2 = visible_texture_region(tex, Rect2(fx, fy, frame_w, frame_h))
+	# vis 為全圖座標；腳底須換算成當前列內 Y 再與列中心比較（vframes>1 時否則會浮空）
+	var foot_y_in_row: float = (vis.position.y + vis.size.y) - fy
+	var foot_from_center: float = foot_y_in_row - frame_h * 0.5
+	var sc: float = target_height / frame_h
+	return feet_anchor_y - foot_from_center * sc + fine_offset_y
+
+
+func resolve_frame_texture(entry: Variant) -> Texture2D:
+	if entry is Texture2D:
+		return entry
+	if entry is String:
+		var path: String = String(entry)
+		if path == "":
+			return null
+		return load(path) as Texture2D
+	return null
+
+
+func sprite_frames_first_texture(entry: Variant) -> Texture2D:
+	if entry is Array:
+		var arr: Array = entry
+		if arr.is_empty():
+			return null
+		return resolve_frame_texture(arr[0])
+	if entry is Dictionary:
+		var paths: Array = _resolve_frame_paths_dict(entry)
+		if paths.is_empty():
+			return null
+		return resolve_frame_texture(paths[0])
+	return null
+
+
+func _resolve_frame_paths_dict(entry: Dictionary) -> Array:
+	var pat: String = String(entry.get("pattern", ""))
+	var cnt: int = int(entry.get("count", 0))
+	var start: int = int(entry.get("start", 1))
+	if pat == "" or cnt <= 0:
+		return []
+	var out: Array = []
+	for i in range(cnt):
+		out.append(pat.replace("{i}", str(start + i)))
+	return out
+
+
+func _sheet_row_has_pixel(img: Image, y: int, width: int) -> bool:
+	for x in range(width):
+		if img.get_pixel(x, y).a > 0.02:
+			return true
+	return false
+
+
+func get_sprite_sheet_row_bands(sheet_path: String) -> Array:
+	if _sprite_sheet_row_bands_cache.has(sheet_path):
+		return _sprite_sheet_row_bands_cache[sheet_path]
+	var bands: Array = []
+	var tex: Texture2D = load(sheet_path) as Texture2D
+	if tex == null:
+		return bands
+	var img: Image = tex.get_image()
+	if img == null:
+		return bands
+	var w: int = img.get_width()
+	var h: int = img.get_height()
+	var y: int = 0
+	while y < h:
+		while y < h and not _sheet_row_has_pixel(img, y, w):
+			y += 1
+		if y >= h:
+			break
+		var y0: int = y
+		while y < h and _sheet_row_has_pixel(img, y, w):
+			y += 1
+		bands.append({"y": y0, "h": y - y0})
+	_sprite_sheet_row_bands_cache[sheet_path] = bands
+	return bands
+
+
+func _build_sprite_sheet_row_frames(
+		tex: Texture2D,
+		row_1based: int,
+		frame_count: int,
+		bands: Array,
+		spec: Dictionary = {},
+) -> Array:
+	var out: Array = []
+	if tex == null or frame_count <= 0:
+		return out
+	var fixed_w: int = int(spec.get("frame_w", 0))
+	var fixed_h: int = int(spec.get("frame_h", 0))
+	if fixed_w > 0 and fixed_h > 0:
+		var row_y: float = float(row_1based - 1) * float(fixed_h)
+		for i in range(frame_count):
+			var at := AtlasTexture.new()
+			at.atlas = tex
+			at.region = Rect2(float(i * fixed_w), row_y, float(fixed_w), float(fixed_h))
+			out.append(at)
+		return out
+	var row_idx: int = row_1based - 1
+	if row_idx < 0 or row_idx >= bands.size():
+		return out
+	var band: Dictionary = bands[row_idx]
+	var row_y_auto: float = float(band.get("y", 0))
+	var row_h_auto: float = float(maxi(1, int(band.get("h", 1))))
+	var sheet_w: float = float(tex.get_width())
+	var frame_w_auto: float = sheet_w / float(frame_count)
+	for i in range(frame_count):
+		var at2 := AtlasTexture.new()
+		at2.atlas = tex
+		at2.region = Rect2(frame_w_auto * float(i), row_y_auto, frame_w_auto, row_h_auto)
+		out.append(at2)
+	return out
+
+
+func get_sprite_sheet_anim_frames(sheet_id: String) -> Dictionary:
+	var spec: Dictionary = {}
+	if sheet_id == "warrior":
+		spec = WARRIOR_SPRITE_SHEET
+	if spec.is_empty():
+		return {}
+	var cache_key: String = "%s|%d|%d" % [
+		sheet_id, int(spec.get("frame_w", 0)), int(spec.get("frame_h", 0)),
+	]
+	if _sprite_sheet_anim_frames_cache.has(cache_key):
+		return _sprite_sheet_anim_frames_cache[cache_key]
+	var sheet_path: String = String(spec.get("sheet", ""))
+	var tex: Texture2D = load(sheet_path) as Texture2D
+	if tex == null:
+		return {}
+	var bands: Array = []
+	if int(spec.get("frame_w", 0)) <= 0 or int(spec.get("frame_h", 0)) <= 0:
+		bands = get_sprite_sheet_row_bands(sheet_path)
+	var anims: Dictionary = spec.get("anims", {})
+	var out: Dictionary = {}
+	for anim_key in anims:
+		var adef: Dictionary = anims[anim_key]
+		var rows: Array = adef.get("rows", [])
+		var counts: Array = adef.get("frames", [])
+		var merged: Array = []
+		for ri in range(rows.size()):
+			var row_n: int = int(rows[ri])
+			var fc: int = int(counts[ri]) if ri < counts.size() else 0
+			for frame_tex in _build_sprite_sheet_row_frames(tex, row_n, fc, bands, spec):
+				merged.append(frame_tex)
+		if not merged.is_empty():
+			out[anim_key] = merged
+	_sprite_sheet_anim_frames_cache[cache_key] = out
+	return out
+
+
+func _list_dreamir_png_paths(subdir: String) -> Array:
+	var paths: Array = []
+	var dir := DirAccess.open(subdir)
+	if dir == null:
+		return paths
+	dir.list_dir_begin()
+	var fn := dir.get_next()
+	while fn != "":
+		if not fn.begins_with(".") and fn.to_lower().ends_with(".png"):
+			paths.append(subdir.path_join(fn))
+		fn = dir.get_next()
+	dir.list_dir_end()
+	paths.sort()
+	return paths
+
+
+func get_dreamir_sprite_frames(char_id: String) -> Dictionary:
+	if _dreamir_sprite_frames_cache.has(char_id):
+		return _dreamir_sprite_frames_cache[char_id]
+	var spec: Dictionary = DREAMIR_CHARACTER_ANIMS.get(char_id, {})
+	if spec.is_empty():
+		return {}
+	var folder: String = String(spec.get("folder", ""))
+	var anims: Dictionary = spec.get("anims", {})
+	if folder == "" or anims.is_empty():
+		return {}
+	var out: Dictionary = {}
+	for anim_key in anims:
+		var sub: String = String(anims[anim_key])
+		var subdir: String = DREAMIR_CHAR_ROOT.path_join(folder).path_join(sub)
+		var frames: Array = _list_dreamir_png_paths(subdir)
+		if not frames.is_empty():
+			out[anim_key] = frames
+	_dreamir_sprite_frames_cache[char_id] = out
+	return out
+
+
+func _character_def_with_visuals(c: Dictionary) -> Dictionary:
+	var id: String = String(c.get("id", ""))
+	if id == "":
+		return c
+	var needs_dup: bool = DREAMIR_CHARACTER_ANIMS.has(id) or String(c.get("sprite_sheet", "")) != ""
+	if not needs_dup:
+		return c
+	var d: Dictionary = c.duplicate(true)
+	if DREAMIR_CHARACTER_ANIMS.has(id):
+		var dreamir_frames: Dictionary = get_dreamir_sprite_frames(id)
+		if not dreamir_frames.is_empty():
+			d["sprite_frames"] = dreamir_frames
+	var sheet_id: String = String(d.get("sprite_sheet", ""))
+	if sheet_id != "":
+		var sheet_frames: Dictionary = get_sprite_sheet_anim_frames(sheet_id)
+		if not sheet_frames.is_empty():
+			d["sprite_frames"] = sheet_frames
+	return d
+
+
 func get_character_def(id: String) -> Dictionary:
 	for c in CHARACTERS:
 		if c["id"] == id:
-			return c
+			return _character_def_with_visuals(c)
 	return {}
 
 
@@ -1153,8 +1530,8 @@ const PASSIVES: Array[Dictionary] = [
 	},
 	{
 		"id": "sword_aura_resonance",
-		"name": "劍氣共鳴", "name_key": "PASSIVE_SWORD_AURA_RESONANCE_NAME",
-		"desc": "自身給予敵人異常狀態時，為自身技能量表填充一段；觸發後 5 秒內不會再次因本被動充能。",
+		"name": "破綻印記", "name_key": "PASSIVE_SWORD_AURA_RESONANCE_NAME",
+		"desc": "使敵人陷入異常或破綻狀態時，為自身技能量表填充一段；觸發後 5 秒內不會再次因本被動充能。",
 		"desc_key": "PASSIVE_SWORD_AURA_RESONANCE_DESC",
 		"icon": "res://assets/icons/passives/sword_aura_resonance.png",
 		"params": {
@@ -1247,7 +1624,7 @@ const SKILLS: Array[Dictionary] = [
 	{
 		"id": "heavenly_judgment",
 		"name": "天降重罰", "name_key": "SKILL_HEAVENLY_JUDGMENT_NAME",
-		"desc": "戰鬥：跳躍至空中最多 3 秒，可選擇周圍一定距離地點落下，造成範圍傷害並暈眩；未選擇時原地落下。\n彈珠台：賦予自身超重破壞，發射後垂直落下破壞路徑上所有彈針，並使落入的獎勵在本場戰鬥不再出現；本回合不獲得獎勵（單場最多 3 次）。",
+		"desc": "戰鬥：升空 3 秒內選點落下，範圍傷害並暈眩；逾時則原地落下。\n彈珠台：垂直落砸摧毀路徑彈針；落入獎勵本場不再出現，本回合無獎勵（最多 3 次）。",
 		"desc_key": "SKILL_HEAVENLY_JUDGMENT_DESC",
 		"cooldown": 16.0,
 		"icon": "res://assets/icons/skills/heavenly_judgment.png",
@@ -1259,14 +1636,18 @@ const SKILLS: Array[Dictionary] = [
 			"combat_min_damage": 70.0,
 			"combat_stun": 1.4,
 			"combat_cursor_speed": 320.0,
+			"combat_rise_time": 0.45,
+			"combat_fall_time": 0.32,
+			"combat_landing_iframe": 0.35,
+			"combat_air_offset_y": 180.0,
 			"pinball_gravity_mult": 3.0,
 			"pinball_destroy_limit": 3,
 		},
 	},
 	{
 		"id": "mirror_moon",
-		"name": "鏡花水月", "name_key": "SKILL_MIRROR_MOON_NAME",
-		"desc": "戰鬥：向前方衝刺瞬斬造成傷害，並在原地製造一個能攻擊的分身，持續 3 秒。\n彈珠台：將目前未摧毀的獎勵區間重抽，優先抽換目前獎勵區沒有的獎勵，並保留倍率。",
+		"name": "影襲", "name_key": "SKILL_MIRROR_MOON_NAME",
+		"desc": "戰鬥：向前方疾衝刺殺造成傷害，並在原地留下會持續攻擊的殘影，持續 3 秒。\n彈珠台：將目前未摧毀的獎勵區間重抽，優先抽換目前獎勵區沒有的獎勵，並保留倍率。",
 		"desc_key": "SKILL_MIRROR_MOON_DESC",
 		"cooldown": 13.0,
 		"icon": "res://assets/icons/skills/mirror_moon.png",

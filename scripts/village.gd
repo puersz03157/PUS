@@ -4,6 +4,17 @@ extends Node2D
 
 const PLAYER_SCENE := preload("res://scenes/Player.tscn")
 const RESCUE_NPC_TEXTURE := preload("res://assets/characters/Save NPC.png")
+const VILLAGE_NPC_ANIM_SCRIPT := preload("res://scripts/village_npc_anim.gd")
+const VILLAGE_NPC_SPRITE_HEIGHT := 72.0
+## 標記根節點相對 floor_y（愈小＝整體愈高）；原 -42，略抬高腳底接線
+const VILLAGE_NPC_ROOT_Y_OFFSET := -54.0
+## 腳底在標記根節點下的 local Y（與玩家 floor_y 對齊用）
+const VILLAGE_NPC_FEET_ANCHOR_Y := 42.0
+const VILLAGE_NPC_FEET_FINE_Y := -6.0
+const VILLAGE_NPC_LABEL_Y := -62.0
+const VILLAGE_NPC_TITLE_WITH_SUBTITLE_Y := -76.0
+const VILLAGE_NPC_SUBTITLE_Y := -58.0
+const VILLAGE_TALK_NPC_RADIUS := 90.0
 const MAP_PATH := GameData.VILLAGE_MAP_PATH
 # New Village.tmx：200×15 tiles（16px）→ 3200×240，場景內再放大 1.5 倍 → 4800×360。
 const MAP_SCALE := GameData.VILLAGE_MAP_SCALE
@@ -90,6 +101,8 @@ var _well_dialog: CanvasLayer = null
 var _farmer_dialog: CanvasLayer = null
 var _crop_dialog: CanvasLayer = null
 var _crop_dialog_slot: int = 0
+var _always_npc_nodes: Dictionary = {}
+var _talk_dialog: CanvasLayer = null
 
 
 func _ready() -> void:
@@ -99,6 +112,7 @@ func _ready() -> void:
 	_spawn_map()
 	_spawn_blacksmith_if_rescued()
 	_spawn_merchant_if_rescued()
+	_spawn_village_always_npcs()
 	_spawn_rescued_story_npcs()
 	_spawn_village_facilities()
 	_spawn_farm_and_well_nodes()
@@ -160,6 +174,9 @@ func _process(_delta: float) -> void:
 			return
 		if _crop_dialog != null:
 			_close_crop_dialog()
+			return
+		if _talk_dialog != null:
+			_close_talk_dialog()
 			return
 		if _pause_open:
 			_close_pause()
@@ -285,7 +302,8 @@ func _refresh_village_touch_visibility() -> void:
 	var show: bool = bool(GameState.touch_controls_enabled) and not _transitioning \
 		and not _pause_open and _blacksmith_dialog == null and _merchant_dialog == null \
 		and _facility_dialog == null and _house_dialog == null \
-		and _well_dialog == null and _farmer_dialog == null and _crop_dialog == null
+		and _well_dialog == null and _farmer_dialog == null and _crop_dialog == null \
+		and _talk_dialog == null
 	if _touch_controls_root.visible != show and not show:
 		_release_village_touch_actions()
 	_touch_controls_root.visible = show
@@ -299,7 +317,8 @@ func _release_village_touch_actions() -> void:
 func _on_touch_interact_pressed() -> void:
 	if _pause_open or _blacksmith_dialog != null or _merchant_dialog != null \
 			or _facility_dialog != null or _house_dialog != null \
-			or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null:
+			or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null \
+			or _talk_dialog != null:
 		return
 	if _try_open_nearest_crop_dialog():
 		pass
@@ -311,6 +330,8 @@ func _on_touch_interact_pressed() -> void:
 		_open_blacksmith_dialog()
 	elif _players_near_node(_merchant_node, MERCHANT_INTERACT_RADIUS):
 		_open_merchant_dialog()
+	elif _try_open_nearest_always_npc_talk():
+		pass
 	elif _try_open_nearest_facility_dialog():
 		pass
 	elif _player_near_node(_p1_house_node, P1_HOUSE_INTERACT_RADIUS, "p1"):
@@ -508,85 +529,171 @@ func _spawn_blacksmith_if_rescued() -> void:
 	if not bool(GameState.blacksmith_rescued):
 		return
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_BLACKSMITH_SLOTS)
-	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.65, floor_y - 42.0))
-	var smith := _make_blacksmith_village_marker()
+	var pos: Vector2 = _village_npc_spawn_position(slot, Vector2(MAP_SIZE.x * 0.65, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+	var smith := _make_village_npc_marker(
+		"blacksmith",
+		tr("VILLAGE_BLACKSMITH_NAME"),
+		Color(1.0, 0.88, 0.48),
+		"VillageBlacksmith",
+		9,
+		-1,
+		GameData.tr_village_npc_subtitle("blacksmith"),
+	)
 	smith.global_position = pos
 	add_child(smith)
 	_blacksmith_node = smith
-
-
-func _make_blacksmith_village_marker() -> Node2D:
-	var root := Node2D.new()
-	root.name = "VillageBlacksmith"
-	root.z_index = 9
-	var draw := DrawerNode2D.new()
-	draw.fn = Callable(self, "_draw_village_blacksmith")
-	root.add_child(draw)
-	var label := Label.new()
-	label.text = tr("VILLAGE_BLACKSMITH_NAME")
-	label.position = Vector2(-80, -86)
-	label.size = Vector2(160, 32)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 15)
-	label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.48))
-	root.add_child(label)
-	return root
-
-
-func _draw_village_blacksmith(node: Node2D) -> void:
-	node.draw_circle(Vector2(0, 34), 34.0, Color(0, 0, 0, 0.22))
-	node.draw_circle(Vector2(0, -20), 15.0, Color(0.95, 0.72, 0.48))
-	node.draw_rect(Rect2(-17, -5, 34, 40), Color(0.28, 0.30, 0.36))
-	node.draw_rect(Rect2(-25, -2, 50, 10), Color(0.72, 0.62, 0.44))
-	node.draw_line(Vector2(18, 2), Vector2(46, -26), Color(0.74, 0.52, 0.32), 5.0)
-	node.draw_rect(Rect2(40, -36, 24, 12), Color(0.70, 0.72, 0.76))
 
 
 func _spawn_merchant_if_rescued() -> void:
 	if not bool(GameState.merchant_rescued):
 		return
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_MERCHANT_SLOTS)
-	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.53, floor_y - 42.0))
-	var merchant := _make_merchant_village_marker()
+	var pos: Vector2 = _village_npc_spawn_position(slot, Vector2(MAP_SIZE.x * 0.53, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+	var merchant := _make_village_npc_marker(
+		"merchant",
+		tr("VILLAGE_MERCHANT_NAME"),
+		Color(0.68, 0.92, 1.0),
+		"VillageMerchant",
+		9,
+		-1,
+		GameData.tr_village_npc_subtitle("merchant"),
+	)
 	merchant.global_position = pos
 	add_child(merchant)
 	_merchant_node = merchant
 
 
-func _make_merchant_village_marker() -> Node2D:
+func _make_village_npc_marker(
+		strip_id: String,
+		label_text: String,
+		label_color: Color,
+		node_name: String,
+		z_index: int = 9,
+		anim_row: int = -1,
+		subtitle_text: String = "",
+) -> Node2D:
 	var root := Node2D.new()
-	root.name = "VillageMerchant"
-	root.z_index = 9
-	var draw := DrawerNode2D.new()
-	draw.fn = Callable(self, "_draw_village_merchant")
-	root.add_child(draw)
-	var label := Label.new()
-	label.text = tr("VILLAGE_MERCHANT_NAME")
-	label.position = Vector2(-90, -86)
-	label.size = Vector2(180, 32)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 15)
-	label.add_theme_color_override("font_color", Color(0.68, 0.92, 1.0))
-	root.add_child(label)
+	root.name = node_name
+	root.z_index = z_index
+	var strip_def: Dictionary = GameData.get_village_npc_strip_def(strip_id)
+	if not strip_def.is_empty():
+		var anim := Node2D.new()
+		anim.name = "Anim"
+		anim.set_script(VILLAGE_NPC_ANIM_SCRIPT)
+		anim.strip_texture = load(String(strip_def.get("strip", ""))) as Texture2D
+		anim.hframes = maxi(1, int(strip_def.get("hframes", 1)))
+		anim.vframes = maxi(1, int(strip_def.get("vframes", 1)))
+		var row: int = anim_row if anim_row >= 0 else int(strip_def.get("anim_row", 0))
+		anim.anim_row = clampi(row, 0, anim.vframes - 1)
+		anim.anim_fps = maxf(1.0, float(strip_def.get("fps", 6.0)))
+		anim.target_height = VILLAGE_NPC_SPRITE_HEIGHT
+		anim.feet_anchor_y = VILLAGE_NPC_FEET_ANCHOR_Y
+		anim.feet_fine_y = VILLAGE_NPC_FEET_FINE_Y
+		root.add_child(anim)
+	else:
+		_add_village_npc_static_sprite(root, RESCUE_NPC_TEXTURE)
+	if label_text != "":
+		var title_y: float = VILLAGE_NPC_LABEL_Y
+		if subtitle_text != "":
+			title_y = VILLAGE_NPC_TITLE_WITH_SUBTITLE_Y
+		var label := Label.new()
+		label.name = "TitleLabel"
+		label.text = label_text
+		label.position = Vector2(-90, title_y)
+		label.size = Vector2(180, 28)
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.add_theme_font_size_override("font_size", 15)
+		label.add_theme_color_override("font_color", label_color)
+		root.add_child(label)
+	if subtitle_text != "":
+		var sub := Label.new()
+		sub.name = "SubtitleLabel"
+		sub.text = subtitle_text
+		sub.position = Vector2(-90, VILLAGE_NPC_SUBTITLE_Y)
+		sub.size = Vector2(180, 22)
+		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		sub.add_theme_font_size_override("font_size", 12)
+		sub.add_theme_color_override("font_color", label_color.lightened(0.12))
+		root.add_child(sub)
+	var prompt_y: float = VILLAGE_NPC_LABEL_Y - 8.0
+	if subtitle_text != "":
+		prompt_y = VILLAGE_NPC_TITLE_WITH_SUBTITLE_Y - 8.0
+	root.set_meta("float_prompt_offset_y", prompt_y)
 	return root
 
 
-func _draw_village_merchant(node: Node2D) -> void:
-	node.draw_circle(Vector2(0, 34), 34.0, Color(0, 0, 0, 0.22))
-	node.draw_circle(Vector2(0, -20), 14.0, Color(0.95, 0.76, 0.55))
-	node.draw_rect(Rect2(-18, -5, 36, 40), Color(0.24, 0.38, 0.45))
-	node.draw_rect(Rect2(-30, 10, 60, 24), Color(0.52, 0.31, 0.16))
-	node.draw_rect(Rect2(-24, 0, 48, 10), Color(0.86, 0.62, 0.24))
-	node.draw_string(ThemeDB.fallback_font, Vector2(-7, 8), "$",
-		HORIZONTAL_ALIGNMENT_CENTER, 14, 22, Color(1.0, 0.92, 0.45))
+func _add_village_npc_static_sprite(root: Node2D, tex: Texture2D) -> void:
+	var spr := Sprite2D.new()
+	spr.name = "Sprite"
+	spr.texture = tex
+	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if spr.texture:
+		var ts: Vector2 = spr.texture.get_size()
+		if ts.y > 0.0:
+			spr.scale = Vector2.ONE * (VILLAGE_NPC_SPRITE_HEIGHT / ts.y)
+		spr.position = Vector2(
+			0.0,
+			GameData.sprite_feet_offset_y(
+				tex, VILLAGE_NPC_FEET_ANCHOR_Y, spr.scale.y, VILLAGE_NPC_FEET_FINE_Y),
+		)
+	root.add_child(spr)
+
+
+func _village_npc_spawn_position(slot: Node, fallback: Vector2) -> Vector2:
+	if slot is Node2D:
+		return Vector2((slot as Node2D).global_position.x, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET)
+	return fallback
+
+
+func _rescued_story_npc_strip_id(npc_id: String) -> String:
+	if GameData.get_village_npc_strip_def(npc_id).is_empty():
+		return ""
+	return npc_id
 
 
 func _map_marker_position(slot: Node, fallback: Vector2) -> Vector2:
 	if slot is Node2D:
 		return Vector2((slot as Node2D).global_position.x, floor_y - 42.0)
 	return fallback
+
+
+func _spawn_village_always_npcs() -> void:
+	for entry in GameData.VILLAGE_ALWAYS_NPCS:
+		var npc_id: String = String(entry.get("id", ""))
+		if npc_id == "":
+			continue
+		var strip_id: String = String(entry.get("strip_id", npc_id))
+		if GameData.get_village_npc_strip_def(strip_id).is_empty():
+			continue
+		var slots: Array = []
+		for s in entry.get("map_slots", []):
+			slots.append(String(s))
+		var slot: Node = _find_map_object_by_name(slots)
+		var pos: Vector2 = _village_npc_spawn_position(
+			slot, Vector2(MAP_SIZE.x * 0.5, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+		var name_key: String = String(entry.get("name_key", ""))
+		var label_text: String = tr(name_key) if name_key != "" else ""
+		var subtitle_key: String = String(entry.get("subtitle_key", ""))
+		var subtitle_text: String = tr(subtitle_key) if subtitle_key != "" else ""
+		var label_col: Color = Color(0.95, 0.88, 0.55)
+		if strip_id == "bard":
+			label_col = Color(0.85, 0.78, 1.0)
+		var row: int = int(entry.get("anim_row", -1))
+		var marker := _make_village_npc_marker(
+			strip_id,
+			label_text,
+			label_col,
+			"VillageNpc_%s" % npc_id,
+			7,
+			row,
+			subtitle_text,
+		)
+		marker.global_position = pos
+		marker.set_meta("always_npc_id", npc_id)
+		add_child(marker)
+		_always_npc_nodes[npc_id] = marker
 
 
 func _spawn_rescued_story_npcs() -> void:
@@ -600,36 +707,33 @@ func _spawn_rescued_story_npcs() -> void:
 		for s in entry.get("map_slots", []):
 			slots.append(String(s))
 		var slot: Node = _find_map_object_by_name(slots)
-		var pos: Vector2 = _map_marker_position(
-			slot, Vector2(MAP_SIZE.x * 0.5, floor_y - 42.0))
-		var marker := _make_rescued_npc_marker(String(entry.get("name_key", "")))
+		var pos: Vector2 = _village_npc_spawn_position(
+			slot, Vector2(MAP_SIZE.x * 0.5, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+		var marker := _make_rescued_npc_marker(
+			npc_id,
+			String(entry.get("name_key", "")),
+			String(entry.get("subtitle_key", "")),
+		)
 		marker.global_position = pos
 		add_child(marker)
 
 
-func _make_rescued_npc_marker(name_key: String) -> Node2D:
-	var root := Node2D.new()
-	root.name = "VillageRescuedNpc"
-	root.z_index = 7
-	var spr := Sprite2D.new()
-	spr.texture = RESCUE_NPC_TEXTURE
-	if spr.texture:
-		var ts: Vector2 = spr.texture.get_size()
-		var target_h: float = 72.0
-		if ts.y > 0.0:
-			spr.scale = Vector2.ONE * (target_h / ts.y)
-		spr.position = Vector2(0, -target_h * 0.5 + 34.0)
-	root.add_child(spr)
-	var label := Label.new()
-	label.text = tr(name_key) if name_key != "" else ""
-	label.position = Vector2(-80, -86)
-	label.size = Vector2(160, 32)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.88, 0.95, 1.0))
-	root.add_child(label)
-	return root
+func _make_rescued_npc_marker(
+		npc_id: String,
+		name_key: String,
+		subtitle_key: String = "",
+) -> Node2D:
+	var label_text: String = tr(name_key) if name_key != "" else ""
+	var subtitle_text: String = tr(subtitle_key) if subtitle_key != "" else ""
+	return _make_village_npc_marker(
+		_rescued_story_npc_strip_id(npc_id),
+		label_text,
+		Color(0.88, 0.95, 1.0),
+		"VillageRescuedNpc_%s" % npc_id,
+		7,
+		-1,
+		subtitle_text,
+	)
 
 
 func _spawn_village_facilities() -> void:
@@ -645,9 +749,9 @@ func _spawn_village_facilities() -> void:
 		for s in slots:
 			candidates.append(String(s))
 		var slot: Node = _find_map_object_by_name(candidates)
-		var pos: Vector2 = _map_marker_position(slot, Vector2(
+		var pos: Vector2 = _village_npc_spawn_position(slot, Vector2(
 			MAP_SIZE.x * float(fdef.get("fallback_x_mult", 0.1)),
-			floor_y - 42.0))
+			floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
 		var marker := _make_village_facility_marker(fid, fdef)
 		marker.global_position = pos
 		add_child(marker)
@@ -659,13 +763,22 @@ func _spawn_farm_and_well_nodes() -> void:
 	if GameState.is_village_facility_unlocked("well"):
 		var well_slot: Node = _find_map_object_by_name(["Water", "water", "well"])
 		var wpos: Vector2 = _map_marker_position(well_slot, Vector2(MAP_SIZE.x * 0.11, floor_y - 42.0))
-		_well_node = _make_well_marker()
+		_well_node = _make_well_interact_anchor()
 		_well_node.global_position = wpos
 		add_child(_well_node)
 	if GameState.is_village_facility_unlocked("farm"):
 		var farmer_slot: Node = _find_map_object_by_name(["Farmer", "farmer", "farm"])
-		var fpos: Vector2 = _map_marker_position(farmer_slot, Vector2(MAP_SIZE.x * 0.16, floor_y - 42.0))
-		_farmer_shop_node = _make_farmer_shop_marker()
+		var fpos: Vector2 = _village_npc_spawn_position(
+			farmer_slot, Vector2(MAP_SIZE.x * 0.16, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+		_farmer_shop_node = _make_village_npc_marker(
+			"farmer",
+			tr("VILLAGE_FARMER_NAME"),
+			Color(0.75, 1.0, 0.65),
+			"VillageFarmerShop",
+			9,
+			-1,
+			GameData.tr_village_npc_subtitle("farmer"),
+		)
 		_farmer_shop_node.global_position = fpos
 		add_child(_farmer_shop_node)
 		for i in range(1, GameData.FARM_PLOT_COUNT + 1):
@@ -679,53 +792,12 @@ func _spawn_farm_and_well_nodes() -> void:
 			_crop_plot_nodes[i] = plot
 
 
-func _make_well_marker() -> Node2D:
+func _make_well_interact_anchor() -> Node2D:
 	var root := Node2D.new()
 	root.name = "VillageWell"
 	root.z_index = 8
-	var draw := DrawerNode2D.new()
-	draw.fn = Callable(self, "_draw_well_marker")
-	root.add_child(draw)
-	var label := Label.new()
-	label.text = tr("VILLAGE_WELL_NAME")
-	label.position = Vector2(-70, -80)
-	label.size = Vector2(140, 28)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 13)
-	label.add_theme_color_override("font_color", Color(0.55, 0.82, 1.0))
-	root.add_child(label)
+	root.set_meta("float_prompt_offset_y", -56.0)
 	return root
-
-
-func _draw_well_marker(node: Node2D) -> void:
-	node.draw_circle(Vector2(0, 30), 28.0, Color(0, 0, 0, 0.2))
-	node.draw_rect(Rect2(-22, -6, 44, 36), Color(0.35, 0.42, 0.55))
-	node.draw_circle(Vector2(0, -8), 14.0, Color(0.42, 0.72, 0.95))
-
-
-func _make_farmer_shop_marker() -> Node2D:
-	var root := Node2D.new()
-	root.name = "VillageFarmerShop"
-	root.z_index = 9
-	var draw := DrawerNode2D.new()
-	draw.fn = Callable(self, "_draw_farmer_shop_marker")
-	root.add_child(draw)
-	var label := Label.new()
-	label.text = tr("VILLAGE_FARMER_NAME")
-	label.position = Vector2(-80, -86)
-	label.size = Vector2(160, 28)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.75, 1.0, 0.65))
-	root.add_child(label)
-	return root
-
-
-func _draw_farmer_shop_marker(node: Node2D) -> void:
-	node.draw_circle(Vector2(0, 34), 32.0, Color(0, 0, 0, 0.2))
-	node.draw_circle(Vector2(0, -18), 14.0, Color(0.95, 0.76, 0.55))
-	node.draw_rect(Rect2(-16, -4, 32, 36), Color(0.35, 0.55, 0.32))
-	node.draw_rect(Rect2(-20, 12, 40, 18), Color(0.62, 0.45, 0.22))
 
 
 func _make_crop_plot_marker(slot_index: int) -> Node2D:
@@ -827,7 +899,7 @@ func _try_open_nearest_crop_dialog() -> bool:
 	return true
 
 
-func _open_simple_village_dialog(title: String) -> Dictionary:
+func _open_simple_village_dialog(title: String, subtitle: String = "") -> Dictionary:
 	var layer := CanvasLayer.new()
 	layer.layer = 240
 	layer.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -852,6 +924,13 @@ func _open_simple_village_dialog(title: String) -> Dictionary:
 	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_lbl.add_theme_font_size_override("font_size", 20)
 	vbox.add_child(title_lbl)
+	if subtitle != "":
+		var sub_lbl := Label.new()
+		sub_lbl.text = subtitle
+		sub_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		sub_lbl.add_theme_font_size_override("font_size", 14)
+		sub_lbl.add_theme_color_override("font_color", Color(0.78, 0.78, 0.88))
+		vbox.add_child(sub_lbl)
 	var status_lbl := Label.new()
 	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -894,7 +973,10 @@ func _close_well_dialog() -> void:
 func _open_farmer_dialog() -> void:
 	if _farmer_dialog != null:
 		return
-	var ui: Dictionary = _open_simple_village_dialog(tr("VILLAGE_FARMER_NAME"))
+	var ui: Dictionary = _open_simple_village_dialog(
+		tr("VILLAGE_FARMER_NAME"),
+		GameData.tr_village_npc_subtitle("farmer"),
+	)
 	_farmer_dialog = ui["layer"] as CanvasLayer
 	var status: Label = ui["status"] as Label
 	var actions: VBoxContainer = ui["actions"] as VBoxContainer
@@ -1023,55 +1105,34 @@ func _close_crop_dialog() -> void:
 func _any_modal_village_ui_open() -> bool:
 	return _blacksmith_dialog != null or _merchant_dialog != null \
 		or _facility_dialog != null or _house_dialog != null \
-		or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null
+		or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null \
+		or _talk_dialog != null
 
 
 func _make_village_facility_marker(facility_id: String, fdef: Dictionary) -> Node2D:
-	var root := Node2D.new()
-	root.name = "VillageFacility_%s" % facility_id
-	root.z_index = 8
+	var strip_id: String = String(fdef.get("npc_strip", ""))
+	var label_text: String = GameData.tr_field(fdef, "name", false)
+	var label_col: Color = Color(0.88, 0.95, 1.0)
+	if strip_id == "woodcutter":
+		label_col = Color(0.75, 1.0, 0.7)
+	elif strip_id == "miner":
+		label_col = Color(0.82, 0.88, 0.95)
+	var root: Node2D = _make_village_npc_marker(
+		strip_id,
+		label_text,
+		label_col,
+		"VillageFacility_%s" % facility_id,
+		8,
+	)
 	root.set_meta("facility_id", facility_id)
-	var draw := DrawerNode2D.new()
-	draw.set_meta("facility_id", facility_id)
-	draw.fn = Callable(self, "_draw_village_facility_marker")
-	root.add_child(draw)
-	var label := Label.new()
-	label.text = GameData.tr_field(fdef, "name", false)
-	label.position = Vector2(-100, -86)
-	label.size = Vector2(200, 32)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.75, 1.0, 0.7))
-	root.add_child(label)
 	return root
-
-
-func _draw_village_facility_marker(node: Node2D) -> void:
-	_draw_village_facility(node, String(node.get_meta("facility_id", "")))
-
-
-func _draw_village_facility(node: Node2D, facility_id: String) -> void:
-	var col: Color = Color(0.55, 0.82, 0.45)
-	match facility_id:
-		"quarry":
-			col = Color(0.65, 0.62, 0.58)
-		"lumberyard":
-			col = Color(0.45, 0.72, 0.38)
-		"well":
-			col = Color(0.42, 0.72, 0.95)
-		"farm":
-			col = Color(0.72, 0.85, 0.42)
-	node.draw_circle(Vector2(0, 34), 34.0, Color(0, 0, 0, 0.22))
-	node.draw_rect(Rect2(-28, -8, 56, 44), col.darkened(0.25))
-	node.draw_rect(Rect2(-22, -2, 44, 32), col)
-	node.draw_circle(Vector2(0, -18), 12.0, col.lightened(0.2))
 
 
 func _update_npc_interactions() -> void:
 	if _pause_open or _blacksmith_dialog != null or _merchant_dialog != null \
 			or _facility_dialog != null or _house_dialog != null \
-			or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null:
+			or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null \
+			or _talk_dialog != null:
 		_hide_float_interact_prompt()
 		return
 	if _update_crop_plot_interaction():
@@ -1089,6 +1150,8 @@ func _update_npc_interactions() -> void:
 	if _update_p1_house_interaction():
 		return
 	if _update_p2_house_interaction():
+		return
+	if _update_always_npc_talk_interaction():
 		return
 	_hide_float_interact_prompt()
 	hint_label.text = tr("VILLAGE_HINT")
@@ -1152,7 +1215,10 @@ func _position_float_interact_prompt() -> void:
 			or not is_instance_valid(_float_prompt_target) \
 			or not _float_prompt_layer.visible:
 		return
-	var world_pos: Vector2 = _float_prompt_target.global_position + Vector2(0.0, -78.0)
+	var prompt_y: float = -78.0
+	if _float_prompt_target.has_meta("float_prompt_offset_y"):
+		prompt_y = float(_float_prompt_target.get_meta("float_prompt_offset_y"))
+	var world_pos: Vector2 = _float_prompt_target.global_position + Vector2(0.0, prompt_y)
 	var screen_pos: Vector2 = get_viewport().get_canvas_transform() * world_pos
 	if _float_prompt_panel == null:
 		return
@@ -1195,6 +1261,86 @@ func _update_merchant_interaction() -> bool:
 	if _try_interact_prefixes(near):
 		_open_merchant_dialog()
 	return true
+
+
+func _always_npc_has_talk(entry: Dictionary) -> bool:
+	var keys: Array = entry.get("dialogue_keys", [])
+	return not keys.is_empty()
+
+
+func _nearest_always_npc_talk_id() -> String:
+	var best_id: String = ""
+	var best_dist: float = INF
+	for p in players:
+		if p == null or not is_instance_valid(p):
+			continue
+		for entry in GameData.VILLAGE_ALWAYS_NPCS:
+			if not _always_npc_has_talk(entry):
+				continue
+			var npc_id: String = String(entry.get("id", ""))
+			var node: Node2D = _always_npc_nodes.get(npc_id) as Node2D
+			if node == null or not is_instance_valid(node):
+				continue
+			var dist: float = p.global_position.distance_to(node.global_position)
+			if dist <= VILLAGE_TALK_NPC_RADIUS and dist < best_dist:
+				best_dist = dist
+				best_id = npc_id
+	return best_id
+
+
+func _try_open_nearest_always_npc_talk() -> bool:
+	var npc_id: String = _nearest_always_npc_talk_id()
+	if npc_id == "":
+		return false
+	_open_always_npc_talk_dialog(npc_id)
+	return true
+
+
+func _update_always_npc_talk_interaction() -> bool:
+	var npc_id: String = _nearest_always_npc_talk_id()
+	if npc_id == "":
+		return false
+	var node: Node2D = _always_npc_nodes.get(npc_id) as Node2D
+	if node == null or not is_instance_valid(node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(node, VILLAGE_TALK_NPC_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(node, near, tr("VILLAGE_INTERACT_ACTION_TALK"))
+	if _try_interact_prefixes(near):
+		_open_always_npc_talk_dialog(npc_id)
+	return true
+
+
+func _random_always_npc_dialogue_line(entry: Dictionary) -> String:
+	var keys: Array = entry.get("dialogue_keys", [])
+	if keys.is_empty():
+		return ""
+	var key: String = String(keys.pick_random())
+	return tr(key) if key != "" else ""
+
+
+func _open_always_npc_talk_dialog(npc_id: String) -> void:
+	if _talk_dialog != null:
+		return
+	var entry: Dictionary = GameData.get_village_always_npc(npc_id)
+	if entry.is_empty() or not _always_npc_has_talk(entry):
+		return
+	var title: String = tr(String(entry.get("name_key", "")))
+	var subtitle_key: String = String(entry.get("subtitle_key", ""))
+	var subtitle: String = tr(subtitle_key) if subtitle_key != "" else ""
+	var ui: Dictionary = _open_simple_village_dialog(title, subtitle)
+	_talk_dialog = ui["layer"] as CanvasLayer
+	(ui["status"] as Label).text = _random_always_npc_dialogue_line(entry)
+	(ui["close"] as Button).pressed.connect(_close_talk_dialog)
+
+
+func _close_talk_dialog() -> void:
+	if _talk_dialog != null and is_instance_valid(_talk_dialog):
+		_talk_dialog.queue_free()
+	_talk_dialog = null
+	if not _any_modal_village_ui_open():
+		get_tree().paused = false
 
 
 func _try_open_nearest_facility_dialog() -> bool:
@@ -1309,31 +1455,17 @@ func _spawn_p1_house_marker() -> void:
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_HOME_P1_SLOTS)
 	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.47, floor_y - 42.0))
 	if slot is Node2D:
-		pos = (slot as Node2D).global_position + Vector2(0.0, -36.0)
+		pos = (slot as Node2D).global_position
+	_p1_house_node = _make_house_interact_anchor("VillageP1House", pos)
+
+
+func _make_house_interact_anchor(node_name: String, pos: Vector2) -> Node2D:
 	var home := Node2D.new()
-	home.name = "VillageP1House"
-	home.z_index = 8
+	home.name = node_name
 	home.global_position = pos
-	var draw := DrawerNode2D.new()
-	draw.fn = Callable(self, "_draw_p1_house_marker")
-	home.add_child(draw)
-	var label := Label.new()
-	label.text = tr("VILLAGE_P1_HOUSE_NAME")
-	label.position = Vector2(-72, -78)
-	label.size = Vector2(144, 28)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.95, 0.88, 0.65))
-	home.add_child(label)
+	home.set_meta("float_prompt_offset_y", -56.0)
 	add_child(home)
-	_p1_house_node = home
-
-
-func _draw_p1_house_marker(node: Node2D) -> void:
-	node.draw_circle(Vector2(0, 28), 30.0, Color(0, 0, 0, 0.2))
-	node.draw_rect(Rect2(-28, -8, 56, 44), Color(0.55, 0.42, 0.28))
-	node.draw_rect(Rect2(-20, -28, 40, 22), Color(0.72, 0.55, 0.35))
-	node.draw_rect(Rect2(-8, -18, 16, 18), Color(0.35, 0.25, 0.15))
+	return home
 
 
 func _player_near_node(node: Node2D, radius: float, input_prefix: String) -> bool:
@@ -1374,7 +1506,7 @@ func _update_p2_house_interaction() -> bool:
 		return false
 	_show_float_interact_prompt(
 		_p2_house_node, near, tr("VILLAGE_INTERACT_ACTION_HOUSE"))
-	if Input.is_action_just_pressed("p2_action") or Input.is_action_just_pressed("ui_accept"):
+	if _try_interact_prefixes(near):
 		_open_house_dialog("p2")
 	return true
 
@@ -1383,31 +1515,8 @@ func _spawn_p2_house_marker() -> void:
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_HOME_P2_SLOTS)
 	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.53, floor_y - 42.0))
 	if slot is Node2D:
-		pos = (slot as Node2D).global_position + Vector2(0.0, -36.0)
-	var home := Node2D.new()
-	home.name = "VillageP2House"
-	home.z_index = 8
-	home.global_position = pos
-	var draw := DrawerNode2D.new()
-	draw.fn = Callable(self, "_draw_p2_house_marker")
-	home.add_child(draw)
-	var label := Label.new()
-	label.text = tr("VILLAGE_P2_HOUSE_NAME")
-	label.position = Vector2(-72, -78)
-	label.size = Vector2(144, 28)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.65, 0.88, 0.98))
-	home.add_child(label)
-	add_child(home)
-	_p2_house_node = home
-
-
-func _draw_p2_house_marker(node: Node2D) -> void:
-	node.draw_circle(Vector2(0, 28), 30.0, Color(0, 0, 0, 0.2))
-	node.draw_rect(Rect2(-28, -8, 56, 44), Color(0.38, 0.48, 0.62))
-	node.draw_rect(Rect2(-20, -28, 40, 22), Color(0.52, 0.65, 0.82))
-	node.draw_rect(Rect2(-8, -18, 16, 18), Color(0.28, 0.38, 0.52))
+		pos = (slot as Node2D).global_position
+	_p2_house_node = _make_house_interact_anchor("VillageP2House", pos)
 
 
 func _open_house_dialog(player_slot: String) -> void:
@@ -1766,12 +1875,10 @@ func _house_update_character_preview(char_id: String) -> void:
 	# 逐幀 PNG
 	if visual.has("sprite_frames") and visual["sprite_frames"] is Dictionary:
 		var fdict: Dictionary = visual["sprite_frames"]
-		var path: String = _house_first_frame_path(fdict.get("idle", null))
-		if path != "":
-			var tex: Texture2D = load(path) as Texture2D
-			if tex:
-				_house_set_preview_texture(tex, visual)
-				return
+		var tex: Texture2D = GameData.sprite_frames_first_texture(fdict.get("idle", null))
+		if tex:
+			_house_set_preview_texture(tex, visual)
+			return
 	# 條狀圖
 	if visual.has("sprite_strips") and visual["sprite_strips"] is Dictionary:
 		var strips: Dictionary = visual["sprite_strips"]
@@ -1900,13 +2007,21 @@ func _open_blacksmith_dialog() -> void:
 	var portrait := Panel.new()
 	portrait.custom_minimum_size = Vector2(96, 96)
 	header.add_child(portrait)
-	var portrait_label := Label.new()
-	portrait_label.text = tr("VILLAGE_BLACKSMITH_NAME")
-	portrait_label.set_anchors_preset(Control.PRESET_FULL_RECT)
-	portrait_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	portrait_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	portrait_label.add_theme_font_size_override("font_size", 18)
-	portrait.add_child(portrait_label)
+	var portrait_box := VBoxContainer.new()
+	portrait_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	portrait_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	portrait.add_child(portrait_box)
+	var portrait_title := Label.new()
+	portrait_title.text = tr("VILLAGE_BLACKSMITH_NAME")
+	portrait_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	portrait_title.add_theme_font_size_override("font_size", 16)
+	portrait_box.add_child(portrait_title)
+	var portrait_sub := Label.new()
+	portrait_sub.text = GameData.tr_village_npc_subtitle("blacksmith")
+	portrait_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	portrait_sub.add_theme_font_size_override("font_size", 12)
+	portrait_sub.add_theme_color_override("font_color", Color(0.82, 0.82, 0.9))
+	portrait_box.add_child(portrait_sub)
 
 	var talk_box := VBoxContainer.new()
 	talk_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2146,6 +2261,15 @@ func _open_merchant_dialog() -> void:
 	title.add_theme_font_size_override("font_size", 24)
 	title.add_theme_color_override("font_color", Color(0.68, 0.92, 1.0))
 	vbox.add_child(title)
+	var merchant_who := Label.new()
+	merchant_who.text = "%s　%s" % [
+		tr("VILLAGE_MERCHANT_NAME"),
+		GameData.tr_village_npc_subtitle("merchant"),
+	]
+	merchant_who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	merchant_who.add_theme_font_size_override("font_size", 14)
+	merchant_who.add_theme_color_override("font_color", Color(0.78, 0.88, 0.95))
+	vbox.add_child(merchant_who)
 
 	var line := Label.new()
 	line.text = tr("MERCHANT_DIALOG_1")
