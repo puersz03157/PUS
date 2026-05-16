@@ -1,21 +1,29 @@
 extends Node2D
-## 村莊場景：載入 Village.tmx，玩家可自由走動，無敵人、無武器。
+## 村莊場景：載入 New Village.tmx，玩家可自由走動，無敵人、無武器。
 ## ESC 開啟離開村莊選單。
 
 const PLAYER_SCENE := preload("res://scenes/Player.tscn")
-const MAP_PATH := "res://assets/Maps/Village.tmx"
-# Village.tmx 是 200×20 tiles（16px）：3200×320。為了視覺與角色比例放大 1.5 倍。
-const MAP_RAW_SIZE := Vector2(3200.0, 320.0)
-const MAP_SCALE := 1.5
-const MAP_SIZE := Vector2(4800.0, 480.0)
+const RESCUE_NPC_TEXTURE := preload("res://assets/characters/Save NPC.png")
+const MAP_PATH := GameData.VILLAGE_MAP_PATH
+# New Village.tmx：200×15 tiles（16px）→ 3200×240，場景內再放大 1.5 倍 → 4800×360。
+const MAP_SCALE := GameData.VILLAGE_MAP_SCALE
+const MAP_SIZE: Vector2 = Vector2(
+	float(GameData.VILLAGE_MAP_TILES.x * GameData.VILLAGE_MAP_TILE_PX) * MAP_SCALE,
+	float(GameData.VILLAGE_MAP_TILES.y * GameData.VILLAGE_MAP_TILE_PX) * MAP_SCALE,
+)
 const CAMERA_ZOOM := Vector2(2.0, 2.0)
 const BLACKSMITH_INTERACT_RADIUS := 90.0
 const MERCHANT_INTERACT_RADIUS := 90.0
+const VILLAGE_FACILITY_INTERACT_RADIUS := 90.0
 const P1_HOUSE_INTERACT_RADIUS := 100.0
+const CROP_PLOT_INTERACT_RADIUS := 72.0
+const WELL_INTERACT_RADIUS := 88.0
+const FARMER_INTERACT_RADIUS := 90.0
 const VILLAGE_TOUCH_BTN_SIZE := Vector2(78.0, 56.0)
 
 const Coop := preload("res://scripts/coop_pair_follow.gd")
 const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
+const InputPrompt := preload("res://scripts/input_prompt.gd")
 
 @onready var camera: Camera2D = $Camera
 @onready var hud: CanvasLayer = $HUD
@@ -33,6 +41,8 @@ var tile_size: int = 16
 var blocked_tiles: Dictionary = {}
 # 玩家「腳底」的世界 Y 座標；走出地圖時固定在這條線上
 var floor_y: float = 0.0
+# 左側 Obstacle 物件框右緣（可走區下限）
+var _map_walk_min_x: float = 8.0
 
 var _pause_open: bool = false
 var _transitioning: bool = false
@@ -53,16 +63,33 @@ var _house_suppress_ui: bool = false
 var _house_preview: TextureRect = null
 var _house_char_name_label: Label = null
 var _house_skin_option: OptionButton = null
+var _house_fav_title: Label = null
+var _house_fav_grid: GridContainer = null
 var _house_favorite_option_buttons: Array[OptionButton] = []
 var _merchant_status_label: Label = null
 var _merchant_gold_label: Label = null
 var _merchant_inventory_label: RichTextLabel = null
+var _facility_nodes: Dictionary = {}
+var _facility_dialog: CanvasLayer = null
+var _facility_dialog_id: String = ""
+var _facility_status_label: Label = null
 var _touch_controls_root: Control = null
 var _touch_left_button: Button = null
 var _touch_right_button: Button = null
 var _touch_jump_button: Button = null
 var _touch_interact_button: Button = null
 var _touch_menu_button: Button = null
+var _float_prompt_layer: Control = null
+var _float_prompt_panel: PanelContainer = null
+var _float_prompt_box: VBoxContainer = null
+var _float_prompt_target: Node2D = null
+var _well_node: Node2D = null
+var _farmer_shop_node: Node2D = null
+var _crop_plot_nodes: Dictionary = {}
+var _well_dialog: CanvasLayer = null
+var _farmer_dialog: CanvasLayer = null
+var _crop_dialog: CanvasLayer = null
+var _crop_dialog_slot: int = 0
 
 
 func _ready() -> void:
@@ -72,6 +99,9 @@ func _ready() -> void:
 	_spawn_map()
 	_spawn_blacksmith_if_rescued()
 	_spawn_merchant_if_rescued()
+	_spawn_rescued_story_npcs()
+	_spawn_village_facilities()
+	_spawn_farm_and_well_nodes()
 	_spawn_p1_house_marker()
 	_spawn_p2_house_marker()
 	_spawn_players()
@@ -98,7 +128,12 @@ func _setup_hud() -> void:
 	pause_leave_btn.pressed.connect(_leave_village)
 	hint_label.text = tr("VILLAGE_HINT")
 	_build_village_touch_controls()
+	_build_float_interact_prompt()
 	get_viewport().size_changed.connect(_layout_village_touch_controls)
+
+
+func _input(event: InputEvent) -> void:
+	InputPrompt.note_event(event)
 
 
 func _process(_delta: float) -> void:
@@ -111,8 +146,20 @@ func _process(_delta: float) -> void:
 		if _merchant_dialog != null:
 			_close_merchant_dialog()
 			return
+		if _facility_dialog != null:
+			_close_facility_dialog()
+			return
 		if _house_dialog != null:
 			_close_house_dialog()
+			return
+		if _well_dialog != null:
+			_close_well_dialog()
+			return
+		if _farmer_dialog != null:
+			_close_farmer_dialog()
+			return
+		if _crop_dialog != null:
+			_close_crop_dialog()
 			return
 		if _pause_open:
 			_close_pause()
@@ -122,6 +169,7 @@ func _process(_delta: float) -> void:
 	_update_npc_interactions()
 	_refresh_village_touch_visibility()
 	_position_camera()
+	_position_float_interact_prompt()
 
 
 func _build_village_touch_controls() -> void:
@@ -198,12 +246,46 @@ func _layout_village_touch_controls() -> void:
 	_touch_menu_button.position = Vector2(vp.x - VILLAGE_TOUCH_BTN_SIZE.x - 24.0, bottom_y - VILLAGE_TOUCH_BTN_SIZE.y - 12.0)
 
 
+func _build_float_interact_prompt() -> void:
+	if _float_prompt_layer != null:
+		return
+	_float_prompt_layer = Control.new()
+	_float_prompt_layer.name = "InteractFloatPrompt"
+	_float_prompt_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_float_prompt_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	hud.add_child(_float_prompt_layer)
+	_float_prompt_panel = PanelContainer.new()
+	_float_prompt_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.04, 0.06, 0.14, 0.88)
+	sb.border_color = Color(1.0, 0.88, 0.42, 0.95)
+	sb.border_width_left = 2
+	sb.border_width_right = 2
+	sb.border_width_top = 2
+	sb.border_width_bottom = 2
+	sb.corner_radius_top_left = 10
+	sb.corner_radius_top_right = 10
+	sb.corner_radius_bottom_left = 10
+	sb.corner_radius_bottom_right = 10
+	sb.content_margin_left = 12
+	sb.content_margin_right = 12
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	_float_prompt_panel.add_theme_stylebox_override("panel", sb)
+	_float_prompt_layer.add_child(_float_prompt_panel)
+	_float_prompt_box = VBoxContainer.new()
+	_float_prompt_box.add_theme_constant_override("separation", 4)
+	_float_prompt_panel.add_child(_float_prompt_box)
+	_float_prompt_layer.visible = false
+
+
 func _refresh_village_touch_visibility() -> void:
 	if _touch_controls_root == null:
 		return
 	var show: bool = bool(GameState.touch_controls_enabled) and not _transitioning \
 		and not _pause_open and _blacksmith_dialog == null and _merchant_dialog == null \
-		and _house_dialog == null
+		and _facility_dialog == null and _house_dialog == null \
+		and _well_dialog == null and _farmer_dialog == null and _crop_dialog == null
 	if _touch_controls_root.visible != show and not show:
 		_release_village_touch_actions()
 	_touch_controls_root.visible = show
@@ -216,12 +298,21 @@ func _release_village_touch_actions() -> void:
 
 func _on_touch_interact_pressed() -> void:
 	if _pause_open or _blacksmith_dialog != null or _merchant_dialog != null \
-			or _house_dialog != null:
+			or _facility_dialog != null or _house_dialog != null \
+			or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null:
 		return
-	if _players_near_node(_blacksmith_node, BLACKSMITH_INTERACT_RADIUS):
+	if _try_open_nearest_crop_dialog():
+		pass
+	elif _players_near_node(_well_node, WELL_INTERACT_RADIUS):
+		_open_well_dialog()
+	elif _players_near_node(_farmer_shop_node, FARMER_INTERACT_RADIUS):
+		_open_farmer_dialog()
+	elif _players_near_node(_blacksmith_node, BLACKSMITH_INTERACT_RADIUS):
 		_open_blacksmith_dialog()
 	elif _players_near_node(_merchant_node, MERCHANT_INTERACT_RADIUS):
 		_open_merchant_dialog()
+	elif _try_open_nearest_facility_dialog():
+		pass
 	elif _player_near_node(_p1_house_node, P1_HOUSE_INTERACT_RADIUS, "p1"):
 		_open_house_dialog("p1")
 	elif GameState.two_players and _player_near_node(_p2_house_node, P1_HOUSE_INTERACT_RADIUS, "p2"):
@@ -280,17 +371,19 @@ func _spawn_map() -> void:
 	if background:
 		background.visible = false
 	# 物件層：若有 Entrance/entrance 採用該座標當「出生 X」
-	var entrance: Node = _find_map_object_by_name([
-		"Entrance", "entrance", "ENTRANCE"])
+	var entrance: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_ENTRANCE_SLOTS)
 	if entrance is Node2D:
 		spawn_origin = (entrance as Node2D).global_position
+	var obstacle: Node = _find_map_object_by_name(["Obstacle", "obstacle"])
+	if obstacle is Node2D:
+		# TMX 中 Obstacle 寬約 78.67 tile 單位，與地圖同乘 MAP_SCALE
+		_map_walk_min_x = (obstacle as Node2D).global_position.x + 79.0 * MAP_SCALE
 	# 地面 Y 採取下面優先順序：
 	#   1) 物件層名稱為 Floor / Ground / floor / ground 的物件 Y
 	#   2) Buildings 群組底下所有 Sprite2D 的視覺底部最大值（建築物腳）
 	#   3) Entrance 自身 Y
 	#   4) MAP_SIZE.y * 0.85（保險預設）
-	var floor_obj: Node = _find_map_object_by_name([
-		"Floor", "floor", "Ground", "ground"])
+	var floor_obj: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_FLOOR_SLOTS)
 	if floor_obj is Node2D:
 		floor_y = (floor_obj as Node2D).global_position.y
 	else:
@@ -383,7 +476,7 @@ func _build_blocked_grid() -> void:
 # 給 Player 呼叫；村莊外圍也視為阻擋
 func is_world_blocked_at(pos: Vector2, radius: float = 8.0) -> bool:
 	# 軟邊界：不可走到地圖外
-	if pos.x - radius < 8.0:
+	if pos.x - radius < _map_walk_min_x:
 		return true
 	if pos.y - radius < 8.0:
 		return true
@@ -414,12 +507,8 @@ func add_team_xp(_amount: float) -> void:
 func _spawn_blacksmith_if_rescued() -> void:
 	if not bool(GameState.blacksmith_rescued):
 		return
-	var slot: Node = _find_map_object_by_name([
-		"smith", "Smith", "blacksmith", "Blacksmith", "BlacksmithSlot", "blacksmith_slot"])
-	var pos: Vector2 = Vector2(MAP_SIZE.x * 0.62, floor_y - 42.0)
-	if slot is Node2D:
-		pos.x = (slot as Node2D).global_position.x
-		pos.y = floor_y - 42.0
+	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_BLACKSMITH_SLOTS)
+	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.65, floor_y - 42.0))
 	var smith := _make_blacksmith_village_marker()
 	smith.global_position = pos
 	add_child(smith)
@@ -457,12 +546,8 @@ func _draw_village_blacksmith(node: Node2D) -> void:
 func _spawn_merchant_if_rescued() -> void:
 	if not bool(GameState.merchant_rescued):
 		return
-	var slot: Node = _find_map_object_by_name([
-		"merchant", "Merchant", "shopkeeper", "Shopkeeper", "MerchantSlot", "merchant_slot"])
-	var pos: Vector2 = Vector2(MAP_SIZE.x * 0.74, floor_y - 42.0)
-	if slot is Node2D:
-		pos.x = (slot as Node2D).global_position.x
-		pos.y = floor_y - 42.0
+	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_MERCHANT_SLOTS)
+	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.53, floor_y - 42.0))
 	var merchant := _make_merchant_village_marker()
 	merchant.global_position = pos
 	add_child(merchant)
@@ -498,44 +583,731 @@ func _draw_village_merchant(node: Node2D) -> void:
 		HORIZONTAL_ALIGNMENT_CENTER, 14, 22, Color(1.0, 0.92, 0.45))
 
 
+func _map_marker_position(slot: Node, fallback: Vector2) -> Vector2:
+	if slot is Node2D:
+		return Vector2((slot as Node2D).global_position.x, floor_y - 42.0)
+	return fallback
+
+
+func _spawn_rescued_story_npcs() -> void:
+	for entry in GameData.VILLAGE_RESCUED_NPC_MARKERS:
+		var npc_id: String = String(entry.get("npc_id", ""))
+		if npc_id == "" or not GameState.is_npc_rescued(npc_id):
+			continue
+		if npc_id == "farmer" and GameState.is_village_facility_unlocked("farm"):
+			continue
+		var slots: Array = []
+		for s in entry.get("map_slots", []):
+			slots.append(String(s))
+		var slot: Node = _find_map_object_by_name(slots)
+		var pos: Vector2 = _map_marker_position(
+			slot, Vector2(MAP_SIZE.x * 0.5, floor_y - 42.0))
+		var marker := _make_rescued_npc_marker(String(entry.get("name_key", "")))
+		marker.global_position = pos
+		add_child(marker)
+
+
+func _make_rescued_npc_marker(name_key: String) -> Node2D:
+	var root := Node2D.new()
+	root.name = "VillageRescuedNpc"
+	root.z_index = 7
+	var spr := Sprite2D.new()
+	spr.texture = RESCUE_NPC_TEXTURE
+	if spr.texture:
+		var ts: Vector2 = spr.texture.get_size()
+		var target_h: float = 72.0
+		if ts.y > 0.0:
+			spr.scale = Vector2.ONE * (target_h / ts.y)
+		spr.position = Vector2(0, -target_h * 0.5 + 34.0)
+	root.add_child(spr)
+	var label := Label.new()
+	label.text = tr(name_key) if name_key != "" else ""
+	label.position = Vector2(-80, -86)
+	label.size = Vector2(160, 32)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(0.88, 0.95, 1.0))
+	root.add_child(label)
+	return root
+
+
+func _spawn_village_facilities() -> void:
+	_facility_nodes.clear()
+	for fdef in GameData.VILLAGE_FACILITIES:
+		var fid: String = String(fdef.get("id", ""))
+		if fid == "" or fid == "well" or fid == "farm":
+			continue
+		if not GameState.is_village_facility_unlocked(fid):
+			continue
+		var slots: Array = fdef.get("map_slots", [])
+		var candidates: Array = []
+		for s in slots:
+			candidates.append(String(s))
+		var slot: Node = _find_map_object_by_name(candidates)
+		var pos: Vector2 = _map_marker_position(slot, Vector2(
+			MAP_SIZE.x * float(fdef.get("fallback_x_mult", 0.1)),
+			floor_y - 42.0))
+		var marker := _make_village_facility_marker(fid, fdef)
+		marker.global_position = pos
+		add_child(marker)
+		_facility_nodes[fid] = marker
+
+
+func _spawn_farm_and_well_nodes() -> void:
+	_crop_plot_nodes.clear()
+	if GameState.is_village_facility_unlocked("well"):
+		var well_slot: Node = _find_map_object_by_name(["Water", "water", "well"])
+		var wpos: Vector2 = _map_marker_position(well_slot, Vector2(MAP_SIZE.x * 0.11, floor_y - 42.0))
+		_well_node = _make_well_marker()
+		_well_node.global_position = wpos
+		add_child(_well_node)
+	if GameState.is_village_facility_unlocked("farm"):
+		var farmer_slot: Node = _find_map_object_by_name(["Farmer", "farmer", "farm"])
+		var fpos: Vector2 = _map_marker_position(farmer_slot, Vector2(MAP_SIZE.x * 0.16, floor_y - 42.0))
+		_farmer_shop_node = _make_farmer_shop_marker()
+		_farmer_shop_node.global_position = fpos
+		add_child(_farmer_shop_node)
+		for i in range(1, GameData.FARM_PLOT_COUNT + 1):
+			var slot_name: String = GameData.farm_plot_map_slot_name(i)
+			var crop_slot: Node = _find_map_object_by_name([slot_name])
+			var cpos: Vector2 = _map_marker_position(
+				crop_slot, Vector2(MAP_SIZE.x * 0.12 + float(i) * 18.0, floor_y - 36.0))
+			var plot := _make_crop_plot_marker(i)
+			plot.global_position = cpos
+			add_child(plot)
+			_crop_plot_nodes[i] = plot
+
+
+func _make_well_marker() -> Node2D:
+	var root := Node2D.new()
+	root.name = "VillageWell"
+	root.z_index = 8
+	var draw := DrawerNode2D.new()
+	draw.fn = Callable(self, "_draw_well_marker")
+	root.add_child(draw)
+	var label := Label.new()
+	label.text = tr("VILLAGE_WELL_NAME")
+	label.position = Vector2(-70, -80)
+	label.size = Vector2(140, 28)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", Color(0.55, 0.82, 1.0))
+	root.add_child(label)
+	return root
+
+
+func _draw_well_marker(node: Node2D) -> void:
+	node.draw_circle(Vector2(0, 30), 28.0, Color(0, 0, 0, 0.2))
+	node.draw_rect(Rect2(-22, -6, 44, 36), Color(0.35, 0.42, 0.55))
+	node.draw_circle(Vector2(0, -8), 14.0, Color(0.42, 0.72, 0.95))
+
+
+func _make_farmer_shop_marker() -> Node2D:
+	var root := Node2D.new()
+	root.name = "VillageFarmerShop"
+	root.z_index = 9
+	var draw := DrawerNode2D.new()
+	draw.fn = Callable(self, "_draw_farmer_shop_marker")
+	root.add_child(draw)
+	var label := Label.new()
+	label.text = tr("VILLAGE_FARMER_NAME")
+	label.position = Vector2(-80, -86)
+	label.size = Vector2(160, 28)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(0.75, 1.0, 0.65))
+	root.add_child(label)
+	return root
+
+
+func _draw_farmer_shop_marker(node: Node2D) -> void:
+	node.draw_circle(Vector2(0, 34), 32.0, Color(0, 0, 0, 0.2))
+	node.draw_circle(Vector2(0, -18), 14.0, Color(0.95, 0.76, 0.55))
+	node.draw_rect(Rect2(-16, -4, 32, 36), Color(0.35, 0.55, 0.32))
+	node.draw_rect(Rect2(-20, 12, 40, 18), Color(0.62, 0.45, 0.22))
+
+
+func _make_crop_plot_marker(slot_index: int) -> Node2D:
+	var root := Node2D.new()
+	root.name = "VillageCropPlot_%d" % slot_index
+	root.z_index = 7
+	root.set_meta("plot_slot", slot_index)
+	var draw := DrawerNode2D.new()
+	draw.set_meta("plot_slot", slot_index)
+	draw.fn = Callable(self, "_draw_crop_plot_marker")
+	root.add_child(draw)
+	return root
+
+
+func _draw_crop_plot_marker(node: Node2D) -> void:
+	var slot: int = int(node.get_meta("plot_slot", 1))
+	var col: Color = Color(0.45, 0.32, 0.18)
+	if GameState.farm_plot_is_ready(slot):
+		col = Color(0.55, 0.85, 0.35)
+	elif not GameState.farm_plot_is_empty(slot):
+		col = Color(0.42, 0.62, 0.28)
+	node.draw_rect(Rect2(-20, 8, 40, 14), col.darkened(0.2))
+	node.draw_rect(Rect2(-16, 4, 32, 10), col)
+	var stage: int = GameState.farm_plot_stage(slot)
+	if not GameState.farm_plot_is_empty(slot):
+		node.draw_string(ThemeDB.fallback_font, Vector2(-6, 0), str(stage),
+			HORIZONTAL_ALIGNMENT_CENTER, 12, 11, Color(1, 1, 1, 0.85))
+
+
+func _nearest_crop_plot_slot() -> int:
+	var best_slot: int = 0
+	var best_dist: float = INF
+	for slot_key in _crop_plot_nodes.keys():
+		var node: Node = _crop_plot_nodes[slot_key]
+		if node == null or not is_instance_valid(node):
+			continue
+		for p in players:
+			if p == null or not is_instance_valid(p):
+				continue
+			var d: float = p.global_position.distance_to(node.global_position)
+			if d <= CROP_PLOT_INTERACT_RADIUS and d < best_dist:
+				best_dist = d
+				best_slot = int(slot_key)
+	return best_slot
+
+
+func _update_crop_plot_interaction() -> bool:
+	var slot: int = _nearest_crop_plot_slot()
+	if slot <= 0:
+		return false
+	var node: Node2D = _crop_plot_nodes.get(slot) as Node2D
+	if node == null:
+		return false
+	var near: Array[String] = _players_in_range_prefixes(node, CROP_PLOT_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	var action_key: String = "VILLAGE_INTERACT_ACTION_CROP_PLOT"
+	if GameState.farm_plot_is_ready(slot):
+		action_key = "VILLAGE_INTERACT_ACTION_HARVEST"
+	elif GameState.farm_plot_is_empty(slot):
+		action_key = "VILLAGE_INTERACT_ACTION_PLANT"
+	else:
+		action_key = "VILLAGE_INTERACT_ACTION_WATER"
+	_show_float_interact_prompt(node, near, tr(action_key))
+	if _try_interact_prefixes(near):
+		_open_crop_dialog(slot)
+	return true
+
+
+func _update_well_interaction() -> bool:
+	if _well_node == null or not is_instance_valid(_well_node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(_well_node, WELL_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(_well_node, near, tr("VILLAGE_INTERACT_ACTION_WELL"))
+	if _try_interact_prefixes(near):
+		_open_well_dialog()
+	return true
+
+
+func _update_farmer_interaction() -> bool:
+	if _farmer_shop_node == null or not is_instance_valid(_farmer_shop_node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(_farmer_shop_node, FARMER_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(_farmer_shop_node, near, tr("VILLAGE_INTERACT_ACTION_FARMER"))
+	if _try_interact_prefixes(near):
+		_open_farmer_dialog()
+	return true
+
+
+func _try_open_nearest_crop_dialog() -> bool:
+	var slot: int = _nearest_crop_plot_slot()
+	if slot <= 0:
+		return false
+	_open_crop_dialog(slot)
+	return true
+
+
+func _open_simple_village_dialog(title: String) -> Dictionary:
+	var layer := CanvasLayer.new()
+	layer.layer = 240
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(layer)
+	get_tree().paused = true
+	var root := MarginContainer.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_theme_constant_override("margin_left", 24)
+	root.add_theme_constant_override("margin_right", 24)
+	root.add_theme_constant_override("margin_top", 24)
+	root.add_theme_constant_override("margin_bottom", 24)
+	layer.add_child(root)
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.custom_minimum_size = Vector2(400, 300)
+	root.add_child(panel)
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	panel.add_child(vbox)
+	var title_lbl := Label.new()
+	title_lbl.text = title
+	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_lbl.add_theme_font_size_override("font_size", 20)
+	vbox.add_child(title_lbl)
+	var status_lbl := Label.new()
+	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(status_lbl)
+	var actions := VBoxContainer.new()
+	actions.add_theme_constant_override("separation", 6)
+	vbox.add_child(actions)
+	var close_btn := Button.new()
+	close_btn.text = tr("BLACKSMITH_CLOSE")
+	vbox.add_child(close_btn)
+	return {"layer": layer, "status": status_lbl, "actions": actions, "close": close_btn}
+
+
+func _open_well_dialog() -> void:
+	if _well_dialog != null:
+		return
+	var ui: Dictionary = _open_simple_village_dialog(tr("VILLAGE_WELL_NAME"))
+	_well_dialog = ui["layer"] as CanvasLayer
+	var status: Label = ui["status"] as Label
+	var actions: VBoxContainer = ui["actions"] as VBoxContainer
+	status.text = tr("VILLAGE_WELL_STATUS_FMT") % [
+		GameState.water_charges, GameData.VILLAGE_WATER_MAX_CHARGES]
+	var fill_btn := Button.new()
+	fill_btn.text = tr("VILLAGE_WELL_FILL_BTN")
+	fill_btn.pressed.connect(func() -> void:
+		GameState.fill_water_at_well()
+		status.text = tr("VILLAGE_WELL_FILLED_FMT") % GameData.VILLAGE_WATER_MAX_CHARGES)
+	actions.add_child(fill_btn)
+	(ui["close"] as Button).pressed.connect(_close_well_dialog)
+
+
+func _close_well_dialog() -> void:
+	if _well_dialog != null and is_instance_valid(_well_dialog):
+		_well_dialog.queue_free()
+	_well_dialog = null
+	if not _any_modal_village_ui_open():
+		get_tree().paused = false
+
+
+func _open_farmer_dialog() -> void:
+	if _farmer_dialog != null:
+		return
+	var ui: Dictionary = _open_simple_village_dialog(tr("VILLAGE_FARMER_NAME"))
+	_farmer_dialog = ui["layer"] as CanvasLayer
+	var status: Label = ui["status"] as Label
+	var actions: VBoxContainer = ui["actions"] as VBoxContainer
+	status.text = tr("VILLAGE_FARMER_INTRO")
+	for seed_id in GameData.FARMER_SEED_PRICES.keys():
+		var sid: String = String(seed_id)
+		var price: int = int(GameData.FARMER_SEED_PRICES[sid])
+		var btn := Button.new()
+		btn.text = tr("VILLAGE_FARMER_BUY_SEED_FMT") % [
+			GameData.tr_material_name(sid), price]
+		btn.pressed.connect(_farmer_buy_seed.bind(sid, status))
+		actions.add_child(btn)
+	(ui["close"] as Button).pressed.connect(_close_farmer_dialog)
+
+
+func _farmer_buy_seed(seed_id: String, status: Label) -> void:
+	if GameState.buy_farmer_seed(seed_id):
+		status.text = tr("VILLAGE_FARMER_BOUGHT_FMT") % GameData.tr_material_name(seed_id)
+	else:
+		status.text = tr("VILLAGE_FARMER_BUY_FAIL")
+
+
+func _close_farmer_dialog() -> void:
+	if _farmer_dialog != null and is_instance_valid(_farmer_dialog):
+		_farmer_dialog.queue_free()
+	_farmer_dialog = null
+	if not _any_modal_village_ui_open():
+		get_tree().paused = false
+
+
+func _open_crop_dialog(slot_index: int) -> void:
+	if _crop_dialog != null:
+		return
+	_crop_dialog_slot = slot_index
+	var ui: Dictionary = _open_simple_village_dialog(
+		tr("VILLAGE_CROP_PLOT_TITLE_FMT") % slot_index)
+	_crop_dialog = ui["layer"] as CanvasLayer
+	var status: Label = ui["status"] as Label
+	var actions: VBoxContainer = ui["actions"] as VBoxContainer
+	_refresh_crop_dialog_ui(status, actions)
+	(ui["close"] as Button).pressed.connect(_close_crop_dialog)
+
+
+func _refresh_crop_dialog_ui(status: Label, actions: VBoxContainer) -> void:
+	for c in actions.get_children():
+		c.queue_free()
+	var slot: int = _crop_dialog_slot
+	if GameState.farm_plot_is_empty(slot):
+		status.text = tr(String(GameState.farm_plot_status_key(slot)))
+		var seeds: Array[String] = GameState.owned_farm_seed_ids()
+		if seeds.is_empty():
+			status.text += "\n" + tr("VILLAGE_CROP_NO_SEEDS")
+			return
+		for seed_id in seeds:
+			var btn := Button.new()
+			btn.text = tr("VILLAGE_CROP_PLANT_FMT") % GameData.tr_material_name(seed_id)
+			btn.pressed.connect(_crop_plant.bind(seed_id, status, actions))
+			actions.add_child(btn)
+	elif GameState.farm_plot_is_ready(slot):
+		status.text = tr("FARM_PLOT_STATUS_READY")
+		var harvest_btn := Button.new()
+		harvest_btn.text = tr("VILLAGE_CROP_HARVEST_BTN")
+		harvest_btn.pressed.connect(_crop_harvest.bind(status, actions))
+		actions.add_child(harvest_btn)
+	else:
+		var crop_id: String = GameState.farm_plot_crop_id(slot)
+		status.text = tr("VILLAGE_CROP_GROWING_FMT") % [
+			GameData.tr_name(GameData.get_farm_crop_def(crop_id)),
+			GameState.farm_plot_stage(slot),
+			int(GameData.get_farm_crop_def(crop_id).get("stages_to_mature", 3)),
+			GameState.water_charges,
+		]
+		var water_btn := Button.new()
+		water_btn.text = tr("VILLAGE_CROP_WATER_BTN")
+		water_btn.pressed.connect(_crop_water.bind(status, actions))
+		actions.add_child(water_btn)
+
+
+func _crop_plant(seed_id: String, status: Label, actions: VBoxContainer) -> void:
+	if GameState.plant_farm_plot(_crop_dialog_slot, seed_id):
+		_redraw_crop_plot(_crop_dialog_slot)
+		_refresh_crop_dialog_ui(status, actions)
+	else:
+		status.text = tr("VILLAGE_CROP_PLANT_FAIL")
+
+
+func _crop_water(status: Label, actions: VBoxContainer) -> void:
+	var result: Dictionary = GameState.water_farm_plot(_crop_dialog_slot)
+	if not bool(result.get("ok", false)):
+		var reason: String = String(result.get("reason", ""))
+		if reason == "no_water":
+			status.text = tr("VILLAGE_CROP_NO_WATER")
+		else:
+			status.text = tr("VILLAGE_CROP_WATER_FAIL")
+		return
+	_redraw_crop_plot(_crop_dialog_slot)
+	if bool(result.get("ready", false)):
+		status.text = tr("VILLAGE_CROP_WATER_READY")
+	_refresh_crop_dialog_ui(status, actions)
+
+
+func _crop_harvest(status: Label, actions: VBoxContainer) -> void:
+	if GameState.harvest_farm_plot(_crop_dialog_slot):
+		_redraw_crop_plot(_crop_dialog_slot)
+		status.text = tr("VILLAGE_CROP_HARVESTED")
+		_refresh_crop_dialog_ui(status, actions)
+	else:
+		status.text = tr("VILLAGE_CROP_HARVEST_FAIL")
+
+
+func _redraw_crop_plot(slot_index: int) -> void:
+	var node: Node = _crop_plot_nodes.get(slot_index)
+	if node is Node2D:
+		node.queue_redraw()
+
+
+func _close_crop_dialog() -> void:
+	if _crop_dialog != null and is_instance_valid(_crop_dialog):
+		_crop_dialog.queue_free()
+	_crop_dialog = null
+	_crop_dialog_slot = 0
+	if not _any_modal_village_ui_open():
+		get_tree().paused = false
+
+
+func _any_modal_village_ui_open() -> bool:
+	return _blacksmith_dialog != null or _merchant_dialog != null \
+		or _facility_dialog != null or _house_dialog != null \
+		or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null
+
+
+func _make_village_facility_marker(facility_id: String, fdef: Dictionary) -> Node2D:
+	var root := Node2D.new()
+	root.name = "VillageFacility_%s" % facility_id
+	root.z_index = 8
+	root.set_meta("facility_id", facility_id)
+	var draw := DrawerNode2D.new()
+	draw.set_meta("facility_id", facility_id)
+	draw.fn = Callable(self, "_draw_village_facility_marker")
+	root.add_child(draw)
+	var label := Label.new()
+	label.text = GameData.tr_field(fdef, "name", false)
+	label.position = Vector2(-100, -86)
+	label.size = Vector2(200, 32)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(0.75, 1.0, 0.7))
+	root.add_child(label)
+	return root
+
+
+func _draw_village_facility_marker(node: Node2D) -> void:
+	_draw_village_facility(node, String(node.get_meta("facility_id", "")))
+
+
+func _draw_village_facility(node: Node2D, facility_id: String) -> void:
+	var col: Color = Color(0.55, 0.82, 0.45)
+	match facility_id:
+		"quarry":
+			col = Color(0.65, 0.62, 0.58)
+		"lumberyard":
+			col = Color(0.45, 0.72, 0.38)
+		"well":
+			col = Color(0.42, 0.72, 0.95)
+		"farm":
+			col = Color(0.72, 0.85, 0.42)
+	node.draw_circle(Vector2(0, 34), 34.0, Color(0, 0, 0, 0.22))
+	node.draw_rect(Rect2(-28, -8, 56, 44), col.darkened(0.25))
+	node.draw_rect(Rect2(-22, -2, 44, 32), col)
+	node.draw_circle(Vector2(0, -18), 12.0, col.lightened(0.2))
+
+
 func _update_npc_interactions() -> void:
 	if _pause_open or _blacksmith_dialog != null or _merchant_dialog != null \
-			or _house_dialog != null:
+			or _facility_dialog != null or _house_dialog != null \
+			or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null:
+		_hide_float_interact_prompt()
+		return
+	if _update_crop_plot_interaction():
+		return
+	if _update_well_interaction():
+		return
+	if _update_farmer_interaction():
 		return
 	if _update_blacksmith_interaction():
 		return
 	if _update_merchant_interaction():
 		return
+	if _update_facility_interaction():
+		return
 	if _update_p1_house_interaction():
 		return
 	if _update_p2_house_interaction():
 		return
+	_hide_float_interact_prompt()
 	hint_label.text = tr("VILLAGE_HINT")
 
 
-func _update_blacksmith_interaction() -> bool:
-	if _players_near_node(_blacksmith_node, BLACKSMITH_INTERACT_RADIUS):
-		hint_label.text = tr("VILLAGE_BLACKSMITH_INTERACT_HINT")
-		if Input.is_action_just_pressed("p1_action") or Input.is_action_just_pressed("p2_action") \
-				or Input.is_action_just_pressed("ui_accept"):
-			_open_blacksmith_dialog()
+func _players_in_range_prefixes(
+		node: Node2D, radius: float, only_prefix: String = "") -> Array[String]:
+	if node == null or not is_instance_valid(node):
+		return []
+	var out: Array[String] = []
+	for p in players:
+		if p == null or not is_instance_valid(p):
+			continue
+		var pref: String = String(p.input_prefix)
+		if only_prefix != "" and pref != only_prefix:
+			continue
+		if p.global_position.distance_to(node.global_position) <= radius:
+			if not out.has(pref):
+				out.append(pref)
+	out.sort()
+	return out
+
+
+func _interact_line_text(prefix: String, action_text: String, show_player_tag: bool) -> String:
+	var btn: String = InputPrompt.interact_button_label(prefix)
+	if show_player_tag:
+		var tag: String = tr("INPUT_PROMPT_PLAYER_P1") if prefix == "p1" \
+				else tr("INPUT_PROMPT_PLAYER_P2")
+		return tr("VILLAGE_INTERACT_FLOAT_2P_FMT") % [tag, btn, action_text]
+	return tr("VILLAGE_INTERACT_FLOAT_FMT") % [btn, action_text]
+
+
+func _show_float_interact_prompt(
+		target: Node2D, near_prefixes: Array[String], action_text: String) -> void:
+	if _float_prompt_box == null or target == null or not is_instance_valid(target):
+		return
+	_float_prompt_target = target
+	for child in _float_prompt_box.get_children():
+		child.queue_free()
+	var show_tags: bool = GameState.two_players and near_prefixes.size() > 1
+	for prefix in near_prefixes:
+		var lbl := Label.new()
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lbl.text = _interact_line_text(prefix, action_text, show_tags)
+		lbl.add_theme_font_size_override("font_size", 15)
+		lbl.add_theme_color_override("font_color", Color(1.0, 0.95, 0.72))
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_float_prompt_box.add_child(lbl)
+	_float_prompt_layer.visible = true
+	_position_float_interact_prompt()
+
+
+func _hide_float_interact_prompt() -> void:
+	_float_prompt_target = null
+	if _float_prompt_layer != null:
+		_float_prompt_layer.visible = false
+
+
+func _position_float_interact_prompt() -> void:
+	if _float_prompt_layer == null or _float_prompt_target == null \
+			or not is_instance_valid(_float_prompt_target) \
+			or not _float_prompt_layer.visible:
+		return
+	var world_pos: Vector2 = _float_prompt_target.global_position + Vector2(0.0, -78.0)
+	var screen_pos: Vector2 = get_viewport().get_canvas_transform() * world_pos
+	if _float_prompt_panel == null:
+		return
+	var panel_size: Vector2 = _float_prompt_panel.get_combined_minimum_size()
+	_float_prompt_layer.position = screen_pos - Vector2(panel_size.x * 0.5, panel_size.y + 8.0)
+
+
+func _try_interact_prefixes(prefixes: Array[String]) -> bool:
+	for prefix in prefixes:
+		if Input.is_action_just_pressed(prefix + "_action"):
+			return true
+	if prefixes.has("p1") and Input.is_action_just_pressed("ui_accept"):
 		return true
 	return false
+
+
+func _update_blacksmith_interaction() -> bool:
+	if _blacksmith_node == null or not is_instance_valid(_blacksmith_node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(
+		_blacksmith_node, BLACKSMITH_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(
+		_blacksmith_node, near, tr("VILLAGE_INTERACT_ACTION_BLACKSMITH"))
+	if _try_interact_prefixes(near):
+		_open_blacksmith_dialog()
+	return true
 
 
 func _update_merchant_interaction() -> bool:
-	if _players_near_node(_merchant_node, MERCHANT_INTERACT_RADIUS):
-		hint_label.text = tr("VILLAGE_MERCHANT_INTERACT_HINT")
-		if Input.is_action_just_pressed("p1_action") or Input.is_action_just_pressed("p2_action") \
-				or Input.is_action_just_pressed("ui_accept"):
-			_open_merchant_dialog()
+	if _merchant_node == null or not is_instance_valid(_merchant_node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(
+		_merchant_node, MERCHANT_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(
+		_merchant_node, near, tr("VILLAGE_INTERACT_ACTION_MERCHANT"))
+	if _try_interact_prefixes(near):
+		_open_merchant_dialog()
+	return true
+
+
+func _try_open_nearest_facility_dialog() -> bool:
+	for fid in _facility_nodes.keys():
+		var node: Node = _facility_nodes[fid]
+		if node != null and is_instance_valid(node) \
+				and _players_near_node(node, VILLAGE_FACILITY_INTERACT_RADIUS):
+			_open_facility_dialog(String(fid))
+			return true
+	return false
+
+
+func _update_facility_interaction() -> bool:
+	for fid in _facility_nodes.keys():
+		var node: Node = _facility_nodes[fid]
+		if node == null or not is_instance_valid(node):
+			continue
+		var near: Array[String] = _players_in_range_prefixes(
+			node, VILLAGE_FACILITY_INTERACT_RADIUS)
+		if near.is_empty():
+			continue
+		var fdef: Dictionary = GameData.get_village_facility_def(String(fid))
+		var action_text: String = tr("VILLAGE_INTERACT_ACTION_COLLECT_FMT") % \
+				GameData.tr_field(fdef, "name", false)
+		_show_float_interact_prompt(node, near, action_text)
+		if _try_interact_prefixes(near):
+			_open_facility_dialog(String(fid))
 		return true
 	return false
 
 
+func _open_facility_dialog(facility_id: String) -> void:
+	if _facility_dialog != null:
+		return
+	var fdef: Dictionary = GameData.get_village_facility_def(facility_id)
+	if fdef.is_empty():
+		return
+	_facility_dialog_id = facility_id
+	_facility_dialog = CanvasLayer.new()
+	_facility_dialog.layer = 240
+	_facility_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_facility_dialog)
+	var root := MarginContainer.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_theme_constant_override("margin_left", 24)
+	root.add_theme_constant_override("margin_right", 24)
+	root.add_theme_constant_override("margin_top", 24)
+	root.add_theme_constant_override("margin_bottom", 24)
+	_facility_dialog.add_child(root)
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.custom_minimum_size = Vector2(420, 280)
+	root.add_child(panel)
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+	var title := Label.new()
+	title.text = GameData.tr_field(fdef, "name", false)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	vbox.add_child(title)
+	_facility_status_label = Label.new()
+	_facility_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_facility_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_facility_status_label)
+	var collect_btn := Button.new()
+	collect_btn.text = tr(String(fdef.get("collect_key", "VILLAGE_FACILITY_COLLECT")))
+	collect_btn.pressed.connect(_on_facility_collect_pressed)
+	vbox.add_child(collect_btn)
+	var close_btn := Button.new()
+	close_btn.text = tr("BLACKSMITH_CLOSE")
+	close_btn.pressed.connect(_close_facility_dialog)
+	vbox.add_child(close_btn)
+	_refresh_facility_dialog()
+
+
+func _refresh_facility_dialog(status: String = "") -> void:
+	if _facility_status_label == null or _facility_dialog_id == "":
+		return
+	if status != "":
+		_facility_status_label.text = status
+		return
+	var left: float = GameState.village_facility_collect_cooldown_left(_facility_dialog_id)
+	if left > 0.0:
+		_facility_status_label.text = tr("VILLAGE_FACILITY_COOLDOWN_FMT") % int(ceil(left))
+	else:
+		_facility_status_label.text = tr("VILLAGE_FACILITY_READY")
+
+
+func _on_facility_collect_pressed() -> void:
+	if _facility_dialog_id == "":
+		return
+	var granted: Dictionary = GameState.try_collect_village_facility(_facility_dialog_id)
+	if granted.is_empty():
+		_refresh_facility_dialog()
+		return
+	var parts: Array[String] = []
+	for mid in granted.keys():
+		parts.append("%s x%d" % [GameData.tr_material_name(String(mid)), int(granted[mid])])
+	_refresh_facility_dialog(tr("VILLAGE_FACILITY_COLLECT_DONE_FMT") % "、".join(parts))
+
+
+func _close_facility_dialog() -> void:
+	if _facility_dialog != null:
+		_facility_dialog.queue_free()
+	_facility_dialog = null
+	_facility_dialog_id = ""
+	_facility_status_label = null
+
+
 func _spawn_p1_house_marker() -> void:
-	var slot: Node = _find_map_object_by_name(["Home1", "home1", "HouseSlot1"])
-	var pos: Vector2 = Vector2(MAP_SIZE.x * 0.32, floor_y - 42.0)
+	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_HOME_P1_SLOTS)
+	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.47, floor_y - 42.0))
 	if slot is Node2D:
 		pos = (slot as Node2D).global_position + Vector2(0.0, -36.0)
 	var home := Node2D.new()
@@ -580,10 +1352,13 @@ func _player_near_node(node: Node2D, radius: float, input_prefix: String) -> boo
 func _update_p1_house_interaction() -> bool:
 	if _p1_house_node == null or not is_instance_valid(_p1_house_node):
 		return false
-	if not _player_near_node(_p1_house_node, P1_HOUSE_INTERACT_RADIUS, "p1"):
+	var near: Array[String] = _players_in_range_prefixes(
+		_p1_house_node, P1_HOUSE_INTERACT_RADIUS, "p1")
+	if near.is_empty():
 		return false
-	hint_label.text = tr("VILLAGE_P1_HOUSE_INTERACT_HINT")
-	if Input.is_action_just_pressed("p1_action") or Input.is_action_just_pressed("ui_accept"):
+	_show_float_interact_prompt(
+		_p1_house_node, near, tr("VILLAGE_INTERACT_ACTION_HOUSE"))
+	if _try_interact_prefixes(near):
 		_open_house_dialog("p1")
 	return true
 
@@ -593,17 +1368,20 @@ func _update_p2_house_interaction() -> bool:
 		return false
 	if _p2_house_node == null or not is_instance_valid(_p2_house_node):
 		return false
-	if not _player_near_node(_p2_house_node, P1_HOUSE_INTERACT_RADIUS, "p2"):
+	var near: Array[String] = _players_in_range_prefixes(
+		_p2_house_node, P1_HOUSE_INTERACT_RADIUS, "p2")
+	if near.is_empty():
 		return false
-	hint_label.text = tr("VILLAGE_P2_HOUSE_INTERACT_HINT")
-	if Input.is_action_just_pressed("p2_action"):
+	_show_float_interact_prompt(
+		_p2_house_node, near, tr("VILLAGE_INTERACT_ACTION_HOUSE"))
+	if Input.is_action_just_pressed("p2_action") or Input.is_action_just_pressed("ui_accept"):
 		_open_house_dialog("p2")
 	return true
 
 
 func _spawn_p2_house_marker() -> void:
-	var slot: Node = _find_map_object_by_name(["Home2", "home2", "HouseSlot2"])
-	var pos: Vector2 = Vector2(MAP_SIZE.x * 0.68, floor_y - 42.0)
+	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_HOME_P2_SLOTS)
+	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.53, floor_y - 42.0))
 	if slot is Node2D:
 		pos = (slot as Node2D).global_position + Vector2(0.0, -36.0)
 	var home := Node2D.new()
@@ -749,11 +1527,10 @@ func _open_house_dialog(player_slot: String) -> void:
 	_house_skin_option.item_selected.connect(_on_p1_house_skin_selected)
 	skin_row.add_child(_house_skin_option)
 
-	# 喜愛武裝（五格，兩欄）
-	var fav_title := Label.new()
-	fav_title.text = tr("P1_HOUSE_FAVORITES_TITLE")
-	fav_title.add_theme_font_size_override("font_size", 15)
-	vbox.add_child(fav_title)
+	# 喜愛武裝（格數依鐵匠擴充）
+	_house_fav_title = Label.new()
+	_house_fav_title.add_theme_font_size_override("font_size", 15)
+	vbox.add_child(_house_fav_title)
 
 	var fav_hint := Label.new()
 	fav_hint.text = tr("HOUSE_FAVORITES_SHARED_HINT")
@@ -763,13 +1540,14 @@ func _open_house_dialog(player_slot: String) -> void:
 	vbox.add_child(fav_hint)
 
 	_house_favorite_option_buttons.clear()
-	var fav_grid := GridContainer.new()
-	fav_grid.columns = 2
-	fav_grid.add_theme_constant_override("h_separation", 10)
-	fav_grid.add_theme_constant_override("v_separation", 6)
-	vbox.add_child(fav_grid)
-	for i in GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS:
-		fav_grid.add_child(_make_p1_house_favorite_row(i))
+	_house_fav_grid = GridContainer.new()
+	_house_fav_grid.columns = 2
+	_house_fav_grid.add_theme_constant_override("h_separation", 10)
+	_house_fav_grid.add_theme_constant_override("v_separation", 6)
+	vbox.add_child(_house_fav_grid)
+	var n_fav: int = GameState.get_house_favorite_unlocked_slot_count()
+	for i in n_fav:
+		_house_fav_grid.add_child(_make_p1_house_favorite_row(i))
 
 	_house_status_label = Label.new()
 	_house_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -783,7 +1561,16 @@ func _open_house_dialog(player_slot: String) -> void:
 	vbox.add_child(close_btn)
 
 	_refresh_house_character_panel("")
+	_refresh_house_favorite_title()
 	_apply_house_skins_to_village_players()
+
+
+func _refresh_house_favorite_title() -> void:
+	if _house_fav_title == null:
+		return
+	var u: int = GameState.get_house_favorite_unlocked_slot_count()
+	var m: int = GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS
+	_house_fav_title.text = tr("HOUSE_FAVORITES_TITLE_FMT") % [u, m]
 
 
 func _house_dialog_char_ids() -> Array[String]:
@@ -830,6 +1617,7 @@ func _on_p1_house_char_next() -> void:
 
 
 func _refresh_house_character_panel(status: String) -> void:
+	_refresh_house_favorite_title()
 	var char_id: String = _house_dialog_current_char_id()
 	var cdef: Dictionary = GameData.get_character_def(char_id)
 	if _house_char_name_label != null:
@@ -840,8 +1628,9 @@ func _refresh_house_character_panel(status: String) -> void:
 		_house_skin_option.set_block_signals(true)
 		_populate_house_skin_option(char_id)
 		_house_skin_option.set_block_signals(false)
+	var cap: int = GameState.get_house_favorite_unlocked_slot_count()
 	for i in _house_favorite_option_buttons.size():
-		if i < GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS:
+		if i < cap:
 			var opt: OptionButton = _house_favorite_option_buttons[i]
 			opt.set_block_signals(true)
 			_populate_house_favorite_option(opt, char_id, i)
@@ -897,7 +1686,9 @@ func _make_p1_house_favorite_row(slot_index: int) -> Control:
 
 
 func _populate_house_favorite_option(opt: OptionButton, char_id: String, slot_index: int) -> void:
-	if slot_index < 0 or slot_index >= GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS:
+	if slot_index < 0 or slot_index >= GameState.get_house_favorite_unlocked_slot_count():
+		return
+	if slot_index >= GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS:
 		return
 	opt.clear()
 	var choices: Array[String] = GameState.house_favorite_armament_choices(
@@ -939,8 +1730,9 @@ func _on_house_favorite_selected(slot_index: int, index: int) -> void:
 	_update_house_status_label(tr("P1_HOUSE_FAVORITE_SAVED"), char_id)
 	# 其他格若曾選同一武裝，刷新選單（排除已佔用；含另一位玩家）
 	_house_suppress_ui = true
+	var cap2: int = GameState.get_house_favorite_unlocked_slot_count()
 	for i in _house_favorite_option_buttons.size():
-		if i != slot_index and i < GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS:
+		if i != slot_index and i < cap2:
 			var opt2: OptionButton = _house_favorite_option_buttons[i]
 			opt2.set_block_signals(true)
 			_populate_house_favorite_option(opt2, char_id, i)
@@ -1046,6 +1838,8 @@ func _close_house_dialog() -> void:
 	_house_preview = null
 	_house_char_name_label = null
 	_house_skin_option = null
+	_house_fav_title = null
+	_house_fav_grid = null
 	_house_favorite_option_buttons.clear()
 	_house_suppress_ui = false
 	get_tree().paused = false
@@ -1155,6 +1949,10 @@ func _add_blacksmith_goods(goods: VBoxContainer) -> void:
 	slot_btn.name = "SlotButton"
 	slot_btn.pressed.connect(_buy_blacksmith_slot)
 	goods.add_child(slot_btn)
+	var fav_slot_btn := Button.new()
+	fav_slot_btn.name = "FavoriteSlotButton"
+	fav_slot_btn.pressed.connect(_buy_blacksmith_favorite_slot)
+	goods.add_child(fav_slot_btn)
 	var weapon_btn := Button.new()
 	weapon_btn.name = "WeaponKindButton"
 	weapon_btn.pressed.connect(_buy_blacksmith_weapon_kind)
@@ -1189,6 +1987,12 @@ func _refresh_blacksmith_dialog(status: String) -> void:
 				btn.disabled = cost < 0 or GameState.gold < cost
 				btn.text = tr("BLACKSMITH_BUY_SLOT_DONE") if cost < 0 \
 					else tr("BLACKSMITH_BUY_SLOT_FMT") % [GameState.get_unlocked_weapon_slot_count() + 1, cost]
+			"FavoriteSlotButton":
+				var fc: int = GameState.next_house_favorite_slot_unlock_cost()
+				var nxt: int = GameState.get_house_favorite_unlocked_slot_count() + 1
+				btn.disabled = fc < 0 or GameState.gold < fc
+				btn.text = tr("BLACKSMITH_BUY_FAVORITE_SLOT_DONE") if fc < 0 \
+					else tr("BLACKSMITH_BUY_FAVORITE_SLOT_FMT") % [nxt, fc]
 			"WeaponKindButton":
 				var wid: String = GameState.next_locked_weapon_id()
 				btn.disabled = wid == "" or GameState.gold < GameState.BLACKSMITH_WEAPON_KIND_COST
@@ -1255,6 +2059,14 @@ func _buy_blacksmith_slot() -> void:
 	var before: int = GameState.get_unlocked_weapon_slot_count()
 	if GameState.buy_next_weapon_slot():
 		_refresh_blacksmith_dialog(tr("BLACKSMITH_BOUGHT_SLOT_FMT") % (before + 1))
+	else:
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_NOT_ENOUGH_GOLD"))
+
+
+func _buy_blacksmith_favorite_slot() -> void:
+	var before: int = GameState.get_house_favorite_unlocked_slot_count()
+	if GameState.buy_next_house_favorite_slot():
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_BOUGHT_FAVORITE_SLOT_FMT") % (before + 1))
 	else:
 		_refresh_blacksmith_dialog(tr("BLACKSMITH_NOT_ENOUGH_GOLD"))
 
@@ -1459,11 +2271,7 @@ func _random_blacksmith_line() -> String:
 
 # ---------------- 玩家 ----------------
 func _spawn_players() -> void:
-	# 玩家中心放在地面 body_radius 上方，腳剛好踩在 floor_y（半徑見 GameData 角色 body_radius）
-	var def1: Dictionary = GameData.get_character_def(GameState.p1_character)
-	if def1.is_empty():
-		def1 = GameData.CHARACTERS[0]
-	var body_r1: float = clampf(float(def1.get("body_radius", 42.0)), 8.0, 160.0)
+	# 玩家中心放在地面 body_radius 上方，腳剛好踩在 floor_y（村莊會再乘 VILLAGE_BODY_RADIUS_MULT）
 	var feet_x: float = spawn_origin.x
 
 	var p1 = PLAYER_SCENE.instantiate()
@@ -1471,24 +2279,20 @@ func _spawn_players() -> void:
 	p1.slot_index = 0
 	p1.village_mode = true
 	p1.process_mode = Node.PROCESS_MODE_PAUSABLE
-	p1.position = Vector2(feet_x - 30.0, floor_y - body_r1)
 	add_child(p1)
 	p1.setup_from_character(GameState.p1_character)
+	p1.position = Vector2(feet_x - 30.0, floor_y - p1.body_radius)
 	players.append(p1)
 
 	if GameState.two_players:
-		var def2: Dictionary = GameData.get_character_def(GameState.p2_character)
-		if def2.is_empty():
-			def2 = GameData.CHARACTERS[0]
-		var body_r2: float = clampf(float(def2.get("body_radius", 42.0)), 8.0, 160.0)
 		var p2 = PLAYER_SCENE.instantiate()
 		p2.input_prefix = "p2"
 		p2.slot_index = 1
 		p2.village_mode = true
 		p2.process_mode = Node.PROCESS_MODE_PAUSABLE
-		p2.position = Vector2(feet_x + 30.0, floor_y - body_r2)
 		add_child(p2)
 		p2.setup_from_character(GameState.p2_character)
+		p2.position = Vector2(feet_x + 30.0, floor_y - p2.body_radius)
 		players.append(p2)
 
 

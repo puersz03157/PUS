@@ -4,6 +4,8 @@ extends Node2D
 const PLAYER_SCENE := preload("res://scenes/Player.tscn")
 const ENEMY_SCENE := preload("res://scenes/Enemy.tscn")
 const PINBALL_SCENE := preload("res://scenes/Pinball.tscn")
+const RESCUE_NPC_TEXTURE := preload("res://assets/characters/Save NPC.png")
+const RESCUE_NPC_DISPLAY_SCALE := 1.85
 
 # 預設地圖（YATI 匯入的 .tmx → PackedScene）— 若關卡未指定則用這個
 const DEFAULT_MAP_PATH := "res://assets/Maps/TEST.tmx"
@@ -395,25 +397,19 @@ func _show_center_notice(text: String) -> void:
 
 
 func _spawn_blacksmith_rescue_if_needed() -> void:
-	var has_blacksmith_rescue: bool = bool(stage_def.get("rescue_blacksmith", false)) \
-		and not bool(GameState.blacksmith_rescued)
-	var has_merchant_rescue: bool = bool(stage_def.get("rescue_merchant", false)) \
-		and not bool(GameState.merchant_rescued)
-	var has_rescue_event: bool = bool(stage_def.get("rescue_blacksmith", false)) \
-		or bool(stage_def.get("rescue_merchant", false))
+	var pending_rescue_id: String = ""
+	var stage_rescue_id: String = GameData.stage_rescue_npc_id(stage_def)
+	if stage_rescue_id != "" and not GameState.is_npc_rescued(stage_rescue_id):
+		pending_rescue_id = stage_rescue_id
 	var has_random_event: bool = bool(stage_def.get("random_event", false))
-	if not has_rescue_event and not has_random_event:
+	if pending_rescue_id == "" and not has_random_event:
 		return
-	blacksmith_event_rescues_npc = has_blacksmith_rescue or has_merchant_rescue
-	if has_blacksmith_rescue:
-		blacksmith_rescue_kind = "blacksmith"
-	elif has_merchant_rescue:
-		blacksmith_rescue_kind = "merchant"
-	else:
-		blacksmith_rescue_kind = ""
+	blacksmith_event_rescues_npc = pending_rescue_id != ""
+	blacksmith_rescue_kind = pending_rescue_id
 	blacksmith_rescue_node = _make_blacksmith_marker(
 		_blacksmith_event_title(),
-		_blacksmith_event_idle_hint())
+		_blacksmith_event_idle_hint(),
+		blacksmith_event_rescues_npc)
 	blacksmith_rescue_node.set_meta("rescues_npc", blacksmith_event_rescues_npc)
 	blacksmith_rescue_node.set_meta("rescue_kind", blacksmith_rescue_kind)
 	blacksmith_rescue_node.global_position = _pick_blacksmith_rescue_position()
@@ -498,8 +494,7 @@ func _maybe_spawn_next_world_event_marker(last_completed_pos: Vector2) -> void:
 	if stage_completed:
 		return
 	var has_stage_events: bool = bool(stage_def.get("random_event", false)) \
-		or bool(stage_def.get("rescue_blacksmith", false)) \
-		or bool(stage_def.get("rescue_merchant", false))
+		or GameData.stage_rescue_npc_id(stage_def) != ""
 	if not has_stage_events:
 		return
 	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
@@ -508,7 +503,8 @@ func _maybe_spawn_next_world_event_marker(last_completed_pos: Vector2) -> void:
 	blacksmith_rescue_kind = ""
 	blacksmith_rescue_node = _make_blacksmith_marker(
 		_blacksmith_event_title(),
-		_blacksmith_event_idle_hint())
+		_blacksmith_event_idle_hint(),
+		false)
 	blacksmith_rescue_node.set_meta("rescues_npc", false)
 	blacksmith_rescue_node.set_meta("rescue_kind", "")
 	blacksmith_rescue_node.global_position = _pick_repeat_world_event_position(last_completed_pos)
@@ -793,10 +789,7 @@ func _complete_blacksmith_rescue_event() -> void:
 	blacksmith_rescue_event_enemy_ids.clear()
 	_clear_blacksmith_dodge_hazards()
 	if blacksmith_event_rescues_npc:
-		if blacksmith_rescue_kind == "merchant":
-			_rescue_merchant()
-		else:
-			_rescue_blacksmith()
+		_rescue_stage_npc(blacksmith_rescue_kind)
 	else:
 		_complete_incident_event()
 	if completed_event_kind != "runner":
@@ -804,20 +797,17 @@ func _complete_blacksmith_rescue_event() -> void:
 	_maybe_spawn_next_world_event_marker(last_marker_pos)
 
 
-func _rescue_blacksmith() -> void:
-	GameState.rescue_blacksmith()
+func _rescue_stage_npc(npc_id: String) -> void:
+	if npc_id == "":
+		return
+	GameState.rescue_npc(npc_id)
 	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
 		blacksmith_rescue_node.queue_free()
 	blacksmith_rescue_node = null
-	_show_center_notice(_tr_text("BLACKSMITH_RESCUED_NOTICE", "鐵匠已獲救！回村莊看看吧。"))
-
-
-func _rescue_merchant() -> void:
-	GameState.rescue_merchant()
-	if blacksmith_rescue_node != null and is_instance_valid(blacksmith_rescue_node):
-		blacksmith_rescue_node.queue_free()
-	blacksmith_rescue_node = null
-	_show_center_notice(_tr_text("MERCHANT_RESCUED_NOTICE", "雜貨商已獲救！回村莊看看吧。"))
+	var npc_def: Dictionary = GameData.get_rescue_npc_def(npc_id)
+	var notice_key: String = String(npc_def.get("rescued_notice_key", ""))
+	var fallback: String = tr("NPC_RESCUED_NOTICE_FALLBACK")
+	_show_center_notice(_tr_text(notice_key, fallback))
 
 
 func _complete_incident_event() -> void:
@@ -865,13 +855,26 @@ func _grant_event_material_pack() -> void:
 			GameData.tr_material_name(material_id), amount])
 
 
-func _make_blacksmith_marker(title: String, hint: String) -> Node2D:
+func _make_blacksmith_marker(title: String, hint: String, rescues_npc: bool) -> Node2D:
 	var root := Node2D.new()
 	root.name = "BlacksmithRescue"
 	root.z_index = 8
-	var draw := DrawerNode2D.new()
-	draw.fn = Callable(self, "_draw_blacksmith_marker")
-	root.add_child(draw)
+	if rescues_npc:
+		var ring := DrawerNode2D.new()
+		ring.fn = Callable(self, "_draw_rescue_npc_radius")
+		root.add_child(ring)
+		var sprite := Sprite2D.new()
+		sprite.name = "RescueNpcSprite"
+		sprite.texture = RESCUE_NPC_TEXTURE
+		sprite.centered = true
+		sprite.offset = Vector2(0, -6)
+		var tex_h: float = maxf(1.0, float(RESCUE_NPC_TEXTURE.get_height()))
+		sprite.scale = Vector2.ONE * (RESCUE_NPC_DISPLAY_SCALE * 32.0 / tex_h)
+		root.add_child(sprite)
+	else:
+		var draw := DrawerNode2D.new()
+		draw.fn = Callable(self, "_draw_incident_event_marker")
+		root.add_child(draw)
 	var label := Label.new()
 	label.name = "InfoLabel"
 	label.text = "%s\n%s" % [title, hint]
@@ -895,17 +898,17 @@ func _set_blacksmith_marker_text(title: String, hint: String) -> void:
 
 func _blacksmith_event_title() -> String:
 	if blacksmith_event_rescues_npc:
-		if blacksmith_rescue_kind == "merchant":
-			return _tr_text("MERCHANT_RESCUE_NAME", "被困的雜貨商")
-		return _tr_text("BLACKSMITH_RESCUE_NAME", "被困的鐵匠")
+		var npc_def: Dictionary = GameData.get_rescue_npc_def(blacksmith_rescue_kind)
+		var name_key: String = String(npc_def.get("name_key", ""))
+		return _tr_text(name_key, GameData.tr_rescue_npc_name(blacksmith_rescue_kind))
 	return _tr_text("RANDOM_EVENT_NAME", "偶發事件")
 
 
 func _blacksmith_event_idle_hint() -> String:
 	if blacksmith_event_rescues_npc:
-		if blacksmith_rescue_kind == "merchant":
-			return _tr_text("MERCHANT_RESCUE_HINT", "靠近觸發救援事件")
-		return _tr_text("BLACKSMITH_RESCUE_HINT", "靠近觸發救援事件")
+		var npc_def: Dictionary = GameData.get_rescue_npc_def(blacksmith_rescue_kind)
+		var hint_key: String = String(npc_def.get("hint_key", ""))
+		return _tr_text(hint_key, tr("NPC_RESCUE_HINT_FALLBACK"))
 	return _tr_text("RANDOM_EVENT_HINT", "靠近觸發偶發事件")
 
 
@@ -921,31 +924,18 @@ func _tr_text(key: String, fallback: String) -> String:
 	return fallback if text == key or text == "" else text
 
 
-func _draw_blacksmith_marker(node: Node2D) -> void:
-	if not bool(node.get_meta("rescues_npc", true)):
-		node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(0.55, 0.35, 1.0, 0.12))
-		node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(0.75, 0.55, 1.0, 0.70), 2.0)
-		node.draw_circle(Vector2.ZERO, 24.0, Color(0.25, 0.18, 0.42, 0.95))
-		node.draw_arc(Vector2.ZERO, 32.0, -0.4, TAU - 0.4, 36, Color(1.0, 0.9, 0.45, 0.9), 3.0)
-		node.draw_string(ThemeDB.fallback_font, Vector2(-5, 9), "!",
-			HORIZONTAL_ALIGNMENT_CENTER, 10, 26, Color(1.0, 0.9, 0.45))
-		return
-	if String(node.get_meta("rescue_kind", "blacksmith")) == "merchant":
-		node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(0.35, 0.85, 1.0, 0.12))
-		node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(0.45, 0.9, 1.0, 0.70), 2.0)
-		node.draw_circle(Vector2(0, -20), 14.0, Color(0.95, 0.76, 0.55))
-		node.draw_rect(Rect2(-18, -5, 36, 38), Color(0.25, 0.36, 0.42))
-		node.draw_rect(Rect2(-28, 8, 56, 24), Color(0.55, 0.32, 0.16))
-		node.draw_string(ThemeDB.fallback_font, Vector2(-7, 8), "$",
-			HORIZONTAL_ALIGNMENT_CENTER, 14, 22, Color(1.0, 0.92, 0.45))
-		return
+func _draw_rescue_npc_radius(node: Node2D) -> void:
 	node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(1.0, 0.82, 0.22, 0.12))
 	node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(1.0, 0.82, 0.22, 0.65), 2.0)
-	node.draw_circle(Vector2(0, -20), 15.0, Color(0.95, 0.72, 0.48))
-	node.draw_rect(Rect2(-16, -5, 32, 38), Color(0.28, 0.30, 0.36))
-	node.draw_rect(Rect2(-24, -2, 48, 10), Color(0.72, 0.62, 0.44))
-	node.draw_line(Vector2(18, 0), Vector2(44, -24), Color(0.74, 0.52, 0.32), 5.0)
-	node.draw_rect(Rect2(38, -34, 22, 12), Color(0.70, 0.72, 0.76))
+
+
+func _draw_incident_event_marker(node: Node2D) -> void:
+	node.draw_circle(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, Color(0.55, 0.35, 1.0, 0.12))
+	node.draw_arc(Vector2.ZERO, BLACKSMITH_RESCUE_RADIUS, 0.0, TAU, 48, Color(0.75, 0.55, 1.0, 0.70), 2.0)
+	node.draw_circle(Vector2.ZERO, 24.0, Color(0.25, 0.18, 0.42, 0.95))
+	node.draw_arc(Vector2.ZERO, 32.0, -0.4, TAU - 0.4, 36, Color(1.0, 0.9, 0.45, 0.9), 3.0)
+	node.draw_string(ThemeDB.fallback_font, Vector2(-5, 9), "!",
+		HORIZONTAL_ALIGNMENT_CENTER, 10, 26, Color(1.0, 0.9, 0.45))
 
 
 func _update_stage_progress() -> void:
@@ -1114,6 +1104,14 @@ func _on_spawn_tick() -> void:
 	spawn_timer.wait_time = wt
 
 
+func spawn_enemy_from_def(def: Dictionary, world_pos: Vector2, level_factor: float) -> Node:
+	var e = ENEMY_SCENE.instantiate()
+	e.global_position = world_pos
+	add_child(e)
+	e.setup_with_slime(def, level_factor)
+	return e
+
+
 func _spawn_one_enemy() -> void:
 	if players.is_empty(): return
 	var center: Vector2 = camera.global_position
@@ -1276,6 +1274,7 @@ func _game_over(won: bool) -> void:
 	GameState.last_result["kills_p2"] = players[1].kills if players.size() > 1 else 0
 	var achievement_unlocks: Array[String] = _record_achievement_progress()
 	GameState.last_result["achievement_unlocks"] = achievement_unlocks
+	GameState.last_result["facility_unlocks"] = []
 	spawn_timer.stop()
 	boss_hp_panel.visible = false
 
@@ -1283,6 +1282,12 @@ func _game_over(won: bool) -> void:
 	if won:
 		reward = int(stage_def.get("victory_gold", 0))
 		GameState.mark_stage_completed(String(stage_def.get("id", "")))
+		var facility_unlocks: Array[String] = GameState.apply_stage_victory_facility_unlocks(stage_def)
+		GameState.last_result["facility_unlocks"] = facility_unlocks
+		for fid in facility_unlocks:
+			var fdef: Dictionary = GameData.get_village_facility_def(fid)
+			var fname: String = GameData.tr_field(fdef, "name", false) if not fdef.is_empty() else fid
+			_show_center_notice(tr("VICTORY_FACILITY_UNLOCK_NOTICE_FMT") % fname)
 		GameState.grant_run_gold(reward)
 		_clear_remaining_enemies()
 		AudioManager.play_sfx("reward", 0.02)
@@ -1336,6 +1341,13 @@ func _populate_summary(won: bool, reward: int) -> void:
 		for cid in achievement_unlocks:
 			names.append(GameData.tr_character_name(String(cid)))
 		lines.append(tr("GAME_ACHIEVEMENT_UNLOCK_FMT") % "、".join(names))
+	var facility_unlocks: Array = GameState.last_result.get("facility_unlocks", [])
+	if not facility_unlocks.is_empty():
+		var fnames: Array[String] = []
+		for fid in facility_unlocks:
+			var fdef: Dictionary = GameData.get_village_facility_def(String(fid))
+			fnames.append(GameData.tr_field(fdef, "name", false) if not fdef.is_empty() else String(fid))
+		lines.append(tr("GAME_FACILITY_UNLOCK_SUMMARY_FMT") % "、".join(fnames))
 	lines.append("")
 
 	for p in players:

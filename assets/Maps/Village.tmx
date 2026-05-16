@@ -136,10 +136,10 @@
 </data>
  </layer>
  <objectgroup id="3" name="Buildings">
-  <object id="1" x="239.333" y="214"/>
-  <object id="2" x="400" y="213.333"/>
-  <object id="3" x="560.667" y="213.333"/>
-  <object id="4" x="720" y="212.667"/>
+  <object id="1" name="quarry" x="239.333" y="214"/>
+  <object id="2" name="lumberyard" x="400" y="213.333"/>
+  <object id="3" name="well" x="560.667" y="213.333"/>
+  <object id="4" name="farm" x="720" y="212.667"/>
   <object id="5" x="881" y="212"/>
   <object id="6" x="1039" y="213"/>
   <object id="7" x="1199" y="213"/>

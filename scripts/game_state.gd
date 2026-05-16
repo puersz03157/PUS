@@ -10,6 +10,8 @@ const DEFAULT_UNLOCKED_WEAPON_SLOTS := 3
 const DEFAULT_LOCKED_WEAPONS: Array[String] = ["melody", "claw", "shard", "poison", "holy"]
 const BLACKSMITH_CRAFT_WEAPON_IDS: Array[String] = ["axe", "magic_bullet"]
 const BLACKSMITH_SLOT_COSTS: Dictionary = {4: 200, 5: 350}
+## 喜愛武裝擴充：解鎖「第 3～5 格」所需金幣（1P／2P 同步）
+const BLACKSMITH_HOUSE_FAVORITE_SLOT_COSTS: Dictionary = {3: 130, 4: 240, 5: 400}
 const BLACKSMITH_WEAPON_KIND_COST := 180
 const BLACKSMITH_ARMAMENT_COST := 160
 const MERCHANT_MATERIAL_BUY_PRICE := 12
@@ -27,6 +29,21 @@ const DEFAULT_MATERIALS: Dictionary = {
 	"copper": 0,
 	"bone": 0,
 	"rag": 0,
+	"silver": 0,
+	"gold_ore": 0,
+	"gunpowder": 0,
+	"sacred_wood": 0,
+	"glow_dust": 0,
+	"tree_sap": 0,
+	"flame_scale": 0,
+	"obsidian": 0,
+	"venom": 0,
+	"wheat_seed": 0,
+	"carrot_seed": 0,
+	"potato_seed": 0,
+	"wheat": 0,
+	"carrot": 0,
+	"potato": 0,
 }
 const ACHIEVEMENTS: Array[Dictionary] = [
 	{
@@ -91,6 +108,15 @@ var unlocked_armaments: Array[String] = ["none"]
 var unlocked_armament_recipes: Array[String] = []
 var blacksmith_rescued: bool = false
 var merchant_rescued: bool = false
+var tavern_owner_rescued: bool = false
+var rune_master_rescued: bool = false
+var farmer_rescued: bool = false
+var village_facilities_unlocked: Dictionary = {}
+var village_facility_last_collect_unix: Dictionary = {}
+## 農田 1～7 格：{ "crop_id", "stage" }；空字典表示未種植
+var farm_plots: Dictionary = {}
+## 水井裝水後可澆灌次數（最多 VILLAGE_WATER_MAX_CHARGES）
+var water_charges: int = 0
 var completed_stage_ids: Array[String] = []
 var rune_dust: int = 0
 var materials: Dictionary = DEFAULT_MATERIALS.duplicate()
@@ -103,6 +129,8 @@ var p1_house_character_skins: Dictionary = {}
 var p1_house_character_favorites: Dictionary = {}
 var p2_house_character_skins: Dictionary = {}
 var p2_house_character_favorites: Dictionary = {}
+## 喜愛武裝目前可用格數（含 P1／P2 所有角色；上限見 GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS）
+var house_favorite_unlocked_slots: int = 2
 
 # 顯示語系：留空則沿用 project.godot 的 locale。
 # 受支援：zh_TW（預設）／zh_CN／en；新語系加在 strings.csv 後可動態切換。
@@ -121,6 +149,7 @@ var last_result: Dictionary = {
 	"stage_id": "",
 	"stage_name": "",
 	"achievement_unlocks": [],
+	"facility_unlocks": [],
 }
 
 
@@ -156,6 +185,7 @@ func unlock_all_characters() -> void:
 	unlocked_characters.clear()
 	for c in GameData.CHARACTERS:
 		_add_unlocked_character(String(c.get("id", "")))
+	unlock_all_house_favorite_slots()
 	save_to_disk()
 
 
@@ -172,6 +202,7 @@ func unlock_all_weapons_and_slots() -> void:
 	for w in GameData.WEAPONS:
 		unlocked_weapons.append(String(w.get("id", "")))
 	unlocked_weapon_slots = MAX_WEAPON_SLOTS
+	unlock_all_house_favorite_slots()
 	save_to_disk()
 
 
@@ -193,6 +224,20 @@ func unlock_all_armaments() -> void:
 			unlocked_armament_recipes.append(aid)
 		if not unlocked_armaments.has(aid):
 			unlocked_armaments.append(aid)
+	save_to_disk()
+
+
+## 設定除錯：解救全部村莊 NPC，並開啟全部村莊設施。
+func unlock_all_village_npcs_and_facilities() -> void:
+	blacksmith_rescued = true
+	merchant_rescued = true
+	tavern_owner_rescued = true
+	rune_master_rescued = true
+	farmer_rescued = true
+	for fdef in GameData.VILLAGE_FACILITIES:
+		var fid: String = String(fdef.get("id", ""))
+		if fid != "":
+			village_facilities_unlocked[fid] = true
 	save_to_disk()
 
 
@@ -263,6 +308,37 @@ func buy_next_weapon_slot() -> bool:
 	unlocked_weapon_slots = clampi(unlocked_weapon_slots + 1, 1, MAX_WEAPON_SLOTS)
 	save_to_disk()
 	return true
+
+
+func get_house_favorite_unlocked_slot_count() -> int:
+	return clampi(
+		house_favorite_unlocked_slots,
+		GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL,
+		GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS)
+
+
+func next_house_favorite_slot_unlock_cost() -> int:
+	var next_n: int = get_house_favorite_unlocked_slot_count() + 1
+	if next_n > GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS:
+		return -1
+	return int(BLACKSMITH_HOUSE_FAVORITE_SLOT_COSTS.get(next_n, 320))
+
+
+func buy_next_house_favorite_slot() -> bool:
+	var cost: int = next_house_favorite_slot_unlock_cost()
+	if cost < 0 or not spend_gold(cost):
+		return false
+	house_favorite_unlocked_slots = clampi(
+		house_favorite_unlocked_slots + 1,
+		GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL,
+		GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS)
+	_dedupe_global_house_favorites()
+	save_to_disk()
+	return true
+
+
+func unlock_all_house_favorite_slots() -> void:
+	house_favorite_unlocked_slots = GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS
 
 
 func next_locked_weapon_id() -> String:
@@ -398,7 +474,8 @@ func _collect_house_favorite_armaments_used(
 			var cid: String = String(raw_cid)
 			_ensure_house_char_favorites(player_slot, cid)
 			var slots: Array[String] = get_house_favorite_armaments(player_slot, cid)
-			for i in slots.size():
+			var cap: int = get_house_favorite_unlocked_slot_count()
+			for i in mini(slots.size(), cap):
 				if player_slot == except_player and cid == except_char and i == except_index:
 					continue
 				var aid: String = slots[i]
@@ -411,7 +488,9 @@ func set_house_favorite_slot(player_slot: String, char_id: String, index: int, a
 	if not _house_player_slot_valid(player_slot) or char_id == "":
 		return false
 	_ensure_house_char_favorites(player_slot, char_id)
-	if index < 0 or index >= GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS:
+	if index < 0 or index >= get_house_favorite_unlocked_slot_count():
+		return false
+	if index >= GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS:
 		return false
 	var aid: String = armament_id
 	if aid == "":
@@ -430,10 +509,13 @@ func set_house_favorite_slot(player_slot: String, char_id: String, index: int, a
 
 func _dedupe_house_char_favorites(player_slot: String, char_id: String) -> void:
 	_ensure_house_char_favorites(player_slot, char_id)
+	var cap: int = get_house_favorite_unlocked_slot_count()
 	var arr: Array = _house_favorites_dict(player_slot)[char_id]
 	var seen: Dictionary = {}
 	var changed: bool = false
 	for i in arr.size():
+		if i >= cap:
+			continue
 		var aid: String = String(arr[i])
 		if aid == "none":
 			continue
@@ -447,6 +529,7 @@ func _dedupe_house_char_favorites(player_slot: String, char_id: String) -> void:
 
 
 func _dedupe_global_house_favorites() -> void:
+	var cap: int = get_house_favorite_unlocked_slot_count()
 	var seen: Dictionary = {}
 	var changed: bool = false
 	for player_slot in ["p1", "p2"]:
@@ -457,6 +540,8 @@ func _dedupe_global_house_favorites() -> void:
 			var arr: Array = fav_dict[cid]
 			var char_changed: bool = false
 			for i in arr.size():
+				if i >= cap:
+					continue
 				var aid: String = String(arr[i])
 				if aid == "none":
 					continue
@@ -473,6 +558,8 @@ func _dedupe_global_house_favorites() -> void:
 
 
 func house_favorite_armament_choices(player_slot: String, char_id: String, slot_index: int) -> Array[String]:
+	if slot_index < 0 or slot_index >= get_house_favorite_unlocked_slot_count():
+		return ["none"]
 	var out: Array[String] = ["none"]
 	var slots: Array[String] = get_house_favorite_armaments(player_slot, char_id)
 	var current: String = slots[slot_index] if slot_index >= 0 and slot_index < slots.size() else "none"
@@ -515,7 +602,10 @@ func set_house_character_skin(player_slot: String, char_id: String, skin_id: Str
 
 func house_favorite_armament_ids_for_battle(player_slot: String, char_id: String) -> Array[String]:
 	var out: Array[String] = []
-	for aid in get_house_favorite_armaments(player_slot, char_id):
+	var cap: int = get_house_favorite_unlocked_slot_count()
+	var arr: Array[String] = get_house_favorite_armaments(player_slot, char_id)
+	for i in mini(arr.size(), cap):
+		var aid: String = arr[i]
 		if aid != "none" and is_armament_unlocked(aid):
 			out.append(aid)
 	return out
@@ -652,18 +742,230 @@ func can_craft_armament(id: String) -> bool:
 	return true
 
 
-func rescue_blacksmith() -> void:
-	if blacksmith_rescued:
+func is_npc_rescued(npc_id: String) -> bool:
+	match npc_id:
+		"blacksmith":
+			return blacksmith_rescued
+		"merchant":
+			return merchant_rescued
+		"tavern_owner":
+			return tavern_owner_rescued
+		"rune_master":
+			return rune_master_rescued
+		"farmer":
+			return farmer_rescued
+		_:
+			return false
+
+
+func rescue_npc(npc_id: String) -> void:
+	if npc_id == "" or is_npc_rescued(npc_id):
 		return
-	blacksmith_rescued = true
+	match npc_id:
+		"blacksmith":
+			blacksmith_rescued = true
+		"merchant":
+			merchant_rescued = true
+		"tavern_owner":
+			tavern_owner_rescued = true
+		"rune_master":
+			rune_master_rescued = true
+		"farmer":
+			farmer_rescued = true
 	save_to_disk()
+
+
+func rescue_blacksmith() -> void:
+	rescue_npc("blacksmith")
 
 
 func rescue_merchant() -> void:
-	if merchant_rescued:
+	rescue_npc("merchant")
+
+
+func is_village_facility_unlocked(facility_id: String) -> bool:
+	return bool(village_facilities_unlocked.get(facility_id, false))
+
+
+func unlock_village_facility(facility_id: String) -> void:
+	if facility_id == "" or is_village_facility_unlocked(facility_id):
 		return
-	merchant_rescued = true
+	village_facilities_unlocked[facility_id] = true
 	save_to_disk()
+
+
+func apply_stage_victory_facility_unlocks(stage: Dictionary) -> Array[String]:
+	var rescue_id: String = GameData.stage_rescue_npc_id(stage)
+	if rescue_id == "" or not is_npc_rescued(rescue_id):
+		return []
+	var newly: Array[String] = []
+	for fid in GameData.stage_victory_unlock_facility_ids(stage):
+		if is_village_facility_unlocked(fid):
+			continue
+		unlock_village_facility(fid)
+		newly.append(fid)
+	return newly
+
+
+func village_facility_collect_cooldown_left(facility_id: String) -> float:
+	var fdef: Dictionary = GameData.get_village_facility_def(facility_id)
+	if fdef.is_empty():
+		return 0.0
+	var cd: float = float(fdef.get("collect_cooldown_sec", 60.0))
+	var last: float = float(village_facility_last_collect_unix.get(facility_id, 0.0))
+	var now: float = float(Time.get_unix_time_from_system())
+	return maxf(0.0, cd - (now - last))
+
+
+func _ensure_farm_plot_keys() -> void:
+	for i in range(1, GameData.FARM_PLOT_COUNT + 1):
+		var key: String = str(i)
+		if not farm_plots.has(key):
+			farm_plots[key] = {}
+
+
+func get_farm_plot(slot_index: int) -> Dictionary:
+	_ensure_farm_plot_keys()
+	var key: String = str(clampi(slot_index, 1, GameData.FARM_PLOT_COUNT))
+	var raw: Variant = farm_plots.get(key, {})
+	if raw is Dictionary:
+		return (raw as Dictionary).duplicate()
+	return {}
+
+
+func farm_plot_crop_id(slot_index: int) -> String:
+	return String(get_farm_plot(slot_index).get("crop_id", ""))
+
+
+func farm_plot_stage(slot_index: int) -> int:
+	return int(get_farm_plot(slot_index).get("stage", 0))
+
+
+func farm_plot_is_empty(slot_index: int) -> bool:
+	return farm_plot_crop_id(slot_index) == ""
+
+
+func farm_plot_is_ready(slot_index: int) -> bool:
+	var crop_id: String = farm_plot_crop_id(slot_index)
+	if crop_id == "":
+		return false
+	var cdef: Dictionary = GameData.get_farm_crop_def(crop_id)
+	if cdef.is_empty():
+		return false
+	return farm_plot_stage(slot_index) >= int(cdef.get("stages_to_mature", 3))
+
+
+func farm_plot_status_key(slot_index: int) -> String:
+	if farm_plot_is_empty(slot_index):
+		return "FARM_PLOT_STATUS_EMPTY"
+	if farm_plot_is_ready(slot_index):
+		return "FARM_PLOT_STATUS_READY"
+	return "FARM_PLOT_STATUS_GROWING"
+
+
+func owned_farm_seed_ids() -> Array[String]:
+	var out: Array[String] = []
+	for m in GameData.materials_in_category(GameData.MAT_CATEGORY_SEED):
+		var sid: String = String(m.get("id", ""))
+		if sid != "" and get_material_amount(sid) > 0:
+			out.append(sid)
+	return out
+
+
+func fill_water_at_well() -> void:
+	water_charges = GameData.VILLAGE_WATER_MAX_CHARGES
+	save_to_disk()
+
+
+func buy_farmer_seed(seed_id: String) -> bool:
+	var price: int = int(GameData.FARMER_SEED_PRICES.get(seed_id, -1))
+	if price < 0 or gold < price:
+		return false
+	if GameData.farm_crop_for_seed(seed_id).is_empty():
+		return false
+	gold -= price
+	grant_material(seed_id, 1)
+	save_to_disk()
+	return true
+
+
+func plant_farm_plot(slot_index: int, seed_id: String) -> bool:
+	if not farm_plot_is_empty(slot_index):
+		return false
+	var cdef: Dictionary = GameData.farm_crop_for_seed(seed_id)
+	if cdef.is_empty():
+		return false
+	if get_material_amount(seed_id) <= 0:
+		return false
+	materials[seed_id] = get_material_amount(seed_id) - 1
+	_ensure_farm_plot_keys()
+	farm_plots[str(slot_index)] = {
+		"crop_id": String(cdef.get("id", "")),
+		"stage": 0,
+	}
+	save_to_disk()
+	return true
+
+
+func water_farm_plot(slot_index: int) -> Dictionary:
+	if water_charges <= 0:
+		return {"ok": false, "reason": "no_water"}
+	if farm_plot_is_empty(slot_index):
+		return {"ok": false, "reason": "empty"}
+	if farm_plot_is_ready(slot_index):
+		return {"ok": false, "reason": "ready"}
+	var crop_id: String = farm_plot_crop_id(slot_index)
+	var cdef: Dictionary = GameData.get_farm_crop_def(crop_id)
+	if cdef.is_empty():
+		return {"ok": false, "reason": "invalid"}
+	water_charges -= 1
+	var stage: int = farm_plot_stage(slot_index) + 1
+	_ensure_farm_plot_keys()
+	farm_plots[str(slot_index)] = {"crop_id": crop_id, "stage": stage}
+	save_to_disk()
+	return {"ok": true, "stage": stage, "ready": farm_plot_is_ready(slot_index)}
+
+
+func harvest_farm_plot(slot_index: int) -> bool:
+	if not farm_plot_is_ready(slot_index):
+		return false
+	var crop_id: String = farm_plot_crop_id(slot_index)
+	if crop_id == "":
+		return false
+	grant_material(crop_id, 1)
+	_ensure_farm_plot_keys()
+	farm_plots[str(slot_index)] = {}
+	save_to_disk()
+	return true
+
+
+func try_collect_village_facility(facility_id: String) -> Dictionary:
+	if facility_id == "well" or facility_id == "farm":
+		return {}
+	if not is_village_facility_unlocked(facility_id):
+		return {}
+	if village_facility_collect_cooldown_left(facility_id) > 0.0:
+		return {}
+	var fdef: Dictionary = GameData.get_village_facility_def(facility_id)
+	var output_raw: Variant = fdef.get("output", {})
+	if not (output_raw is Dictionary):
+		return {}
+	var granted: Dictionary = {}
+	for mat_id in output_raw.keys():
+		var mid: String = String(mat_id)
+		var band: Variant = output_raw[mat_id]
+		if not (band is Dictionary):
+			continue
+		var mn: int = maxi(1, int(band.get("min", 1)))
+		var mx: int = maxi(mn, int(band.get("max", mn)))
+		var amount: int = randi_range(mn, mx)
+		if grant_material(mid, amount):
+			granted[mid] = amount
+	if granted.is_empty():
+		return {}
+	village_facility_last_collect_unix[facility_id] = float(Time.get_unix_time_from_system())
+	save_to_disk()
+	return granted
 
 
 func reset_account() -> void:
@@ -676,6 +978,13 @@ func reset_account() -> void:
 	unlocked_armament_recipes.clear()
 	blacksmith_rescued = false
 	merchant_rescued = false
+	tavern_owner_rescued = false
+	rune_master_rescued = false
+	farmer_rescued = false
+	village_facilities_unlocked.clear()
+	village_facility_last_collect_unix.clear()
+	farm_plots.clear()
+	water_charges = 0
 	completed_stage_ids.clear()
 	rune_dust = 0
 	materials = DEFAULT_MATERIALS.duplicate()
@@ -694,6 +1003,7 @@ func reset_account() -> void:
 	p1_house_character_favorites.clear()
 	p2_house_character_skins.clear()
 	p2_house_character_favorites.clear()
+	house_favorite_unlocked_slots = GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL
 	reset_run()
 	save_to_disk()
 
@@ -836,6 +1146,13 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "base_weapon_craft_migrated", true)
 	cfg.set_value("meta", "blacksmith_rescued", blacksmith_rescued)
 	cfg.set_value("meta", "merchant_rescued", merchant_rescued)
+	cfg.set_value("meta", "tavern_owner_rescued", tavern_owner_rescued)
+	cfg.set_value("meta", "rune_master_rescued", rune_master_rescued)
+	cfg.set_value("meta", "farmer_rescued", farmer_rescued)
+	cfg.set_value("meta", "village_facilities_unlocked", village_facilities_unlocked)
+	cfg.set_value("meta", "village_facility_last_collect_unix", village_facility_last_collect_unix)
+	cfg.set_value("meta", "farm_plots", farm_plots)
+	cfg.set_value("meta", "water_charges", water_charges)
 	cfg.set_value("meta", "completed_stage_ids", completed_stage_ids)
 	cfg.set_value("meta", "materials", materials)
 	cfg.set_value("meta", "achievement_stats", achievement_stats)
@@ -843,6 +1160,7 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "unlocked_codex_monsters", unlocked_codex_monster_ids)
 	cfg.set_value("meta", "p1_house_character_skins", p1_house_character_skins.duplicate())
 	cfg.set_value("meta", "p2_house_character_skins", p2_house_character_skins.duplicate())
+	cfg.set_value("meta", "house_favorite_unlocked_slots", house_favorite_unlocked_slots)
 	_write_house_favorites_cfg(cfg)
 	cfg.save(SAVE_PATH)
 
@@ -873,6 +1191,7 @@ func load_from_disk() -> void:
 		p1_house_character_favorites.clear()
 		p2_house_character_skins.clear()
 		p2_house_character_favorites.clear()
+		house_favorite_unlocked_slots = GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL
 		return
 	var should_save_migration: bool = not bool(cfg.get_value(
 		"meta", "base_weapon_craft_migrated", false))
@@ -882,6 +1201,11 @@ func load_from_disk() -> void:
 	language = String(cfg.get_value("meta", "language", ""))
 	blacksmith_rescued = bool(cfg.get_value("meta", "blacksmith_rescued", false))
 	merchant_rescued = bool(cfg.get_value("meta", "merchant_rescued", false))
+	tavern_owner_rescued = bool(cfg.get_value("meta", "tavern_owner_rescued", false))
+	rune_master_rescued = bool(cfg.get_value("meta", "rune_master_rescued", false))
+	farmer_rescued = bool(cfg.get_value("meta", "farmer_rescued", false))
+	_load_village_facilities(cfg)
+	_load_farm_state(cfg)
 	_load_completed_stages(cfg)
 	touch_controls_enabled = bool(cfg.get_value(
 		"meta", "touch_controls_enabled", _default_touch_controls()))
@@ -959,6 +1283,35 @@ func _parse_house_favorites_line(raw_line: String) -> Array[String]:
 	return slots
 
 
+func _infer_house_favorite_unlocked_slots_from_favorites() -> int:
+	var max_i: int = -1
+	for player_slot in ["p1", "p2"]:
+		var fav_dict: Dictionary = _house_favorites_dict(player_slot)
+		for raw_cid in fav_dict.keys():
+			var cid: String = String(raw_cid)
+			_ensure_house_char_favorites(player_slot, cid)
+			var arr: Array = fav_dict[cid]
+			for i in mini(arr.size(), GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS):
+				if String(arr[i]) != "none":
+					max_i = maxi(max_i, i)
+	return clampi(
+		maxi(GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL, max_i + 1),
+		GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL,
+		GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS)
+
+
+func _load_house_favorite_unlocked_slots(cfg: ConfigFile) -> void:
+	if cfg.has_section_key("meta", "house_favorite_unlocked_slots"):
+		house_favorite_unlocked_slots = clampi(int(cfg.get_value(
+			"meta", "house_favorite_unlocked_slots",
+			GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL)),
+			GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL,
+			GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS)
+		return
+	house_favorite_unlocked_slots = _infer_house_favorite_unlocked_slots_from_favorites()
+	save_to_disk()
+
+
 func _load_house_state(cfg: ConfigFile) -> void:
 	_load_house_skins_from_meta(cfg, "p1_house_character_skins", "p1")
 	_load_house_skins_from_meta(cfg, "p2_house_character_skins", "p2")
@@ -1013,6 +1366,7 @@ func _load_house_state(cfg: ConfigFile) -> void:
 				legacy_slots = legacy_slots.slice(0, GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS)
 			p1_house_character_favorites[p1_character] = legacy_slots
 			save_to_disk()
+	_load_house_favorite_unlocked_slots(cfg)
 	for player_slot in ["p1", "p2"]:
 		var fav_dict: Dictionary = _house_favorites_dict(player_slot)
 		for raw_cid in fav_dict.keys():
@@ -1097,6 +1451,32 @@ func _load_materials(cfg: ConfigFile) -> void:
 		var legacy_rope: int = maxi(0, int(saved_materials.get("rope", 0)))
 		if legacy_rope > 0:
 			materials["rag"] = int(materials.get("rag", 0)) + legacy_rope
+
+
+func _load_village_facilities(cfg: ConfigFile) -> void:
+	village_facilities_unlocked.clear()
+	var saved_unlocked: Dictionary = cfg.get_value("meta", "village_facilities_unlocked", {})
+	if saved_unlocked is Dictionary:
+		for key in saved_unlocked.keys():
+			if bool(saved_unlocked[key]):
+				village_facilities_unlocked[String(key)] = true
+	village_facility_last_collect_unix.clear()
+	var saved_collect: Dictionary = cfg.get_value("meta", "village_facility_last_collect_unix", {})
+	if saved_collect is Dictionary:
+		for key in saved_collect.keys():
+			village_facility_last_collect_unix[String(key)] = float(saved_collect[key])
+
+
+func _load_farm_state(cfg: ConfigFile) -> void:
+	farm_plots.clear()
+	water_charges = int(cfg.get_value("meta", "water_charges", 0))
+	var saved_plots: Dictionary = cfg.get_value("meta", "farm_plots", {})
+	if saved_plots is Dictionary:
+		for key in saved_plots.keys():
+			var raw: Variant = saved_plots[key]
+			if raw is Dictionary:
+				farm_plots[String(key)] = (raw as Dictionary).duplicate()
+	_ensure_farm_plot_keys()
 
 
 func _load_completed_stages(cfg: ConfigFile) -> void:

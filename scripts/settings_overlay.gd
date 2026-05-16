@@ -8,12 +8,17 @@ const PANEL_W := 480.0
 const PANEL_H := 592.0
 const ACHIEVEMENTS_PANEL_W := 620.0
 const ACHIEVEMENTS_PANEL_H := 480.0
-const ITEMS_PANEL_W := 520.0
-const ITEMS_PANEL_H := 420.0
+const ITEMS_PANEL_W := 640.0
+const ITEMS_PANEL_H := 520.0
 const CODEX_PANEL_W := 760.0
 const CODEX_PANEL_H := 560.0
 const GEAR_TEXT := "⚙"
 const Z_LAYER := 100
+## 右上角成就／物品／圖鑑按鈕可出現的場景
+const FLOATING_META_SCENES: Array[String] = [
+	"res://scenes/Main.tscn",
+	"res://scenes/Village.tscn",
+]
 
 var _open: bool = false
 var _achievements_open: bool = false
@@ -37,6 +42,7 @@ var unlock_all_button: Button
 var unlock_weapons_button: Button
 var unlock_armaments_button: Button
 var unlock_monsters_button: Button
+var unlock_village_button: Button
 var add_gold_button: Button
 var max_team_weapons_button: Button
 var reset_account_button: Button
@@ -47,8 +53,11 @@ var achievements_list: RichTextLabel
 var achievements_close_button: Button
 var items_panel: Panel
 var items_title_label: Label
+var items_tabs: HBoxContainer
 var items_list: RichTextLabel
 var items_close_button: Button
+var items_tab_buttons: Dictionary = {}
+var _items_tab: String = GameData.ITEMS_TAB_CURRENCY
 var codex_panel: Panel
 var codex_title_label: Label
 var codex_tabs: HBoxContainer
@@ -287,6 +296,21 @@ func _build_ui() -> void:
 	unlock_monsters_button.pressed.connect(_on_unlock_monsters_pressed)
 	row2.add_child(unlock_monsters_button)
 
+	# 列 2b：村莊全 NPC 解救 + 全設施開啟
+	var row2b := HBoxContainer.new()
+	row2b.add_theme_constant_override("separation", 8)
+	acct_vbox.add_child(row2b)
+
+	unlock_village_button = Button.new()
+	unlock_village_button.text = tr("SETTINGS_UNLOCK_VILLAGE")
+	unlock_village_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	unlock_village_button.custom_minimum_size = Vector2(0, 40)
+	unlock_village_button.add_theme_font_size_override("font_size", 14)
+	unlock_village_button.add_theme_color_override("font_color", Color(0.82, 0.92, 1.0))
+	unlock_village_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	unlock_village_button.pressed.connect(_on_unlock_village_pressed)
+	row2b.add_child(unlock_village_button)
+
 	# 列 3：+5000 金幣 / 升滿場上武器
 	var row3 := HBoxContainer.new()
 	row3.add_theme_constant_override("separation", 8)
@@ -412,19 +436,37 @@ func _build_items_panel() -> void:
 	items_title_label.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
 	items_panel.add_child(items_title_label)
 
+	items_tabs = HBoxContainer.new()
+	items_tabs.position = Vector2(20, 58)
+	items_tabs.size = Vector2(ITEMS_PANEL_W - 40, 40)
+	items_tabs.add_theme_constant_override("separation", 6)
+	items_panel.add_child(items_tabs)
+	for tab_def in GameData.ITEMS_TABS:
+		var tab_id: String = String(tab_def.get("id", ""))
+		var btn := Button.new()
+		btn.name = "ItemsTab_" + tab_id
+		btn.text = tr(String(tab_def.get("label_key", "")))
+		btn.custom_minimum_size = Vector2(96, 36)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.process_mode = Node.PROCESS_MODE_ALWAYS
+		btn.pressed.connect(_set_items_tab.bind(tab_id))
+		items_tabs.add_child(btn)
+		items_tab_buttons[tab_id] = btn
+
 	items_list = RichTextLabel.new()
-	items_list.position = Vector2(34, 82)
-	items_list.size = Vector2(ITEMS_PANEL_W - 68, ITEMS_PANEL_H - 156)
+	items_list.position = Vector2(24, 108)
+	items_list.size = Vector2(ITEMS_PANEL_W - 48, ITEMS_PANEL_H - 188)
 	items_list.bbcode_enabled = true
 	items_list.scroll_active = true
 	items_list.fit_content = false
-	items_list.add_theme_font_size_override("normal_font_size", 18)
+	items_list.add_theme_font_size_override("normal_font_size", 16)
 	items_list.add_theme_color_override("default_color", Color(0.86, 0.9, 1.0))
 	items_panel.add_child(items_list)
 
 	items_close_button = Button.new()
 	items_close_button.size = Vector2(180, 44)
-	items_close_button.position = Vector2((ITEMS_PANEL_W - 180) * 0.5, ITEMS_PANEL_H - 60)
+	items_close_button.position = Vector2((ITEMS_PANEL_W - 180) * 0.5, ITEMS_PANEL_H - 56)
 	items_close_button.add_theme_font_size_override("font_size", 18)
 	items_close_button.process_mode = Node.PROCESS_MODE_ALWAYS
 	items_close_button.pressed.connect(_close_items)
@@ -577,6 +619,8 @@ func _refresh_from_state() -> void:
 		unlock_armaments_button.text = tr("SETTINGS_UNLOCK_ARMAMENTS")
 	if unlock_monsters_button != null:
 		unlock_monsters_button.text = tr("SETTINGS_UNLOCK_MONSTERS")
+	if unlock_village_button != null:
+		unlock_village_button.text = tr("SETTINGS_UNLOCK_VILLAGE")
 	add_gold_button.text = tr("SETTINGS_ADD_GOLD")
 	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS")
 	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT_CONFIRM") \
@@ -716,13 +760,18 @@ func _set_codex_tab(tab_id: String) -> void:
 	_refresh_codex_panel()
 
 
+func _scene_allows_floating_meta_buttons() -> bool:
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return false
+	return FLOATING_META_SCENES.has(scene.scene_file_path)
+
+
 func _refresh_floating_button_visibility() -> void:
 	if achievement_button == null or items_button == null or codex_button == null:
 		return
-	var scene: Node = get_tree().current_scene
-	var on_main: bool = scene != null and scene.scene_file_path == "res://scenes/Main.tscn"
-	var show_buttons: bool = on_main and not _open and not _achievements_open and not _items_open \
-		and not _codex_open
+	var show_buttons: bool = _scene_allows_floating_meta_buttons() \
+		and not _open and not _achievements_open and not _items_open and not _codex_open
 	achievement_button.visible = show_buttons
 	items_button.visible = show_buttons
 	codex_button.visible = show_buttons
@@ -760,21 +809,74 @@ func _refresh_achievements_panel() -> void:
 	achievements_list.text = "\n".join(lines)
 
 
+func _set_items_tab(tab_id: String) -> void:
+	_items_tab = tab_id
+	_refresh_items_panel()
+
+
+func _refresh_items_tab_buttons() -> void:
+	for tab_id in items_tab_buttons.keys():
+		var btn: Button = items_tab_buttons[tab_id] as Button
+		if btn == null:
+			continue
+		var on: bool = tab_id == _items_tab
+		btn.modulate = Color(1.15, 1.12, 0.9) if on else Color(0.72, 0.76, 0.88)
+
+
+func _items_lines_for_material_category(category: String, include_zero: bool) -> Array[String]:
+	var lines: Array[String] = []
+	for m in GameData.materials_in_category(category):
+		var id: String = String(m.get("id", ""))
+		var amt: int = GameState.get_material_amount(id)
+		if not include_zero and amt <= 0:
+			continue
+		lines.append(tr("ITEMS_MATERIAL_FMT") % [GameData.tr_material_name(id), amt])
+	if lines.is_empty():
+		lines.append(tr("ITEMS_TAB_EMPTY"))
+	return lines
+
+
 func _refresh_items_panel() -> void:
 	if items_panel == null or items_list == null:
 		return
 	items_title_label.text = tr("ITEMS_TITLE")
 	items_close_button.text = tr("ITEMS_CLOSE")
-	var lines: Array[String] = [
-		tr("ITEMS_GOLD_FMT") % GameState.gold,
-		tr("ITEMS_RUNE_DUST_FMT") % GameState.rune_dust,
-		"",
-		"[color=#ffd24d][b]%s[/b][/color]" % tr("ITEMS_FORGING_MATERIALS"),
-	]
-	for m in GameData.MATERIALS:
-		var id: String = String(m.get("id", ""))
-		lines.append(tr("ITEMS_MATERIAL_FMT") % [
-			GameData.tr_material_name(id), GameState.get_material_amount(id)])
+	_refresh_items_tab_buttons()
+	var lines: Array[String] = []
+	match _items_tab:
+		GameData.ITEMS_TAB_CURRENCY:
+			lines.append(tr("ITEMS_GOLD_FMT") % GameState.gold)
+			if GameState.is_village_facility_unlocked("farm") \
+					or GameState.is_village_facility_unlocked("well"):
+				lines.append("")
+				lines.append(tr("ITEMS_WATER_CHARGES_FMT") % [
+					GameState.water_charges, GameData.VILLAGE_WATER_MAX_CHARGES])
+		GameData.ITEMS_TAB_CROPS:
+			lines.append("[color=#9ddf7a][b]%s[/b][/color]" % tr("ITEMS_SECTION_HARVEST"))
+			lines.append_array(_items_lines_for_material_category(
+				GameData.MAT_CATEGORY_CROP, false))
+			lines.append("")
+			lines.append("[color=#c9e87a][b]%s[/b][/color]" % tr("ITEMS_SECTION_SEEDS"))
+			lines.append_array(_items_lines_for_material_category(
+				GameData.MAT_CATEGORY_SEED, false))
+		GameData.ITEMS_TAB_RESOURCES:
+			lines.append_array(_items_lines_for_material_category(
+				GameData.MAT_CATEGORY_RESOURCE, true))
+		GameData.ITEMS_TAB_FORGING:
+			lines.append_array(_items_lines_for_material_category(
+				GameData.MAT_CATEGORY_FORGING, true))
+		GameData.ITEMS_TAB_ARMAMENTS:
+			for aid in GameState.unlocked_armaments:
+				var adef: Dictionary = GameData.get_armament_def(String(aid))
+				if adef.is_empty():
+					continue
+				lines.append(tr("ITEMS_ARMAMENT_LINE_FMT") % GameData.tr_name(adef))
+			if lines.is_empty():
+				lines.append(tr("ITEMS_TAB_EMPTY"))
+		GameData.ITEMS_TAB_RUNES:
+			lines.append(tr("ITEMS_RUNE_DUST_FMT") % GameState.rune_dust)
+		_:
+			lines.append(tr("ITEMS_TAB_EMPTY"))
 	items_list.text = "\n".join(lines)
 
 
@@ -936,6 +1038,8 @@ func _codex_armaments_text() -> String:
 		tr("CODEX_ARMAMENTS_SUMMARY_FMT") % [unlocked_count, total],
 		tr("CODEX_ICON_PLACEHOLDER_NOTE"),
 		"",
+		GameData.format_all_stages_armament_books_hint(),
+		"",
 	]
 	for a in GameData.ARMAMENTS:
 		var aid: String = String(a.get("id", ""))
@@ -952,7 +1056,7 @@ func _codex_armaments_text() -> String:
 			lines.append(_codex_armament_cost_text(aid))
 		else:
 			if GameData.armament_requires_craft_book(aid) and not GameState.has_armament_recipe(aid):
-				lines.append(tr("CODEX_LOCKED_ARMAMENT_RECIPE_HINT"))
+				lines.append(GameData.format_armament_recipe_source_hint(aid))
 			else:
 				lines.append(tr("CODEX_LOCKED_ARMAMENT_HINT"))
 			lines.append(_codex_armament_cost_text(aid))
@@ -1058,11 +1162,42 @@ func _show_codex_monster_detail(def: Dictionary) -> void:
 	if def.get("ranged", null) is Dictionary:
 		var rg: Dictionary = def["ranged"]
 		var ranged_dmg: float = float(ref_st["damage"]) * float(rg.get("damage_mult", 0.75))
-		lines.append(tr("CODEX_MONSTER_DETAIL_RANGED_FMT") % [
-			float(rg.get("range", 0.0)), float(rg.get("min_range", 0.0)),
-			float(rg.get("width", 0.0))])
+		if String(rg.get("kind", "line")) == "bomb":
+			lines.append(tr("CODEX_MONSTER_DETAIL_BOMB_FMT") % [
+				float(rg.get("range", 0.0)), float(rg.get("aoe_radius", 0.0))])
+		else:
+			lines.append(tr("CODEX_MONSTER_DETAIL_RANGED_FMT") % [
+				float(rg.get("range", 0.0)), float(rg.get("min_range", 0.0)),
+				float(rg.get("width", 0.0))])
 		lines.append("%s %d" % [
 			tr("CODEX_MONSTER_STAT_RANGED_DMG"), int(round(ranged_dmg))])
+	if def.get("melee_aoe", null) is Dictionary:
+		var ma: Dictionary = def["melee_aoe"]
+		lines.append(tr("CODEX_MONSTER_DETAIL_MELEE_AOE_FMT") % [
+			float(ma.get("radius", 0.0)),
+			int(round(float(ma.get("damage_mult", 0.65)) * 100.0))])
+	var hit_eff: Dictionary = def.get("hit_effects", {})
+	if hit_eff.is_empty() and def.get("ranged", null) is Dictionary:
+		var rg_eff: Variant = (def["ranged"] as Dictionary).get("hit_effects", {})
+		if rg_eff is Dictionary:
+			hit_eff = rg_eff
+	if hit_eff.get("slow") is Dictionary:
+		var sl: Dictionary = hit_eff["slow"]
+		lines.append(tr("CODEX_MONSTER_HIT_SLOW_FMT") % [
+			int(round(clampf(float(sl.get("factor", 0.55)), 0.15, 1.0) * 100.0)),
+			float(sl.get("duration", 1.0))])
+	if hit_eff.has("stun"):
+		lines.append(tr("CODEX_MONSTER_HIT_STUN_FMT") % float(hit_eff["stun"]))
+	if float(hit_eff.get("knockback", 0.0)) > 0.0:
+		lines.append(tr("CODEX_MONSTER_HIT_KNOCKBACK_FMT"))
+	if hit_eff.get("bleed") is Dictionary:
+		var bl: Dictionary = hit_eff["bleed"]
+		lines.append(tr("CODEX_MONSTER_HIT_BLEED_FMT") % [
+			float(bl.get("dps", 2.0)), float(bl.get("duration", 2.0))])
+	if def.get("summon_minions", null) is Dictionary:
+		var sm: Dictionary = def["summon_minions"]
+		lines.append(tr("CODEX_MONSTER_SUMMON_FMT") % [
+			float(sm.get("interval", 9.0)), int(sm.get("count", 2))])
 	var drop_lines: Array[String] = GameData.codex_monster_drop_lines(def)
 	if not drop_lines.is_empty():
 		lines.append("")
@@ -1299,9 +1434,22 @@ func _reset_all_debug_button_texts() -> void:
 		unlock_armaments_button.text = tr("SETTINGS_UNLOCK_ARMAMENTS")
 	if unlock_monsters_button != null:
 		unlock_monsters_button.text = tr("SETTINGS_UNLOCK_MONSTERS")
+	if unlock_village_button != null:
+		unlock_village_button.text = tr("SETTINGS_UNLOCK_VILLAGE")
 	add_gold_button.text = tr("SETTINGS_ADD_GOLD")
 	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS")
 	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT")
+
+
+func _on_unlock_village_pressed() -> void:
+	if not is_instance_valid(GameState):
+		return
+	GameState.unlock_all_village_npcs_and_facilities()
+	_reset_confirm_armed = false
+	_reset_all_debug_button_texts()
+	if unlock_village_button != null:
+		unlock_village_button.text = tr("SETTINGS_UNLOCK_VILLAGE_DONE")
+	_notify_current_scene_account_changed()
 
 
 func _on_unlock_all_pressed() -> void:

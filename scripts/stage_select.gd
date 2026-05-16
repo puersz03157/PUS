@@ -5,7 +5,7 @@ extends Control
 ## 關卡資料來自 GameData.STAGES，UI 會依資料自動支援多關切換。
 
 const STAGE_PANEL_W := 720.0
-const STAGE_PANEL_H := 360.0
+const STAGE_PANEL_H := 400.0
 
 var _stages: Array = []
 var _index: int = 0
@@ -175,8 +175,8 @@ func _apply_layout() -> void:
 	stage_name_label.size = Vector2(STAGE_PANEL_W, 60)
 	stage_boss_label.position = Vector2(0, 160)
 	stage_boss_label.size = Vector2(STAGE_PANEL_W, 30)
-	stage_reward_label.position = Vector2(0, 200)
-	stage_reward_label.size = Vector2(STAGE_PANEL_W, 80)
+	stage_reward_label.position = Vector2(0, 195)
+	stage_reward_label.size = Vector2(STAGE_PANEL_W, 150)
 
 	# 切換箭頭緊貼面板兩側
 	var arrow_w: float = 64.0
@@ -226,26 +226,22 @@ func _refresh() -> void:
 	var reward: int = int(stage.get("victory_gold", 0))
 	if reward > 0:
 		rewards.append(tr("STAGE_SELECT_REWARD_FMT") % reward)
-	if bool(stage.get("rescue_blacksmith", false)):
-		if bool(GameState.blacksmith_rescued):
-			rewards.append(tr("STAGE_SELECT_RESCUE_BLACKSMITH_DONE"))
+	var rescue_npc_id: String = GameData.stage_rescue_npc_id(stage)
+	if rescue_npc_id != "":
+		if GameState.is_npc_rescued(rescue_npc_id):
+			rewards.append(tr("STAGE_SELECT_RESCUE_NPC_DONE_FMT") % GameData.tr_rescue_npc_name(rescue_npc_id))
 		else:
-			rewards.append(tr("STAGE_SELECT_RESCUE_BLACKSMITH"))
-	if bool(stage.get("rescue_merchant", false)):
-		if bool(GameState.merchant_rescued):
-			rewards.append(tr("STAGE_SELECT_RESCUE_MERCHANT_DONE"))
+			rewards.append(tr("STAGE_SELECT_RESCUE_NPC_FMT") % GameData.tr_rescue_npc_name(rescue_npc_id))
+	for facility_id in GameData.stage_victory_unlock_facility_ids(stage):
+		var fdef: Dictionary = GameData.get_village_facility_def(facility_id)
+		var fname: String = GameData.tr_field(fdef, "name", false) if not fdef.is_empty() else facility_id
+		if GameState.is_village_facility_unlocked(facility_id):
+			rewards.append(tr("STAGE_SELECT_FACILITY_UNLOCKED_FMT") % fname)
 		else:
-			rewards.append(tr("STAGE_SELECT_RESCUE_MERCHANT"))
-	var book_pool: Array[String] = GameData.stage_event_armament_book_ids(String(stage.get("id", "")))
-	if not book_pool.is_empty():
-		var missing: int = 0
-		for aid in book_pool:
-			if not GameState.has_armament_recipe(aid):
-				missing += 1
-		if missing > 0:
-			rewards.append(tr("STAGE_SELECT_EVENT_ARMAMENT_BOOK"))
-		else:
-			rewards.append(tr("STAGE_SELECT_EVENT_ARMAMENT_BOOK_DONE"))
+			rewards.append(tr("STAGE_SELECT_FACILITY_UNLOCK_FMT") % fname)
+	var books_block: String = GameData.format_stage_event_armament_books_block(String(stage.get("id", "")))
+	if books_block != "":
+		rewards.append(books_block)
 	stage_reward_label.text = "\n".join(rewards)
 
 	# 金幣與切換鈕可見性

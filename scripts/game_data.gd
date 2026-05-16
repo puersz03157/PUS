@@ -652,6 +652,8 @@ func get_armament_def(id: String) -> Dictionary:
 
 
 const P1_HOUSE_FAVORITE_ARMAMENT_SLOTS := 5
+## 新帳號／重置後喜愛武裝可用格數（最終 5 格須向鐵匠擴充）
+const HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL := 2
 ## 喜愛武裝格可累加之基礎屬性（不含進場武器／共通升級）
 const ARMAMENT_FAVORITE_STAT_FIELDS: Array[String] = [
 	"hp_add", "def_add", "atk_add", "spd_add",
@@ -852,6 +854,169 @@ func blacksmith_armament_ids() -> Array[String]:
 	return out
 
 
+# 關卡解救 NPC（戰鬥內事件）與村莊設施（通關後開啟）
+const RESCUE_NPCS: Dictionary = {
+	"blacksmith": {
+		"name_key": "BLACKSMITH_RESCUE_NAME",
+		"hint_key": "BLACKSMITH_RESCUE_HINT",
+		"rescued_notice_key": "BLACKSMITH_RESCUED_NOTICE",
+	},
+	"merchant": {
+		"name_key": "MERCHANT_RESCUE_NAME",
+		"hint_key": "MERCHANT_RESCUE_HINT",
+		"rescued_notice_key": "MERCHANT_RESCUED_NOTICE",
+	},
+	"tavern_owner": {
+		"name_key": "TAVERN_OWNER_RESCUE_NAME",
+		"hint_key": "TAVERN_OWNER_RESCUE_HINT",
+		"rescued_notice_key": "TAVERN_OWNER_RESCUED_NOTICE",
+	},
+	"rune_master": {
+		"name_key": "RUNE_MASTER_RESCUE_NAME",
+		"hint_key": "RUNE_MASTER_RESCUE_HINT",
+		"rescued_notice_key": "RUNE_MASTER_RESCUED_NOTICE",
+	},
+	"farmer": {
+		"name_key": "FARMER_RESCUE_NAME",
+		"hint_key": "FARMER_RESCUE_HINT",
+		"rescued_notice_key": "FARMER_RESCUED_NOTICE",
+	},
+}
+
+const VILLAGE_FACILITIES: Array[Dictionary] = [
+	{
+		"id": "quarry",
+		"name_key": "VILLAGE_QUARRY_NAME",
+		"hint_key": "VILLAGE_QUARRY_INTERACT_HINT",
+		"collect_key": "VILLAGE_FACILITY_COLLECT",
+		"cooldown_key": "VILLAGE_FACILITY_COOLDOWN_FMT",
+		"collect_done_key": "VILLAGE_FACILITY_COLLECT_DONE_FMT",
+		"map_slots": ["Quarry", "quarry"],
+		"fallback_x_mult": 0.66,
+		"collect_cooldown_sec": 50.0,
+		"output": {"stone": {"min": 3, "max": 5}},
+	},
+	{
+		"id": "lumberyard",
+		"name_key": "VILLAGE_LUMBERYARD_NAME",
+		"hint_key": "VILLAGE_LUMBERYARD_INTERACT_HINT",
+		"collect_key": "VILLAGE_FACILITY_COLLECT",
+		"cooldown_key": "VILLAGE_FACILITY_COOLDOWN_FMT",
+		"collect_done_key": "VILLAGE_FACILITY_COLLECT_DONE_FMT",
+		"map_slots": ["lumberyard", "Lumberyard"],
+		"fallback_x_mult": 0.63,
+		"collect_cooldown_sec": 50.0,
+		"output": {"wood": {"min": 3, "max": 5}},
+	},
+	{
+		"id": "well",
+		"name_key": "VILLAGE_WELL_NAME",
+		"hint_key": "VILLAGE_WELL_INTERACT_HINT",
+		"map_slots": ["Water", "water", "well"],
+		"fallback_x_mult": 0.11,
+		"village_interact": "well",
+	},
+	{
+		"id": "farm",
+		"name_key": "VILLAGE_FARM_NAME",
+		"hint_key": "VILLAGE_FARM_INTERACT_HINT",
+		"map_slots": ["Farmer", "farmer", "farm"],
+		"fallback_x_mult": 0.16,
+		"village_interact": "farmer",
+	},
+]
+
+## 新村莊地圖（New Village.tmx）— 200×15 tiles × 16px，場景內再 ×1.5
+const VILLAGE_MAP_PATH := "res://assets/Maps/New Village.tmx"
+const VILLAGE_MAP_TILES := Vector2i(200, 15)
+const VILLAGE_MAP_TILE_PX := 16
+const VILLAGE_MAP_SCALE := 1.5
+## 村莊內角色貼圖額外放大（乘在角色表／造型 scale 上；不影響戰鬥）
+const VILLAGE_CHARACTER_SCALE_MULT := 1.4
+## 村莊內碰撞與地圖阻擋半徑倍率（乘在角色表 body_radius 上）
+const VILLAGE_BODY_RADIUS_MULT := 1.25
+
+## 村莊常駐 NPC 物件名（解救後於地圖標記點生成）
+const VILLAGE_MAP_BLACKSMITH_SLOTS: Array[String] = [
+	"Blacksmith", "blacksmith", "smith",
+]
+const VILLAGE_MAP_MERCHANT_SLOTS: Array[String] = [
+	"Grocer", "grocer", "item", "merchant", "Merchant",
+]
+const VILLAGE_MAP_HOME_P1_SLOTS: Array[String] = ["Home1", "home1", "HouseSlot1"]
+const VILLAGE_MAP_HOME_P2_SLOTS: Array[String] = ["Home2", "home2", "HouseSlot2"]
+const VILLAGE_MAP_ENTRANCE_SLOTS: Array[String] = ["entrance", "Entrance", "ENTRANCE"]
+const VILLAGE_MAP_FLOOR_SLOTS: Array[String] = ["Floor", "floor", "Ground", "ground"]
+
+const VILLAGE_RESCUED_NPC_MARKERS: Array[Dictionary] = [
+	{
+		"npc_id": "tavern_owner",
+		"name_key": "VILLAGE_TAVERN_OWNER_NAME",
+		"map_slots": ["Tavern Door", "TavernDoor", "tavern_door"],
+	},
+	{
+		"npc_id": "rune_master",
+		"name_key": "VILLAGE_RUNE_MASTER_NAME",
+		"map_slots": ["RuneMaster", "Rune Master", "runemaster"],
+	},
+	{
+		"npc_id": "farmer",
+		"name_key": "VILLAGE_FARMER_NAME",
+		"map_slots": ["Farmer", "farmer"],
+	},
+]
+
+
+func village_map_pixel_size() -> Vector2:
+	return Vector2(
+		float(VILLAGE_MAP_TILES.x * VILLAGE_MAP_TILE_PX) * VILLAGE_MAP_SCALE,
+		float(VILLAGE_MAP_TILES.y * VILLAGE_MAP_TILE_PX) * VILLAGE_MAP_SCALE,
+	)
+
+
+func village_scaled_body_radius(base_radius: float) -> float:
+	return clampf(base_radius * VILLAGE_BODY_RADIUS_MULT, 8.0, 160.0)
+
+
+func get_rescue_npc_def(npc_id: String) -> Dictionary:
+	return RESCUE_NPCS.get(npc_id, {})
+
+
+func tr_rescue_npc_name(npc_id: String) -> String:
+	var def: Dictionary = get_rescue_npc_def(npc_id)
+	if def.is_empty():
+		return npc_id
+	return tr_field(def, "name", false)
+
+
+func get_village_facility_def(facility_id: String) -> Dictionary:
+	for f in VILLAGE_FACILITIES:
+		if String(f.get("id", "")) == facility_id:
+			return f
+	return {}
+
+
+func stage_rescue_npc_id(stage: Dictionary) -> String:
+	if stage.has("rescue_npc"):
+		return String(stage["rescue_npc"])
+	if bool(stage.get("rescue_blacksmith", false)):
+		return "blacksmith"
+	if bool(stage.get("rescue_merchant", false)):
+		return "merchant"
+	return ""
+
+
+func stage_victory_unlock_facility_ids(stage: Dictionary) -> Array[String]:
+	var out: Array[String] = []
+	var raw: Variant = stage.get("victory_unlock_facilities", [])
+	if raw is Array:
+		for item in raw:
+			var fid: String = String(item)
+			if fid != "" and not out.has(fid):
+				out.append(fid)
+	return out
+
+
 func stage_event_armament_book_ids(stage_id: String) -> Array[String]:
 	var stage: Dictionary = get_stage_def(stage_id)
 	var raw: Variant = stage.get("event_armament_books", [])
@@ -863,6 +1028,50 @@ func stage_event_armament_book_ids(stage_id: String) -> Array[String]:
 		if aid != "" and get_armament_def(aid).has("craft_gold"):
 			out.append(aid)
 	return out
+
+
+func format_stage_event_armament_book_line(armament_id: String, show_obtained: bool) -> String:
+	var name: String = tr_armament_name(armament_id)
+	if not show_obtained:
+		return tr("STAGE_SELECT_ARMAMENT_BOOK_LINE_FMT") % name
+	if GameState.has_armament_recipe(armament_id):
+		return tr("STAGE_SELECT_ARMAMENT_BOOK_LINE_OBTAINED_FMT") % name
+	return tr("STAGE_SELECT_ARMAMENT_BOOK_LINE_MISSING_FMT") % name
+
+
+func format_stage_event_armament_books_block(stage_id: String, show_obtained: bool = true) -> String:
+	var pool: Array[String] = stage_event_armament_book_ids(stage_id)
+	if pool.is_empty():
+		return ""
+	var lines: PackedStringArray = PackedStringArray([tr("STAGE_SELECT_ARMAMENT_BOOKS_HEADER")])
+	for aid in pool:
+		lines.append(format_stage_event_armament_book_line(aid, show_obtained))
+	return "\n".join(lines)
+
+
+func format_all_stages_armament_books_hint() -> String:
+	var lines: PackedStringArray = PackedStringArray([tr("CODEX_ARMAMENT_BOOKS_BY_STAGE_HEADER")])
+	for stage in STAGES:
+		var pool: Array[String] = stage_event_armament_book_ids(String(stage.get("id", "")))
+		if pool.is_empty():
+			continue
+		var names: PackedStringArray = PackedStringArray()
+		for aid in pool:
+			names.append(tr_armament_name(aid))
+		lines.append(tr("CODEX_ARMAMENT_BOOKS_STAGE_LINE_FMT") % [tr_name(stage), ", ".join(names)])
+	return "\n".join(lines)
+
+
+func format_armament_recipe_source_hint(armament_id: String) -> String:
+	var stage_names: PackedStringArray = PackedStringArray()
+	for stage in STAGES:
+		var sid: String = String(stage.get("id", ""))
+		var pool: Array[String] = stage_event_armament_book_ids(sid)
+		if armament_id in pool:
+			stage_names.append(tr_name(stage))
+	if stage_names.is_empty():
+		return tr("CODEX_LOCKED_ARMAMENT_RECIPE_HINT")
+	return tr("CODEX_ARMAMENT_BOOK_SOURCE_FMT") % ", ".join(stage_names)
 
 
 func get_character_def(id: String) -> Dictionary:
@@ -1230,15 +1439,86 @@ func tr_stage_name(id: String) -> String:
 
 
 # ====================================================
-# 鍛造素材資料
+# 鍛造素材／資源／農產（物品分頁用 category）
 # ====================================================
+const MAT_CATEGORY_FORGING := "forging"
+const MAT_CATEGORY_RESOURCE := "resource"
+const MAT_CATEGORY_SEED := "seed"
+const MAT_CATEGORY_CROP := "crop"
+
 const MATERIALS: Array[Dictionary] = [
-	{"id": "wood", "name": "木頭", "name_key": "MAT_WOOD_NAME"},
-	{"id": "stone", "name": "石頭", "name_key": "MAT_STONE_NAME"},
-	{"id": "iron", "name": "鐵", "name_key": "MAT_IRON_NAME"},
-	{"id": "copper", "name": "銅", "name_key": "MAT_COPPER_NAME"},
-	{"id": "bone", "name": "骨頭", "name_key": "MAT_BONE_NAME"},
-	{"id": "rag", "name": "破布", "name_key": "MAT_RAG_NAME"},
+	{"id": "wood", "name": "木頭", "name_key": "MAT_WOOD_NAME", "category": MAT_CATEGORY_FORGING},
+	{"id": "stone", "name": "石頭", "name_key": "MAT_STONE_NAME", "category": MAT_CATEGORY_FORGING},
+	{"id": "iron", "name": "鐵", "name_key": "MAT_IRON_NAME", "category": MAT_CATEGORY_FORGING},
+	{"id": "copper", "name": "銅", "name_key": "MAT_COPPER_NAME", "category": MAT_CATEGORY_FORGING},
+	{"id": "bone", "name": "骨頭", "name_key": "MAT_BONE_NAME", "category": MAT_CATEGORY_FORGING},
+	{"id": "rag", "name": "破布", "name_key": "MAT_RAG_NAME", "category": MAT_CATEGORY_FORGING},
+	{"id": "silver", "name": "銀", "name_key": "MAT_SILVER_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "gold_ore", "name": "金", "name_key": "MAT_GOLD_ORE_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "gunpowder", "name": "火藥", "name_key": "MAT_GUNPOWDER_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "sacred_wood", "name": "神木", "name_key": "MAT_SACRED_WOOD_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "glow_dust", "name": "光粉", "name_key": "MAT_GLOW_DUST_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "tree_sap", "name": "樹液", "name_key": "MAT_TREE_SAP_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "flame_scale", "name": "炎鱗", "name_key": "MAT_FLAME_SCALE_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "obsidian", "name": "黑曜石", "name_key": "MAT_OBSIDIAN_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "venom", "name": "毒液", "name_key": "MAT_VENOM_NAME", "category": MAT_CATEGORY_RESOURCE},
+	{"id": "wheat_seed", "name": "小麥種", "name_key": "MAT_WHEAT_SEED_NAME", "category": MAT_CATEGORY_SEED},
+	{"id": "carrot_seed", "name": "胡蘿蔔種", "name_key": "MAT_CARROT_SEED_NAME", "category": MAT_CATEGORY_SEED},
+	{"id": "potato_seed", "name": "馬鈴薯種", "name_key": "MAT_POTATO_SEED_NAME", "category": MAT_CATEGORY_SEED},
+	{"id": "wheat", "name": "小麥", "name_key": "MAT_WHEAT_NAME", "category": MAT_CATEGORY_CROP},
+	{"id": "carrot", "name": "胡蘿蔔", "name_key": "MAT_CARROT_NAME", "category": MAT_CATEGORY_CROP},
+	{"id": "potato", "name": "馬鈴薯", "name_key": "MAT_POTATO_NAME", "category": MAT_CATEGORY_CROP},
+]
+
+## 農田：7 格（Crops1～Crops7），每格可播種、澆水、收成
+const FARM_PLOT_COUNT := 7
+const VILLAGE_WATER_MAX_CHARGES := 4
+
+const FARM_CROPS: Array[Dictionary] = [
+	{
+		"id": "wheat",
+		"seed_id": "wheat_seed",
+		"stages_to_mature": 3,
+		"name_key": "CROP_WHEAT_NAME",
+		"seed_name_key": "MAT_WHEAT_SEED_NAME",
+	},
+	{
+		"id": "carrot",
+		"seed_id": "carrot_seed",
+		"stages_to_mature": 3,
+		"name_key": "CROP_CARROT_NAME",
+		"seed_name_key": "MAT_CARROT_SEED_NAME",
+	},
+	{
+		"id": "potato",
+		"seed_id": "potato_seed",
+		"stages_to_mature": 3,
+		"name_key": "CROP_POTATO_NAME",
+		"seed_name_key": "MAT_POTATO_SEED_NAME",
+	},
+]
+
+const FARMER_SEED_PRICES: Dictionary = {
+	"wheat_seed": 10,
+	"carrot_seed": 14,
+	"potato_seed": 18,
+}
+
+## 物品介面分頁 id
+const ITEMS_TAB_CURRENCY := "currency"
+const ITEMS_TAB_CROPS := "crops"
+const ITEMS_TAB_RESOURCES := "resources"
+const ITEMS_TAB_FORGING := "forging"
+const ITEMS_TAB_ARMAMENTS := "armaments"
+const ITEMS_TAB_RUNES := "runes"
+
+const ITEMS_TABS: Array[Dictionary] = [
+	{"id": ITEMS_TAB_CURRENCY, "label_key": "ITEMS_TAB_CURRENCY"},
+	{"id": ITEMS_TAB_CROPS, "label_key": "ITEMS_TAB_CROPS"},
+	{"id": ITEMS_TAB_RESOURCES, "label_key": "ITEMS_TAB_RESOURCES"},
+	{"id": ITEMS_TAB_FORGING, "label_key": "ITEMS_TAB_FORGING"},
+	{"id": ITEMS_TAB_ARMAMENTS, "label_key": "ITEMS_TAB_ARMAMENTS"},
+	{"id": ITEMS_TAB_RUNES, "label_key": "ITEMS_TAB_RUNES"},
 ]
 
 
@@ -1247,6 +1527,37 @@ func get_material_def(id: String) -> Dictionary:
 		if m["id"] == id:
 			return m
 	return {}
+
+
+func material_category(mat_id: String) -> String:
+	var def: Dictionary = get_material_def(mat_id)
+	return String(def.get("category", MAT_CATEGORY_FORGING))
+
+
+func materials_in_category(category: String) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for m in MATERIALS:
+		if String(m.get("category", MAT_CATEGORY_FORGING)) == category:
+			out.append(m)
+	return out
+
+
+func get_farm_crop_def(crop_id: String) -> Dictionary:
+	for c in FARM_CROPS:
+		if String(c.get("id", "")) == crop_id:
+			return c
+	return {}
+
+
+func farm_crop_for_seed(seed_id: String) -> Dictionary:
+	for c in FARM_CROPS:
+		if String(c.get("seed_id", "")) == seed_id:
+			return c
+	return {}
+
+
+func farm_plot_map_slot_name(slot_index: int) -> String:
+	return "Crops%d" % clampi(slot_index, 1, FARM_PLOT_COUNT)
 
 
 ## 關卡／敵人掉落表擲一次（多筆同時過機率，再從中過關者隨機擇一）
@@ -1349,7 +1660,7 @@ func format_enemy_codex_stats_block(def: Dictionary) -> String:
 
 
 # ====================================================
-# 敵人池（分關卡：史萊姆 / 獸人 / 不死）
+# 敵人池（分關卡：史萊姆 / 獸人 / 不死 / 矮人 / 精靈 / 蜥蜴人）
 # ====================================================
 # 第一關池：5 種小怪 + 關底 Boss（圖檔與 Orcs/Undead 相同規則：`assets/enemy/Slimes/<id>.png`）
 const ENEMY_POOL_SLIME: Array[Dictionary] = [
@@ -1539,6 +1850,208 @@ const ENEMY_POOL_UNDEAD: Array[Dictionary] = [
 		]},
 ]
 
+# 第四關池：矮人（圖檔：`assets/enemy/Dwarfs/<id>.png`，32px 格線同獸人）
+const ENEMY_POOL_DWARF: Array[Dictionary] = [
+	{"id": "dwarf_miner", "name_key": "ENEMY_DWARF_MINER_NAME",
+		"tex": "res://assets/enemy/Dwarfs/dwarf_miner.png",
+		"tier": 0, "elite": false, "boss": false, "hframes": 6, "vframes": 6,
+		"frames_per_row": [4, 6, 3, 4, 2, 4], "scale": 1.52, "radius": 24.0, "offset_y": -11,
+		"hp_mult": 1.05, "dmg_mult": 1.02, "speed_mult": 1.0, "xp_mult": 1.08, "defense": 0.02,
+		"material_drops": [
+			{"id": "silver", "chance": 0.14, "min": 1, "max": 1},
+		]},
+	{"id": "dwarf_gunner", "name_key": "ENEMY_DWARF_GUNNER_NAME",
+		"tex": "res://assets/enemy/Dwarfs/dwarf_gunner.png",
+		"tier": 1, "elite": false, "boss": false, "hframes": 6, "vframes": 6,
+		"frames_per_row": [4, 6, 3, 4, 2, 4], "scale": 1.5, "radius": 23.0, "offset_y": -11,
+		"hp_mult": 0.98, "dmg_mult": 0.92, "speed_mult": 0.92, "xp_mult": 1.12, "defense": 0.0,
+		"ranged": {"kind": "line", "range": 360.0, "min_range": 100.0, "width": 40.0,
+			"windup": 0.88, "cooldown": 4.2, "damage_mult": 0.82},
+		"material_drops": [
+			{"id": "gunpowder", "chance": 0.12, "min": 1, "max": 1},
+			{"id": "silver", "chance": 0.06, "min": 1, "max": 1},
+		]},
+	{"id": "dwarf_bomber", "name_key": "ENEMY_DWARF_BOMBER_NAME",
+		"tex": "res://assets/enemy/Dwarfs/dwarf_bomber.png",
+		"tier": 2, "elite": false, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.48, "radius": 23.0, "offset_y": -11,
+		"hp_mult": 1.1, "dmg_mult": 1.0, "speed_mult": 0.9, "xp_mult": 1.2, "defense": 0.0,
+		"ranged": {"kind": "bomb", "range": 340.0, "min_range": 70.0, "aoe_radius": 92.0,
+			"windup": 1.15, "cooldown": 5.0, "damage_mult": 0.95},
+		"material_drops": [
+			{"id": "gunpowder", "chance": 0.16, "min": 1, "max": 2},
+		]},
+	{"id": "dwarf_shieldguard", "name_key": "ENEMY_DWARF_SHIELDGUARD_NAME",
+		"tex": "res://assets/enemy/Dwarfs/dwarf_shieldguard.png",
+		"tier": 3, "elite": true, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.65, "radius": 32.0, "offset_y": -11,
+		"hp_mult": 2.1, "dmg_mult": 1.05, "speed_mult": 0.78, "xp_mult": 1.38, "defense": 0.14,
+		"material_drops": [
+			{"id": "silver", "chance": 0.12, "min": 1, "max": 2},
+			{"id": "gold_ore", "chance": 0.06, "min": 1, "max": 1},
+		]},
+	{"id": "dwarf_axeman", "name_key": "ENEMY_DWARF_AXEMAN_NAME",
+		"tex": "res://assets/enemy/Dwarfs/dwarf_axeman.png",
+		"tier": 4, "elite": false, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.58, "radius": 28.0, "offset_y": -11,
+		"hp_mult": 1.65, "dmg_mult": 1.32, "speed_mult": 0.94, "xp_mult": 1.45, "defense": 0.05,
+		"melee_aoe": {"radius": 76.0, "damage_mult": 0.68},
+		"material_drops": [
+			{"id": "gold_ore", "chance": 0.10, "min": 1, "max": 1},
+			{"id": "gunpowder", "chance": 0.08, "min": 1, "max": 1},
+		]},
+	{"id": "boss_dwarf_hammer_lord", "name_key": "ENEMY_BOSS_DWARF_HAMMER_LORD_NAME",
+		"tex": "res://assets/enemy/Dwarfs/boss_dwarf_hammer_lord.png",
+		"tier": 99, "elite": true, "boss": true, "stage_boss": true,
+		"hframes": 6, "vframes": 9, "frames_per_row": [4, 6, 3, 4, 2, 4, 6, 6, 6],
+		"scale": 3.2, "radius": 86.0, "offset_y": -12,
+		"hp_mult": 34.0, "dmg_mult": 4.8, "speed_mult": 0.6, "xp_mult": 28.0, "defense": 0.12,
+		"melee_aoe": {"radius": 118.0, "damage_mult": 0.82},
+		"material_drops": [
+			{"id": "silver", "chance": 0.24, "min": 2, "max": 5},
+			{"id": "gold_ore", "chance": 0.22, "min": 2, "max": 5},
+			{"id": "gunpowder", "chance": 0.18, "min": 2, "max": 4},
+		]},
+]
+
+# 第五關池：森林精靈（圖檔：`assets/enemy/Fae/<id>.png`）
+const ENEMY_POOL_FAE: Array[Dictionary] = [
+	{"id": "fae_flash_sprite", "name_key": "ENEMY_FAE_FLASH_SPRITE_NAME",
+		"tex": "res://assets/enemy/Fae/fae_flash_sprite.png",
+		"tier": 0, "elite": false, "boss": false, "hframes": 6, "vframes": 6,
+		"frames_per_row": [4, 6, 3, 4, 2, 4], "scale": 1.38, "radius": 20.0, "offset_y": -10,
+		"hp_mult": 0.82, "dmg_mult": 0.72, "speed_mult": 1.32, "xp_mult": 1.06, "defense": 0.0,
+		"sprite_modulate": Color(1.45, 1.5, 1.25),
+		"hit_effects": {"slow": {"duration": 0.7, "factor": 0.45}},
+		"material_drops": [
+			{"id": "glow_dust", "chance": 0.15, "min": 1, "max": 1},
+		]},
+	{"id": "fae_horn_scout", "name_key": "ENEMY_FAE_HORN_SCOUT_NAME",
+		"tex": "res://assets/enemy/Fae/fae_horn_scout.png",
+		"tier": 1, "elite": false, "boss": false, "hframes": 6, "vframes": 6,
+		"frames_per_row": [4, 6, 3, 4, 2, 4], "scale": 1.48, "radius": 22.0, "offset_y": -11,
+		"hp_mult": 1.0, "dmg_mult": 1.08, "speed_mult": 1.28, "xp_mult": 1.14, "defense": 0.0,
+		"material_drops": [
+			{"id": "tree_sap", "chance": 0.13, "min": 1, "max": 1},
+		]},
+	{"id": "fae_forest_caster", "name_key": "ENEMY_FAE_FOREST_CASTER_NAME",
+		"tex": "res://assets/enemy/Fae/fae_forest_caster.png",
+		"tier": 2, "elite": false, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.46, "radius": 22.0, "offset_y": -11,
+		"hp_mult": 1.05, "dmg_mult": 0.9, "speed_mult": 0.88, "xp_mult": 1.18, "defense": 0.0,
+		"ranged": {"kind": "line", "range": 380.0, "min_range": 95.0, "width": 44.0,
+			"windup": 1.0, "cooldown": 4.5, "damage_mult": 0.88},
+		"material_drops": [
+			{"id": "glow_dust", "chance": 0.11, "min": 1, "max": 2},
+			{"id": "sacred_wood", "chance": 0.05, "min": 1, "max": 1},
+		]},
+	{"id": "fae_bloom_mage", "name_key": "ENEMY_FAE_BLOOM_MAGE_NAME",
+		"tex": "res://assets/enemy/Fae/fae_bloom_mage.png",
+		"tier": 3, "elite": true, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.5, "radius": 23.0, "offset_y": -11,
+		"hp_mult": 1.15, "dmg_mult": 0.85, "speed_mult": 0.86, "xp_mult": 1.28, "defense": 0.02,
+		"ranged": {"kind": "line", "range": 360.0, "min_range": 80.0, "width": 52.0,
+			"windup": 1.05, "cooldown": 5.2, "damage_mult": 0.72,
+			"hit_effects": {"slow": {"duration": 2.2, "factor": 0.38}, "stun": 0.28}},
+		"material_drops": [
+			{"id": "tree_sap", "chance": 0.14, "min": 1, "max": 2},
+			{"id": "glow_dust", "chance": 0.08, "min": 1, "max": 1},
+		]},
+	{"id": "fae_pink_wing", "name_key": "ENEMY_FAE_PINK_WING_NAME",
+		"tex": "res://assets/enemy/Fae/fae_pink_wing.png",
+		"tier": 4, "elite": false, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.42, "radius": 21.0, "offset_y": -11,
+		"hp_mult": 0.95, "dmg_mult": 0.8, "speed_mult": 1.12, "xp_mult": 1.32, "defense": 0.0,
+		"ranged": {"kind": "bomb", "range": 320.0, "min_range": 60.0, "aoe_radius": 88.0,
+			"windup": 0.95, "cooldown": 4.8, "damage_mult": 0.62,
+			"hit_effects": {"knockback": 340.0}},
+		"material_drops": [
+			{"id": "glow_dust", "chance": 0.12, "min": 1, "max": 2},
+		]},
+	{"id": "boss_ancient_treant", "name_key": "ENEMY_BOSS_ANCIENT_TREANT_NAME",
+		"tex": "res://assets/enemy/Fae/boss_ancient_treant.png",
+		"tier": 99, "elite": true, "boss": true, "stage_boss": true,
+		"hframes": 6, "vframes": 9, "frames_per_row": [4, 6, 3, 4, 2, 4, 6, 6, 6],
+		"scale": 3.35, "radius": 90.0, "offset_y": -14,
+		"hp_mult": 36.0, "dmg_mult": 4.6, "speed_mult": 0.52, "xp_mult": 30.0, "defense": 0.1,
+		"ranged": {"kind": "bomb", "range": 420.0, "min_range": 90.0, "aoe_radius": 128.0,
+			"windup": 1.25, "cooldown": 4.2, "damage_mult": 0.9,
+			"hit_effects": {"slow": {"duration": 2.8, "factor": 0.32}, "stun": 0.45, "knockback": 180.0}},
+		"material_drops": [
+			{"id": "sacred_wood", "chance": 0.24, "min": 2, "max": 5},
+			{"id": "glow_dust", "chance": 0.22, "min": 2, "max": 5},
+			{"id": "tree_sap", "chance": 0.20, "min": 2, "max": 4},
+		]},
+]
+
+# 第六關池：蜥蜴人（圖檔：`assets/enemy/Lizardman/<id>.png`）
+const ENEMY_POOL_LIZARD: Array[Dictionary] = [
+	{"id": "lizard_scout", "name_key": "ENEMY_LIZARD_SCOUT_NAME",
+		"tex": "res://assets/enemy/Lizardman/lizard_scout.png",
+		"tier": 0, "elite": false, "boss": false, "hframes": 6, "vframes": 6,
+		"frames_per_row": [4, 6, 3, 4, 2, 4], "scale": 1.52, "radius": 24.0, "offset_y": -11,
+		"hp_mult": 1.0, "dmg_mult": 1.0, "speed_mult": 1.02, "xp_mult": 1.08, "defense": 0.02,
+		"material_drops": [
+			{"id": "flame_scale", "chance": 0.14, "min": 1, "max": 1},
+		]},
+	{"id": "lizard_archer", "name_key": "ENEMY_LIZARD_ARCHER_NAME",
+		"tex": "res://assets/enemy/Lizardman/lizard_archer.png",
+		"tier": 1, "elite": false, "boss": false, "hframes": 6, "vframes": 6,
+		"frames_per_row": [4, 6, 3, 4, 2, 4], "scale": 1.5, "radius": 23.0, "offset_y": -11,
+		"hp_mult": 0.95, "dmg_mult": 0.88, "speed_mult": 0.9, "xp_mult": 1.12, "defense": 0.0,
+		"ranged": {"kind": "line", "range": 370.0, "min_range": 100.0, "width": 38.0,
+			"windup": 0.92, "cooldown": 4.0, "damage_mult": 0.78,
+			"hit_effects": {"bleed": {"dps": 2.8, "duration": 3.6}}},
+		"material_drops": [
+			{"id": "venom", "chance": 0.12, "min": 1, "max": 1},
+		]},
+	{"id": "lizard_priest", "name_key": "ENEMY_LIZARD_PRIEST_NAME",
+		"tex": "res://assets/enemy/Lizardman/lizard_priest.png",
+		"tier": 2, "elite": false, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.48, "radius": 23.0, "offset_y": -11,
+		"hp_mult": 1.08, "dmg_mult": 0.82, "speed_mult": 0.84, "xp_mult": 1.2, "defense": 0.0,
+		"ranged": {"kind": "line", "range": 350.0, "min_range": 85.0, "width": 48.0,
+			"windup": 1.1, "cooldown": 5.0, "damage_mult": 0.68,
+			"hit_effects": {"slow": {"duration": 1.8, "factor": 0.5}}},
+		"material_drops": [
+			{"id": "obsidian", "chance": 0.10, "min": 1, "max": 1},
+			{"id": "flame_scale", "chance": 0.06, "min": 1, "max": 1},
+		]},
+	{"id": "raptor_juvenile", "name_key": "ENEMY_RAPTOR_JUVENILE_NAME",
+		"tex": "res://assets/enemy/Lizardman/raptor_juvenile.png",
+		"tier": 3, "elite": false, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.55, "radius": 26.0, "offset_y": -10,
+		"hp_mult": 1.12, "dmg_mult": 1.15, "speed_mult": 1.38, "xp_mult": 1.35, "defense": 0.0,
+		"material_drops": [
+			{"id": "flame_scale", "chance": 0.11, "min": 1, "max": 2},
+		]},
+	{"id": "lizard_blade_fighter", "name_key": "ENEMY_LIZARD_BLADE_FIGHTER_NAME",
+		"tex": "res://assets/enemy/Lizardman/lizard_blade_fighter.png",
+		"tier": 4, "elite": true, "boss": false, "hframes": 6, "vframes": 7,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.6, "radius": 28.0, "offset_y": -11,
+		"hp_mult": 1.55, "dmg_mult": 1.38, "speed_mult": 1.08, "xp_mult": 1.48, "defense": 0.06,
+		"material_drops": [
+			{"id": "obsidian", "chance": 0.10, "min": 1, "max": 1},
+			{"id": "venom", "chance": 0.08, "min": 1, "max": 1},
+		]},
+	{"id": "boss_lizard_berserker_chief", "name_key": "ENEMY_BOSS_LIZARD_BERSERKER_CHIEF_NAME",
+		"tex": "res://assets/enemy/Lizardman/boss_lizard_berserker_chief.png",
+		"tier": 99, "elite": true, "boss": true, "stage_boss": true,
+		"hframes": 6, "vframes": 9, "frames_per_row": [4, 6, 3, 4, 2, 4, 6, 6, 6],
+		"scale": 3.3, "radius": 88.0, "offset_y": -12,
+		"hp_mult": 38.0, "dmg_mult": 5.0, "speed_mult": 0.58, "xp_mult": 32.0, "defense": 0.11,
+		"melee_aoe": {"radius": 96.0, "damage_mult": 0.75},
+		"summon_minions": {
+			"interval": 8.5, "count": 2, "level_mult": 0.9,
+			"enemy_ids": ["lizard_scout", "lizard_archer", "raptor_juvenile", "lizard_blade_fighter"],
+		},
+		"material_drops": [
+			{"id": "flame_scale", "chance": 0.24, "min": 2, "max": 5},
+			{"id": "obsidian", "chance": 0.22, "min": 2, "max": 5},
+			{"id": "venom", "chance": 0.20, "min": 2, "max": 4},
+		]},
+]
+
 
 # 關卡定義 — 由 GameState.current_stage_id 指向其中一筆
 const STAGES: Array[Dictionary] = [
@@ -1612,6 +2125,84 @@ const STAGES: Array[Dictionary] = [
 		"random_event": true,
 		"event_armament_books": ["cloth_armor"],
 	},
+	{
+		"id": "dwarf_gold_mine",
+		"name": "第四關 — 矮人金礦",
+		"name_key": "STAGE_DWARF_GOLD_MINE_NAME",
+		"map_path": "res://assets/Maps/TEST.tmx",
+		"boss_id": "boss_dwarf_hammer_lord",
+		"boss_time": 600.0,
+		"boss_warning_time": 45.0,
+		"difficulty_base": 4.0,
+		"difficulty_seconds_per_tier": 36.0,
+		"difficulty_scale": 1.28,
+		"spawn_batch_mult": 1.35,
+		"spawn_rate_mult": 1.2,
+		"event_difficulty_bonus": 2.8,
+		"boss_level_factor": 22.0,
+		"enemy_pool": "dwarf",
+		"material_drops": [
+			{"id": "silver", "chance": 0.12, "min": 1, "max": 2},
+			{"id": "gold_ore", "chance": 0.10, "min": 1, "max": 2},
+			{"id": "gunpowder", "chance": 0.09, "min": 1, "max": 2},
+		],
+		"victory_gold": 900,
+		"random_event": true,
+		"rescue_npc": "tavern_owner",
+		"victory_unlock_facilities": ["quarry"],
+	},
+	{
+		"id": "fae_ancient_grove",
+		"name": "第五關 — 精靈古林",
+		"name_key": "STAGE_FAE_ANCIENT_GROVE_NAME",
+		"map_path": "res://assets/Maps/TEST.tmx",
+		"boss_id": "boss_ancient_treant",
+		"boss_time": 600.0,
+		"boss_warning_time": 45.0,
+		"difficulty_base": 5.2,
+		"difficulty_seconds_per_tier": 34.0,
+		"difficulty_scale": 1.35,
+		"spawn_batch_mult": 1.42,
+		"spawn_rate_mult": 1.25,
+		"event_difficulty_bonus": 3.2,
+		"boss_level_factor": 24.0,
+		"enemy_pool": "fae",
+		"material_drops": [
+			{"id": "sacred_wood", "chance": 0.12, "min": 1, "max": 2},
+			{"id": "glow_dust", "chance": 0.11, "min": 1, "max": 2},
+			{"id": "tree_sap", "chance": 0.10, "min": 1, "max": 2},
+		],
+		"victory_gold": 1200,
+		"random_event": true,
+		"rescue_npc": "rune_master",
+		"victory_unlock_facilities": ["lumberyard"],
+	},
+	{
+		"id": "lizard_volcanic_hollow",
+		"name": "第六關 — 蜥蜴火山窟",
+		"name_key": "STAGE_LIZARD_VOLCANIC_HOLLOW_NAME",
+		"map_path": "res://assets/Maps/TEST.tmx",
+		"boss_id": "boss_lizard_berserker_chief",
+		"boss_time": 600.0,
+		"boss_warning_time": 45.0,
+		"difficulty_base": 6.4,
+		"difficulty_seconds_per_tier": 32.0,
+		"difficulty_scale": 1.4,
+		"spawn_batch_mult": 1.48,
+		"spawn_rate_mult": 1.28,
+		"event_difficulty_bonus": 3.6,
+		"boss_level_factor": 26.0,
+		"enemy_pool": "lizard",
+		"material_drops": [
+			{"id": "flame_scale", "chance": 0.12, "min": 1, "max": 2},
+			{"id": "obsidian", "chance": 0.11, "min": 1, "max": 2},
+			{"id": "venom", "chance": 0.10, "min": 1, "max": 2},
+		],
+		"victory_gold": 1550,
+		"random_event": true,
+		"rescue_npc": "farmer",
+		"victory_unlock_facilities": ["well", "farm"],
+	},
 ]
 
 
@@ -1621,6 +2212,12 @@ func _enemy_pool_source(pool_id: String) -> Array[Dictionary]:
 			return ENEMY_POOL_ORC
 		"undead":
 			return ENEMY_POOL_UNDEAD
+		"dwarf":
+			return ENEMY_POOL_DWARF
+		"fae":
+			return ENEMY_POOL_FAE
+		"lizard":
+			return ENEMY_POOL_LIZARD
 		_:
 			return ENEMY_POOL_SLIME
 
@@ -1633,6 +2230,15 @@ func get_enemy_def(id: String) -> Dictionary:
 		if s["id"] == id:
 			return s
 	for s in ENEMY_POOL_UNDEAD:
+		if s["id"] == id:
+			return s
+	for s in ENEMY_POOL_DWARF:
+		if s["id"] == id:
+			return s
+	for s in ENEMY_POOL_FAE:
+		if s["id"] == id:
+			return s
+	for s in ENEMY_POOL_LIZARD:
 		if s["id"] == id:
 			return s
 	return {}
@@ -1690,7 +2296,7 @@ func pick_slime(difficulty: float) -> Dictionary:
 func all_enemy_defs_for_codex() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	var seen: Dictionary = {}
-	for pool in [ENEMY_POOL_SLIME, ENEMY_POOL_ORC, ENEMY_POOL_UNDEAD]:
+	for pool in [ENEMY_POOL_SLIME, ENEMY_POOL_ORC, ENEMY_POOL_UNDEAD, ENEMY_POOL_DWARF, ENEMY_POOL_FAE, ENEMY_POOL_LIZARD]:
 		for d in pool:
 			var eid: String = String(d.get("id", ""))
 			if eid.is_empty() or seen.has(eid):

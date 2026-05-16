@@ -83,6 +83,12 @@ var common_upgrade_log: Dictionary = {}   # upgrade_id -> count
 var start_weapon_reward_log: Array[Dictionary] = []
 var face_dir: Vector2 = Vector2.RIGHT
 var iframe: float = 0.0
+var _enemy_slow_time: float = 0.0
+var _enemy_slow_factor: float = 1.0
+var _enemy_stun_time: float = 0.0
+var _knockback_velocity: Vector2 = Vector2.ZERO
+var _player_bleed_time: float = 0.0
+var _player_bleed_dps: float = 0.0
 
 const WEAPON_SLOT_MAX := 5
 
@@ -153,6 +159,8 @@ func setup_from_character(cid: String) -> void:
 	if sprite:
 		sprite.color = color
 	var br: float = clampf(float(c.get("body_radius", 42.0)), 8.0, 160.0)
+	if village_mode:
+		br = GameData.village_scaled_body_radius(br)
 	body_radius = br
 	if body_shape and body_shape.shape is CircleShape2D:
 		(body_shape.shape as CircleShape2D).radius = body_radius
@@ -309,6 +317,8 @@ func setup_from_character(cid: String) -> void:
 		sprite.visible = false
 	elif sprite:
 		sprite.visible = true
+	if village_mode:
+		_apply_village_character_visual_scale()
 	# 被動／技能（從 GameState 讀；尚未實裝時都是 "none"）
 	if input_prefix == "p1":
 		passive_id = GameState.p1_passive
@@ -323,6 +333,16 @@ func setup_from_character(cid: String) -> void:
 		_add_start_weapon(String(c["weapon"]), "character", "")
 		_apply_start_armament()
 		_apply_house_favorite_bonuses()
+
+
+func _apply_village_character_visual_scale() -> void:
+	if not village_mode:
+		return
+	var sm: float = GameData.VILLAGE_CHARACTER_SCALE_MULT
+	if is_equal_approx(sm, 1.0):
+		return
+	if char_sprite and char_sprite.visible:
+		char_sprite.scale *= sm
 
 
 func _apply_house_favorite_bonuses() -> void:
@@ -464,15 +484,89 @@ func get_effective_rate_mult() -> float:
 
 
 func get_effective_move_speed() -> float:
-	return move_speed * speed_mult * get_level_speed_mult()
+	var spd: float = move_speed * speed_mult * get_level_speed_mult()
+	if _enemy_slow_time > 0.0:
+		spd *= _enemy_slow_factor
+	return spd
+
+
+func apply_enemy_status_effects(effects: Dictionary, source_pos: Vector2 = Vector2.ZERO) -> void:
+	if village_mode or hp <= 0.0 or effects.is_empty():
+		return
+	if effects.get("slow") is Dictionary:
+		var sl: Dictionary = effects["slow"]
+		_enemy_slow_time = maxf(_enemy_slow_time, float(sl.get("duration", 1.0)))
+		_enemy_slow_factor = minf(_enemy_slow_factor, clampf(float(sl.get("factor", 0.55)), 0.15, 1.0))
+	if effects.has("stun"):
+		_enemy_stun_time = maxf(_enemy_stun_time, float(effects["stun"]))
+	if effects.get("bleed") is Dictionary:
+		var bl: Dictionary = effects["bleed"]
+		_player_bleed_time = maxf(_player_bleed_time, float(bl.get("duration", 2.0)))
+		_player_bleed_dps = maxf(_player_bleed_dps, float(bl.get("dps", 2.0)))
+	var kb: float = float(effects.get("knockback", 0.0))
+	if kb > 0.0:
+		var push_dir: Vector2 = Vector2.RIGHT
+		if source_pos != Vector2.ZERO:
+			push_dir = global_position - source_pos
+		if push_dir.length_squared() > 0.001:
+			push_dir = push_dir.normalized()
+		_knockback_velocity += push_dir * kb
+
+
+func _tick_enemy_status(delta: float) -> void:
+	_enemy_slow_time = maxf(0.0, _enemy_slow_time - delta)
+	if _enemy_slow_time <= 0.0:
+		_enemy_slow_factor = 1.0
+	_enemy_stun_time = maxf(0.0, _enemy_stun_time - delta)
+	_tick_player_bleed(delta)
+
+
+func _tick_player_bleed(delta: float) -> void:
+	if _player_bleed_time <= 0.0 or hp <= 0.0 or village_mode:
+		_player_bleed_time = 0.0
+		_player_bleed_dps = 0.0
+		return
+	_player_bleed_time = maxf(0.0, _player_bleed_time - delta)
+	var dmg: float = _player_bleed_dps * delta
+	if dmg > 0.0:
+		var taken: float = minf(dmg, hp)
+		hp = maxf(0.0, hp - dmg)
+		damage_taken += taken
+		if hp <= 0.0:
+			hp = 0.0
+			AudioManager.play_sfx("player_death", 0.02)
+			died.emit(self)
+		elif iframe <= 0.0:
+			AudioManager.play_sfx("player_hurt", 0.02)
+	if _player_bleed_time <= 0.0:
+		_player_bleed_dps = 0.0
+
+
+func _apply_knockback_displacement(delta: float) -> void:
+	if _knockback_velocity.length_squared() < 4.0:
+		return
+	var step: Vector2 = _knockback_velocity * delta
+	if game_ref and game_ref.has_method("is_world_blocked_at"):
+		if abs(step.x) > 0.001 and not game_ref.is_world_blocked_at(
+				global_position + Vector2(step.x, 0), body_radius):
+			global_position.x += step.x
+		if abs(step.y) > 0.001 and not game_ref.is_world_blocked_at(
+				global_position + Vector2(0, step.y), body_radius):
+			global_position.y += step.y
+	else:
+		global_position += step
+	_knockback_velocity = _knockback_velocity.move_toward(Vector2.ZERO, 780.0 * delta)
 
 
 # 戰鬥（俯視）：八方向自由移動
 func _battle_physics(delta: float) -> void:
+	_tick_enemy_status(delta)
 	var dir: Vector2 = Vector2(
 		Input.get_action_strength(input_prefix + "_right") - Input.get_action_strength(input_prefix + "_left"),
 		Input.get_action_strength(input_prefix + "_down") - Input.get_action_strength(input_prefix + "_up")
 	)
+	if _enemy_stun_time > 0.0:
+		dir = Vector2.ZERO
 	if dir.length() > 0.05:
 		face_dir = dir.normalized()
 	# 程序圖案（後備）跟著朝向旋轉；CharSprite 用左右翻轉
@@ -495,6 +589,7 @@ func _battle_physics(delta: float) -> void:
 				velocity.y = 0
 
 	move_and_slide()
+	_apply_knockback_displacement(delta)
 
 
 # 村莊（橫向）：左右行走、上跳、重力下墜，地面由 game_ref.get_village_floor_y(x) 決定
@@ -824,6 +919,11 @@ func _play_hit_anim() -> void:
 
 
 func _draw() -> void:
+	if village_mode:
+		_draw_village_overhead_label()
+		if sprite and sprite.visible:
+			draw_line(Vector2.ZERO, face_dir * 18.0, Color(1, 1, 1, 0.4), 2.0)
+		return
 	var w: float = 36.0
 	var h: float = 4.0
 	var top := Vector2(-w * 0.5, -28.0)
@@ -876,6 +976,20 @@ func _draw() -> void:
 		var lbl: String = "x%d" % block_charges
 		draw_string(fnt2, Vector2(-12, -42), lbl,
 			HORIZONTAL_ALIGNMENT_CENTER, 24, 12, Color(0.85, 0.95, 1.0))
+
+
+func _draw_village_overhead_label() -> void:
+	var slot_lbl: String = tr("INPUT_PROMPT_PLAYER_P2") if input_prefix == "p2" \
+			else tr("INPUT_PROMPT_PLAYER_P1")
+	var cname: String = GameData.tr_character_name(character_id)
+	var text: String = "%s  %s" % [slot_lbl, cname]
+	var fnt: Font = ThemeDB.fallback_font
+	var font_size: int = 14
+	var y_off: float = -body_radius - 18.0
+	var col: Color = Color(0.65, 0.88, 1.0) if input_prefix == "p2" \
+			else Color(1.0, 0.95, 0.72)
+	draw_string(fnt, Vector2(-56, y_off), text,
+		HORIZONTAL_ALIGNMENT_CENTER, 112, font_size, col)
 
 
 func _update_pickup_radius() -> void:

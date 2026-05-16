@@ -37,6 +37,11 @@ var _ranged_warning: Node2D = null
 var _ranged_origin: Vector2 = Vector2.ZERO
 var _ranged_dir: Vector2 = Vector2.RIGHT
 var _ranged_length: float = 0.0
+var melee_aoe_params: Dictionary = {}
+var hit_effects: Dictionary = {}
+var summon_params: Dictionary = {}
+var _spawn_level_factor: float = 1.0
+var _summon_cooldown: float = 0.0
 
 # 緩速：對 _base_move_speed 乘算（寒冰等）
 var _base_move_speed: float = 90.0
@@ -107,6 +112,22 @@ func setup_with_slime(def: Dictionary, level_factor: float) -> void:
 	xp_value = float(st["xp_value"])
 	if def.has("ranged") and def["ranged"] is Dictionary:
 		configure_ranged_attack(def["ranged"])
+	if def.has("melee_aoe") and def["melee_aoe"] is Dictionary:
+		melee_aoe_params = def["melee_aoe"].duplicate()
+	else:
+		melee_aoe_params = {}
+	if def.has("hit_effects") and def["hit_effects"] is Dictionary:
+		hit_effects = def["hit_effects"].duplicate(true)
+	else:
+		hit_effects = {}
+	if def.has("summon_minions") and def["summon_minions"] is Dictionary:
+		summon_params = def["summon_minions"].duplicate(true)
+		_summon_cooldown = randf_range(2.0, float(summon_params.get("interval", 9.0)) * 0.6)
+	else:
+		summon_params = {}
+	_spawn_level_factor = level_factor
+	if sprite and def.has("sprite_modulate"):
+		sprite.modulate = def["sprite_modulate"]
 
 
 # 舊介面：難度直接 setup（隨機選一隻）
@@ -178,6 +199,9 @@ func _physics_process(delta: float) -> void:
 	_advance_enemy_status(delta)
 	if _dying or hp <= 0.0:
 		return
+	_update_summon_minions(delta)
+	if _dying or hp <= 0.0:
+		return
 	if _stun_time > 0.0:
 		velocity = Vector2.ZERO
 		_clear_ranged_warning()
@@ -221,7 +245,10 @@ func _physics_process(delta: float) -> void:
 			if hit_cooldowns.get(k, 0.0) <= 0.0:
 				var deal: float = damage * (1.0 - clampf(_poison_atk_reduce, 0.0, 0.75))
 				target.take_damage(deal)
+				_apply_player_hit_effects(target)
 				hit_cooldowns[k] = 0.6
+				if not melee_aoe_params.is_empty():
+					_apply_melee_aoe_splash(target, deal)
 		# 朝向：水平翻轉 sprite
 		if sprite:
 			if dir.x < -0.05:
@@ -270,6 +297,9 @@ func _update_ranged_attack(delta: float, target: Node2D, distance: float) -> boo
 
 
 func _start_ranged_attack(target: Node2D, range: float) -> void:
+	if String(ranged_params.get("kind", "line")) == "bomb":
+		_start_bomb_ranged_attack(target)
+		return
 	_ranged_origin = global_position
 	_ranged_dir = (target.global_position - _ranged_origin).normalized()
 	if _ranged_dir.length_squared() <= 0.001:
@@ -301,7 +331,42 @@ func _draw_ranged_warning(node: Node2D) -> void:
 	node.draw_arc(Vector2(length, 0.0), width * 0.5, 0.0, TAU, 32, Color(1.0, 0.35, 0.16, 0.9), 2.0)
 
 
+func _start_bomb_ranged_attack(target: Node2D) -> void:
+	_ranged_origin = target.global_position
+	_ranged_windup_left = max(0.2, float(ranged_params.get("windup", 1.0)))
+	_ranged_warning = DrawerNode2D.new()
+	_ranged_warning.z_index = 11
+	_ranged_warning.fn = Callable(self, "_draw_bomb_warning")
+	_ranged_warning.global_position = _ranged_origin
+	_ranged_warning.set_meta("radius", float(ranged_params.get("aoe_radius", 80.0)))
+	_ranged_warning.set_meta("windup", _ranged_windup_left)
+	_ranged_warning.set_meta("time_left", _ranged_windup_left)
+	get_tree().current_scene.add_child(_ranged_warning)
+
+
+func _draw_bomb_warning(node: Node2D) -> void:
+	var rad: float = float(node.get_meta("radius", 80.0))
+	var windup: float = max(0.01, float(node.get_meta("windup", 1.0)))
+	var time_left: float = float(node.get_meta("time_left", 0.0))
+	var ready: float = clampf(1.0 - time_left / windup, 0.0, 1.0)
+	node.draw_circle(Vector2.ZERO, rad, Color(1.0, 0.35, 0.08, 0.14 + ready * 0.24))
+	node.draw_arc(Vector2.ZERO, rad, 0.0, TAU, 48, Color(1.0, 0.55, 0.12, 0.9), 3.0)
+	node.draw_arc(Vector2.ZERO, rad * ready, 0.0, TAU, 48, Color(1.0, 0.9, 0.25, 0.75), 2.0)
+
+
 func _fire_ranged_attack() -> void:
+	if String(ranged_params.get("kind", "line")) == "bomb":
+		var rad: float = float(ranged_params.get("aoe_radius", 80.0))
+		var dmg: float = damage * float(ranged_params.get("damage_mult", 0.85))
+		for p in get_tree().get_nodes_in_group("players"):
+			if p == null or not is_instance_valid(p) or p.hp <= 0:
+				continue
+			if _ranged_origin.distance_to(p.global_position) <= rad + 18.0:
+				p.take_damage(dmg)
+				_apply_player_hit_effects(p)
+		_clear_ranged_warning()
+		_ranged_cooldown = max(0.3, float(ranged_params.get("cooldown", 4.0)))
+		return
 	var width: float = float(ranged_params.get("width", 42.0))
 	var dmg: float = damage * float(ranged_params.get("damage_mult", 0.75))
 	for p in get_tree().get_nodes_in_group("players"):
@@ -314,6 +379,7 @@ func _fire_ranged_attack() -> void:
 		var perp: float = abs(rel.cross(_ranged_dir))
 		if perp <= width * 0.5 + 18.0:
 			p.take_damage(dmg)
+			_apply_player_hit_effects(p)
 	_clear_ranged_warning()
 	_ranged_cooldown = max(0.3, float(ranged_params.get("cooldown", 4.0)))
 
@@ -323,6 +389,62 @@ func _clear_ranged_warning() -> void:
 		_ranged_warning.queue_free()
 	_ranged_warning = null
 	_ranged_windup_left = 0.0
+
+
+func _update_summon_minions(delta: float) -> void:
+	if summon_params.is_empty() or special_ai_mode != "":
+		return
+	_summon_cooldown -= delta
+	if _summon_cooldown > 0.0:
+		return
+	_summon_cooldown = maxf(3.0, float(summon_params.get("interval", 9.0)))
+	var count: int = clampi(int(summon_params.get("count", 2)), 1, 5)
+	var ids_raw: Variant = summon_params.get("enemy_ids", [])
+	var level_mult: float = float(summon_params.get("level_mult", 0.88))
+	if game_ref == null or not game_ref.has_method("spawn_enemy_from_def"):
+		return
+	for _i in range(count):
+		var minion_def: Dictionary = {}
+		if ids_raw is Array and not ids_raw.is_empty():
+			var pick_id: String = String(ids_raw[randi() % ids_raw.size()])
+			minion_def = GameData.get_enemy_def(pick_id)
+		elif summon_params.has("pool_id"):
+			minion_def = GameData.pick_enemy_from_pool(
+				String(summon_params["pool_id"]), _spawn_level_factor * level_mult)
+		if minion_def.is_empty() or minion_def.get("stage_boss", false):
+			continue
+		var ang: float = randf() * TAU
+		var dist: float = randf_range(72.0, 140.0)
+		var pos: Vector2 = global_position + Vector2(cos(ang), sin(ang)) * dist
+		game_ref.spawn_enemy_from_def(minion_def, pos, _spawn_level_factor * level_mult)
+
+
+func _resolve_hit_effects() -> Dictionary:
+	if not hit_effects.is_empty():
+		return hit_effects
+	if ranged_params.has("hit_effects") and ranged_params["hit_effects"] is Dictionary:
+		return ranged_params["hit_effects"]
+	return {}
+
+
+func _apply_player_hit_effects(player: Node) -> void:
+	var effects: Dictionary = _resolve_hit_effects()
+	if effects.is_empty() or player == null:
+		return
+	if player.has_method("apply_enemy_status_effects"):
+		player.apply_enemy_status_effects(effects, global_position)
+
+
+func _apply_melee_aoe_splash(primary: Node, base_damage: float) -> void:
+	var splash_radius: float = float(melee_aoe_params.get("radius", 64.0))
+	var splash_mult: float = float(melee_aoe_params.get("damage_mult", 0.65))
+	var splash_dmg: float = base_damage * splash_mult
+	for p in get_tree().get_nodes_in_group("players"):
+		if p == null or not is_instance_valid(p) or p == primary or p.hp <= 0:
+			continue
+		if global_position.distance_to(p.global_position) <= splash_radius + radius:
+			p.take_damage(splash_dmg)
+			_apply_player_hit_effects(p)
 
 
 func take_damage(d: float, source: Node = null, opts: Dictionary = {}) -> void:
