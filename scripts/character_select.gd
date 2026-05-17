@@ -492,8 +492,10 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 	if not ready and focus == FOCUS_CHARACTER:
 		name_text = tr("CSEL_NAME_FOCUS_FMT") % name_text
 	n.text = name_text
+	var dmg_bonus_pct: int = int(round(float(c["atk"]) * 5.0))
 	s.text = (tr("CSEL_STATS_FMT").replace("\\n", "\n")) % [
 		c["hp"], c["atk"], c["def"], c["spd"],
+		dmg_bonus_pct,
 		GameData.tr_weapon_name(String(c["weapon"]))]
 	col.color = c["color"]
 

@@ -71,11 +71,16 @@ var passive_meter_fill_cd: float = 0.0
 var passive_kill_counter: int = 0
 # 快射節奏：武器命中計數（滿 N 且可充能時觸發）
 var passive_hit_counter: int = 0
+# 刃氣充盈：碎刃命中計數
+var passive_blade_aura_counter: int = 0
 var breakthrough_same_enemy_hits: Dictionary = {}
 var breakthrough_attack_hits: Dictionary = {}
 ## 野性衝動：付費施放後 5 秒內可再免費衝刺的剩餘次數
 var wild_impulse_window: float = 0.0
 var wild_impulse_charges_left: int = 0
+# 無我：戰鬥技能持續計時
+var mushin_active: bool = false
+var mushin_timer: float = 0.0
 
 var kills: int = 0
 # 結算統計：造成傷害 / 承受傷害（實際扣血）/ 彈珠台累積分數 / 取得的局內加成清單
@@ -438,6 +443,11 @@ func _physics_process(delta: float) -> void:
 		if wild_impulse_window <= 0.0:
 			wild_impulse_window = 0.0
 			wild_impulse_charges_left = 0
+	if mushin_active:
+		mushin_timer -= delta
+		if mushin_timer <= 0.0:
+			mushin_active = false
+			mushin_timer = 0.0
 
 	# 主動技能：在戰鬥場景按技能鍵觸發
 	if skill_cooldown > 0.0:
@@ -520,6 +530,9 @@ func get_effective_def() -> float:
 
 
 func get_effective_rate_mult() -> float:
+	if mushin_active:
+		var s: Dictionary = GameData.get_skill_def("mushin")
+		return rate_mult * float(s.get("params", {}).get("combat_rate_mult", 1.4))
 	return rate_mult
 
 
@@ -1170,6 +1183,7 @@ func on_enemy_killed(_e: Node) -> void:
 func _apply_passive() -> void:
 	passive_kill_counter = 0
 	passive_hit_counter = 0
+	passive_blade_aura_counter = 0
 	breakthrough_same_enemy_hits.clear()
 	breakthrough_attack_hits.clear()
 	wild_impulse_window = 0.0
@@ -1302,6 +1316,11 @@ func on_weapon_hit(_e: Node, _weapon: Node) -> void:
 			var pdef2: Dictionary = GameData.get_passive_def("bloodlust")
 			var fill2: float = float(pdef2.get("params", {}).get("meter_fill", 30.0))
 			_try_grant_passive_skill_meter(fill2)
+	if passive_id == "blade_aura" and skill_id != "none":
+		var wid: String = String(_weapon.def.get("id", "")) if _weapon != null else ""
+		if wid == "shard":
+			passive_blade_aura_counter += 1
+			_try_blade_aura_meter()
 
 
 # 結算：在被動 CD 結束時把累計的命中數兌換成量表（與鬥志高昂相同模式）
@@ -1315,6 +1334,18 @@ func _try_quick_step_meter() -> void:
 		if not _try_grant_passive_skill_meter(fill):
 			break
 		passive_hit_counter -= need
+
+
+func _try_blade_aura_meter() -> void:
+	if passive_id != "blade_aura" or skill_id == "none":
+		return
+	var pdef: Dictionary = GameData.get_passive_def("blade_aura")
+	var need: int = max(1, int(pdef.get("params", {}).get("hits_per_fill", 10)))
+	var fill: float = float(pdef.get("params", {}).get("meter_fill", 28.0))
+	while passive_blade_aura_counter >= need:
+		if not _try_grant_passive_skill_meter(fill):
+			break
+		passive_blade_aura_counter -= need
 
 
 func _update_breakthrough_trackers(delta: float) -> void:
@@ -1427,6 +1458,8 @@ func use_skill(context: String = "combat") -> bool:
 			else:
 				wild_impulse_window = 5.0
 				wild_impulse_charges_left = 2
+		"mushin":
+			_skill_mushin_combat(s)
 	return true
 
 
@@ -1817,6 +1850,15 @@ func _skill_wild_impulse_combat(s: Dictionary) -> void:
 				e.apply_position_push(push_vec)
 	global_position = end_pos
 	_spawn_mirror_moon_dash_vfx(origin, end_pos, dash_width * 0.85)
+	play_skill_cast_anim()
+
+
+func _skill_mushin_combat(s: Dictionary) -> void:
+	var params: Dictionary = s.get("params", {})
+	mushin_active = true
+	mushin_timer = float(params.get("combat_duration", 5.0))
+	modulate = Color(0.82, 0.88, 1.6)
+	create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.4)
 	play_skill_cast_anim()
 
 

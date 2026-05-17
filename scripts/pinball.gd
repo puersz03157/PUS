@@ -215,7 +215,7 @@ func _grant_peg_score(b: Dictionary, amount: int = 1) -> void:
 	if p == null or amount <= 0:
 		return
 	var old_sc: int = int(player_scores.get(p, 0))
-	var new_sc: int = old_sc + amount
+	var new_sc: int = old_sc + int(round(float(amount) * float(b.get("score_mult", 1.0))))
 	player_scores[p] = new_sc
 	_refresh_scoreboard()
 	var prev_bracket: int = old_sc / SCORE_SLOT_UPGRADE_EVERY
@@ -619,6 +619,9 @@ func _handle_pinball_skill(s: Dictionary, b: Dictionary) -> bool:
 			return _activate_judgment_drop_ball(b, s)
 		"mirror_moon":
 			return _reroll_alive_reward_slots()
+		"mushin":
+			b["score_mult"] = float(s.get("params", {}).get("pinball_score_mult", 2.0))
+			return true
 	return false
 
 

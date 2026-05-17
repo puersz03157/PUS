@@ -52,6 +52,9 @@ func _process(delta: float) -> void:
 	spin_speed *= (1.0 + 0.15 * int(entry.get("upgrades", {}).get("w_rate", 0)))
 	if weapon_upgrades_maxed() and String(def.get("id", "")) == "shard":
 		spin_speed *= 1.45
+	if owner_player and owner_player.get("mushin_active") == true:
+		var sk: Dictionary = GameData.get_skill_def("mushin")
+		spin_speed *= float(sk.get("params", {}).get("combat_spin_mult", 2.0))
 	spin += spin_speed * delta
 	var n: int = orbiters.size()
 	if n == 0:
