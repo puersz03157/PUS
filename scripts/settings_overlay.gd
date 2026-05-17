@@ -1027,6 +1027,7 @@ func _refresh_floating_button_visibility() -> void:
 	items_button.visible = show_buttons
 	codex_button.visible = show_buttons
 	quest_button.visible = show_buttons
+	_refresh_quest_button_label()
 
 
 func _refresh_quests_panel() -> void:
@@ -1034,7 +1035,57 @@ func _refresh_quests_panel() -> void:
 		return
 	quests_title_label.text = tr("QUESTS_TITLE")
 	quests_close_button.text = tr("QUESTS_CLOSE")
-	quests_list.text = "%s\n\n%s" % [tr("QUESTS_HINT"), tr("QUESTS_EMPTY")]
+
+	var lines: Array[String] = []
+
+	# ── 進行中 ──
+	var active_ids: Array[String] = _active_quest_ids()
+	if active_ids.is_empty():
+		pass
+	else:
+		lines.append("[color=#ffd24d][b]▸ %s[/b][/color]" % tr("QUEST_LOG_ACTIVE_SECTION"))
+		for qid in active_ids:
+			var name_str: String = tr("QUEST_%s_NAME" % qid.to_upper())
+			var obj_str: String = tr("QUEST_%s_OBJECTIVE" % qid.to_upper())
+			lines.append("[b]%s[/b]" % name_str)
+			lines.append(obj_str)
+			lines.append("")
+
+	# ── 已完成 ──
+	var completed: Array[String] = GameState.completed_quests
+	if completed.is_empty():
+		pass
+	else:
+		lines.append("[color=#7dff9d][b]▸ %s[/b][/color]" % tr("QUEST_LOG_COMPLETED_SECTION"))
+		for qid in completed:
+			var name_str: String = tr("QUEST_%s_NAME" % qid.to_upper())
+			var log_str: String = tr("QUEST_%s_LOG" % qid.to_upper())
+			lines.append("[color=#aaffaa][b]✔ %s[/b][/color]" % name_str)
+			lines.append(log_str)
+			lines.append("")
+
+	if lines.is_empty():
+		quests_list.text = tr("QUEST_LOG_EMPTY")
+	else:
+		quests_list.text = "\n".join(lines)
+
+	# 更新按鈕感嘆號
+	_refresh_quest_button_label()
+
+
+func _active_quest_ids() -> Array[String]:
+	var active: Array[String] = []
+	if GameState.quest_headman_intro_done \
+			and not GameState.is_quest_completed("rescue_blacksmith"):
+		active.append("rescue_blacksmith")
+	return active
+
+
+func _refresh_quest_button_label() -> void:
+	if quest_button == null or not is_instance_valid(quest_button):
+		return
+	var has_active: bool = not _active_quest_ids().is_empty()
+	quest_button.text = ("！ " if has_active else "") + tr("QUEST_BUTTON")
 
 
 func _refresh_achievements_panel() -> void:

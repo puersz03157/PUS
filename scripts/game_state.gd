@@ -9,6 +9,9 @@ const MAX_WEAPON_SLOTS := 5
 const DEFAULT_UNLOCKED_WEAPON_SLOTS := 3
 const DEFAULT_LOCKED_WEAPONS: Array[String] = ["melody", "claw", "shard", "poison", "holy"]
 const BLACKSMITH_CRAFT_WEAPON_IDS: Array[String] = ["axe", "magic_bullet"]
+const BLACKSMITH_TIER2_WEAPON_IDS: Array[String] = ["shard", "holy"]
+const BLACKSMITH_TIER1_WEAPON_SLOT_MAX := 4
+const BLACKSMITH_TIER1_HOUSE_SLOT_MAX := 3
 const BLACKSMITH_SLOT_COSTS: Dictionary = {4: 200, 5: 350}
 ## 喜愛武裝擴充：解鎖「第 3～5 格」所需金幣（1P／2P 同步）
 const BLACKSMITH_HOUSE_FAVORITE_SLOT_COSTS: Dictionary = {3: 130, 4: 240, 5: 400}
@@ -83,11 +86,22 @@ const ACHIEVEMENTS: Array[Dictionary] = [
 var two_players: bool = true
 var p1_character: String = "swordsman"
 var p2_character: String = "ranger"
+## 村莊 1P 上次使用角色（存檔）；空字串＝首次進村，使用劍士
+var p1_last_village_character: String = ""
+
+## 任務系統
+const QUEST_BLACKSMITH_GOLD_REWARD := 80
+const QUEST_BLACKSMITH_IRON_REWARD := 3
+var quest_headman_intro_done: bool = false
+var quest_blacksmith_rewarded: bool = false
+var completed_quests: Array[String] = []
 
 # 角色選擇完成後要去哪：
-#   "battle"  → res://scenes/Game.tscn
-#   "village" → res://scenes/Village.tscn
+#   "battle"  → StageSelect → Game
+#   "village" → Village（舊路線，主選單已改直接進村）
 var next_scene: String = "battle"
+## 選角畫面按返回時：「main」| 「village」
+var character_select_return_scene: String = "main"
 
 # 被動／技能（角色選擇畫面決定，遊戲開始時帶入 Player）
 var p1_passive: String = "none"
@@ -111,6 +125,7 @@ var merchant_rescued: bool = false
 var tavern_owner_rescued: bool = false
 var rune_master_rescued: bool = false
 var farmer_rescued: bool = false
+var blacksmith_tier2_unlocked: bool = false
 var village_facilities_unlocked: Dictionary = {}
 var village_facility_last_collect_unix: Dictionary = {}
 ## 農田 1～7 格：{ "crop_id", "stage" }；空字典表示未種植
@@ -302,6 +317,9 @@ func next_weapon_slot_unlock_cost() -> int:
 
 
 func buy_next_weapon_slot() -> bool:
+	if get_unlocked_weapon_slot_count() + 1 > BLACKSMITH_TIER1_WEAPON_SLOT_MAX \
+			and not blacksmith_tier2_unlocked:
+		return false
 	var cost: int = next_weapon_slot_unlock_cost()
 	if cost < 0 or not spend_gold(cost):
 		return false
@@ -325,6 +343,9 @@ func next_house_favorite_slot_unlock_cost() -> int:
 
 
 func buy_next_house_favorite_slot() -> bool:
+	if get_house_favorite_unlocked_slot_count() + 1 > BLACKSMITH_TIER1_HOUSE_SLOT_MAX \
+			and not blacksmith_tier2_unlocked:
+		return false
 	var cost: int = next_house_favorite_slot_unlock_cost()
 	if cost < 0 or not spend_gold(cost):
 		return false
@@ -337,6 +358,55 @@ func buy_next_house_favorite_slot() -> bool:
 	return true
 
 
+func is_blacksmith_slot_tier2_locked() -> bool:
+	return get_unlocked_weapon_slot_count() + 1 > BLACKSMITH_TIER1_WEAPON_SLOT_MAX \
+		and not blacksmith_tier2_unlocked
+
+
+func is_blacksmith_house_slot_tier2_locked() -> bool:
+	return get_house_favorite_unlocked_slot_count() + 1 > BLACKSMITH_TIER1_HOUSE_SLOT_MAX \
+		and not blacksmith_tier2_unlocked
+
+
+func unlock_blacksmith_tier2() -> void:
+	if blacksmith_tier2_unlocked:
+		return
+	blacksmith_tier2_unlocked = true
+	save_to_disk()
+
+
+func _fallback_village_p1_character() -> String:
+	if is_character_unlocked("swordsman"):
+		return "swordsman"
+	for raw in unlocked_characters:
+		var cid: String = String(raw)
+		if cid != "" and not GameData.get_character_def(cid).is_empty():
+			return cid
+	return "swordsman"
+
+
+func resolve_village_p1_character() -> String:
+	var cid: String = String(p1_last_village_character)
+	if cid == "" or not is_character_unlocked(cid) \
+			or GameData.get_character_def(cid).is_empty():
+		return _fallback_village_p1_character()
+	return cid
+
+
+func prepare_enter_village() -> void:
+	two_players = false
+	p1_character = resolve_village_p1_character()
+
+
+func set_p1_village_character(char_id: String) -> void:
+	if char_id == "" or GameData.get_character_def(char_id).is_empty() \
+			or not is_character_unlocked(char_id):
+		return
+	p1_character = char_id
+	p1_last_village_character = char_id
+	save_to_disk()
+
+
 func unlock_all_house_favorite_slots() -> void:
 	house_favorite_unlocked_slots = GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS
 
@@ -344,11 +414,22 @@ func unlock_all_house_favorite_slots() -> void:
 func next_locked_weapon_id() -> String:
 	for wid in DEFAULT_LOCKED_WEAPONS:
 		if not unlocked_weapons.has(wid):
+			if BLACKSMITH_TIER2_WEAPON_IDS.has(wid) and not blacksmith_tier2_unlocked:
+				continue
 			return wid
 	for w in GameData.WEAPONS:
 		var id: String = String(w.get("id", ""))
 		if id != "" and not unlocked_weapons.has(id) and not BLACKSMITH_CRAFT_WEAPON_IDS.has(id):
 			return id
+	return ""
+
+
+func next_locked_weapon_id_tier2() -> String:
+	if blacksmith_tier2_unlocked:
+		return ""
+	for wid in BLACKSMITH_TIER2_WEAPON_IDS:
+		if not unlocked_weapons.has(wid):
+			return wid
 	return ""
 
 
@@ -988,6 +1069,10 @@ func reset_account() -> void:
 	tavern_owner_rescued = false
 	rune_master_rescued = false
 	farmer_rescued = false
+	blacksmith_tier2_unlocked = false
+	quest_headman_intro_done = false
+	quest_blacksmith_rewarded = false
+	completed_quests.clear()
 	village_facilities_unlocked.clear()
 	village_facility_last_collect_unix.clear()
 	farm_plots.clear()
@@ -1000,6 +1085,7 @@ func reset_account() -> void:
 	unlocked_codex_monster_ids.clear()
 	p1_character = "swordsman"
 	p2_character = "ranger"
+	p1_last_village_character = ""
 	p1_passive = "none"
 	p1_skill = "none"
 	p2_passive = "none"
@@ -1041,6 +1127,15 @@ func grant_rune_dust(amount: int) -> void:
 		return
 	rune_dust += amount
 	save_to_disk()
+
+
+func complete_quest(quest_id: String) -> void:
+	if not completed_quests.has(quest_id):
+		completed_quests.append(quest_id)
+
+
+func is_quest_completed(quest_id: String) -> bool:
+	return completed_quests.has(quest_id)
 
 
 func grant_material(id: String, amount: int) -> bool:
@@ -1148,6 +1243,7 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "touch_controls_enabled", touch_controls_enabled)
 	cfg.set_value("meta", "p1_armament", p1_armament)
 	cfg.set_value("meta", "p2_armament", p2_armament)
+	cfg.set_value("meta", "p1_last_village_character", p1_last_village_character)
 	cfg.set_value("meta", "unlocked_characters", unlocked_characters)
 	cfg.set_value("meta", "unlocked_weapons", unlocked_weapons)
 	cfg.set_value("meta", "unlocked_weapon_slots", unlocked_weapon_slots)
@@ -1159,6 +1255,10 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "tavern_owner_rescued", tavern_owner_rescued)
 	cfg.set_value("meta", "rune_master_rescued", rune_master_rescued)
 	cfg.set_value("meta", "farmer_rescued", farmer_rescued)
+	cfg.set_value("meta", "blacksmith_tier2_unlocked", blacksmith_tier2_unlocked)
+	cfg.set_value("meta", "quest_headman_intro_done", quest_headman_intro_done)
+	cfg.set_value("meta", "quest_blacksmith_rewarded", quest_blacksmith_rewarded)
+	cfg.set_value("meta", "completed_quests", completed_quests)
 	cfg.set_value("meta", "village_facilities_unlocked", village_facilities_unlocked)
 	cfg.set_value("meta", "village_facility_last_collect_unix", village_facility_last_collect_unix)
 	cfg.set_value("meta", "farm_plots", farm_plots)
@@ -1214,6 +1314,13 @@ func load_from_disk() -> void:
 	tavern_owner_rescued = bool(cfg.get_value("meta", "tavern_owner_rescued", false))
 	rune_master_rescued = bool(cfg.get_value("meta", "rune_master_rescued", false))
 	farmer_rescued = bool(cfg.get_value("meta", "farmer_rescued", false))
+	blacksmith_tier2_unlocked = bool(cfg.get_value("meta", "blacksmith_tier2_unlocked", false))
+	quest_headman_intro_done = bool(cfg.get_value("meta", "quest_headman_intro_done", false))
+	quest_blacksmith_rewarded = bool(cfg.get_value("meta", "quest_blacksmith_rewarded", false))
+	completed_quests.clear()
+	for qid in cfg.get_value("meta", "completed_quests", []):
+		completed_quests.append(String(qid))
+	p1_last_village_character = String(cfg.get_value("meta", "p1_last_village_character", ""))
 	_load_village_facilities(cfg)
 	_load_farm_state(cfg)
 	_load_completed_stages(cfg)

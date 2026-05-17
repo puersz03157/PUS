@@ -243,7 +243,7 @@ func _process(delta: float) -> void:
 	if Input.is_action_just_pressed("ui_back"):
 		AudioManager.play_sfx("ui_back")
 		_transitioning = true
-		get_tree().change_scene_to_file("res://scenes/Main.tscn")
+		get_tree().change_scene_to_file(_character_select_back_path())
 		return
 
 
@@ -771,9 +771,15 @@ func _on_touch_ready(prefix: String) -> void:
 	_update_panels()
 
 
+func _character_select_back_path() -> String:
+	if GameState.character_select_return_scene == "village":
+		return "res://scenes/Village.tscn"
+	return "res://scenes/Main.tscn"
+
+
 func _on_touch_back() -> void:
 	if _transitioning:
 		return
 	AudioManager.play_sfx("ui_back")
 	_transitioning = true
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+	get_tree().change_scene_to_file(_character_select_back_path())

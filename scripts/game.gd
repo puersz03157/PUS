@@ -1327,6 +1327,10 @@ func _game_over(won: bool) -> void:
 			var fdef: Dictionary = GameData.get_village_facility_def(fid)
 			var fname: String = GameData.tr_field(fdef, "name", false) if not fdef.is_empty() else fid
 			_show_center_notice(tr("VICTORY_FACILITY_UNLOCK_NOTICE_FMT") % fname)
+		if bool(stage_def.get("victory_blacksmith_tier2", false)) \
+				and not GameState.blacksmith_tier2_unlocked:
+			GameState.unlock_blacksmith_tier2()
+			_show_center_notice(tr("VICTORY_BLACKSMITH_TIER2_NOTICE"))
 		GameState.grant_run_gold(reward)
 		_clear_remaining_enemies()
 		AudioManager.play_sfx("reward", 0.02)

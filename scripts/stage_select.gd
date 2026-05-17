@@ -242,6 +242,13 @@ func _refresh() -> void:
 	var books_block: String = GameData.format_stage_event_armament_books_block(String(stage.get("id", "")))
 	if books_block != "":
 		rewards.append(books_block)
+	for note_key in stage.get("victory_notes", []):
+		rewards.append(tr(String(note_key)))
+	if bool(stage.get("victory_blacksmith_tier2", false)):
+		if GameState.blacksmith_tier2_unlocked:
+			rewards.append(tr("STAGE_SELECT_BLACKSMITH_TIER2_DONE"))
+		else:
+			rewards.append(tr("STAGE_SELECT_BLACKSMITH_TIER2"))
 	stage_reward_label.text = "\n".join(rewards)
 
 	# 金幣與切換鈕可見性
