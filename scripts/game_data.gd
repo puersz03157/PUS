@@ -20,6 +20,8 @@ extends Node
 const CRIT_DAMAGE_MULT_BASE := 2.0
 
 const DREAMIR_CHAR_ROOT := "res://assets/characters/dreamir/"
+## 網頁匯出：請使用「匯出專案內所有資源」（見專案根目錄 export_presets.cfg → Web）。
+## 角色逐幀圖由 ResourceLoader.list_directory 列舉（勿依賴 DirAccess 掃 res://）。
 ## 遊戲角色 id → dreamir 資料夾與子目錄（逐幀 PNG，執行時掃描排序）
 const DREAMIR_CHARACTER_ANIMS: Dictionary = {
 	"swordsman": {
@@ -1899,20 +1901,70 @@ func get_sprite_sheet_anim_frames(sheet_id: String) -> Dictionary:
 	return out
 
 
-func _list_dreamir_png_paths(subdir: String) -> Array:
+func _normalize_res_dir(dir: String) -> String:
+	var p: String = String(dir).strip_edges().replace("\\", "/")
+	if not p.begins_with("res://"):
+		p = "res://" + p.trim_prefix("/")
+	if not p.ends_with("/"):
+		p += "/"
+	return p
+
+
+func _res_path_join(dir_path: String, entry: String) -> String:
+	var name: String = String(entry).strip_edges().replace("\\", "/")
+	if name.begins_with("res://"):
+		return name
+	return dir_path + name.trim_prefix("/")
+
+
+func _list_dreamir_png_paths(subdir: String, recursive: bool = true) -> Array:
+	return _list_png_paths_in_dir(subdir, recursive)
+
+
+## 列舉目錄內 PNG（網頁匯出優先 ResourceLoader；編輯器可 fallback DirAccess）
+func _list_png_paths_in_dir(dir: String, recursive: bool = false) -> Array:
 	var paths: Array = []
-	var dir := DirAccess.open(subdir)
-	if dir == null:
-		return paths
-	dir.list_dir_begin()
-	var fn := dir.get_next()
-	while fn != "":
-		if not fn.begins_with(".") and fn.to_lower().ends_with(".png"):
-			paths.append(subdir.path_join(fn))
-		fn = dir.get_next()
-	dir.list_dir_end()
+	var dir_path: String = _normalize_res_dir(dir)
+	_collect_png_paths_resource_loader(dir_path, recursive, paths)
+	if paths.is_empty():
+		_collect_png_paths_diraccess(dir_path, recursive, paths)
 	paths.sort()
 	return paths
+
+
+func _collect_png_paths_resource_loader(dir_path: String, recursive: bool, paths: Array) -> void:
+	var listed: PackedStringArray = ResourceLoader.list_directory(dir_path)
+	for entry in listed:
+		var name: String = String(entry).strip_edges().replace("\\", "/")
+		if name.is_empty() or name.begins_with("."):
+			continue
+		if name.ends_with("/"):
+			if recursive:
+				_collect_png_paths_resource_loader(dir_path + name, true, paths)
+			continue
+		var full: String = _res_path_join(dir_path, name)
+		if full.to_lower().ends_with(".png"):
+			paths.append(full)
+
+
+func _collect_png_paths_diraccess(dir_path: String, recursive: bool, paths: Array) -> void:
+	var da := DirAccess.open(dir_path)
+	if da == null:
+		return
+	da.list_dir_begin()
+	var fn := da.get_next()
+	while fn != "":
+		if fn == "." or fn == ".." or fn.begins_with("."):
+			fn = da.get_next()
+			continue
+		var full: String = dir_path.path_join(fn)
+		if da.current_is_dir():
+			if recursive:
+				_collect_png_paths_diraccess(_normalize_res_dir(full), true, paths)
+		elif fn.to_lower().ends_with(".png"):
+			paths.append(full)
+		fn = da.get_next()
+	da.list_dir_end()
 
 
 func get_dreamir_sprite_frames(char_id: String) -> Dictionary:
@@ -3290,3 +3342,13 @@ func all_enemy_defs_for_codex() -> Array[Dictionary]:
 	return out
 
 
+func _ready() -> void:
+	if OS.has_feature("web"):
+		_prewarm_character_visual_defs()
+
+
+func _prewarm_character_visual_defs() -> void:
+	for c in CHARACTERS:
+		var id: String = String(c.get("id", ""))
+		if id != "":
+			get_character_def(id)
