@@ -81,6 +81,21 @@ var wild_impulse_charges_left: int = 0
 # 無我：戰鬥技能持續計時
 var mushin_active: bool = false
 var mushin_timer: float = 0.0
+# 嗜血衝動：各層獨立倒計時（最多 5 層）
+var blood_frenzy_stack_timers: Array[float] = []
+# 血包系統（吸血鬼彈珠台）
+var blood_packs: int = 0
+var has_revival_charge: bool = false
+# 焰氣系統（烈焰靈女巫彈珠台）
+var flame_charges: int = 0
+var has_skill_boost: bool = false
+# 血霧籠罩：技能持續狀態
+var blood_shroud_active: bool = false
+var blood_shroud_timer: float = 0.0
+var blood_shroud_tick_timer: float = 0.0
+# 引爆本能：各敵人的爆炸 CD 與計數
+var _ignition_enemy_cds: Dictionary = {}
+var _ignition_explosion_counter: int = 0
 
 var kills: int = 0
 # 結算統計：造成傷害 / 承受傷害（實際扣血）/ 彈珠台累積分數 / 取得的局內加成清單
@@ -448,6 +463,27 @@ func _physics_process(delta: float) -> void:
 		if mushin_timer <= 0.0:
 			mushin_active = false
 			mushin_timer = 0.0
+	if blood_frenzy_stack_timers.size() > 0:
+		for i in range(blood_frenzy_stack_timers.size() - 1, -1, -1):
+			blood_frenzy_stack_timers[i] -= delta
+			if blood_frenzy_stack_timers[i] <= 0.0:
+				blood_frenzy_stack_timers.remove_at(i)
+	if blood_shroud_active:
+		blood_shroud_timer -= delta
+		blood_shroud_tick_timer -= delta
+		if blood_shroud_tick_timer <= 0.0:
+			_blood_shroud_tick()
+			blood_shroud_tick_timer += 0.5
+		if blood_shroud_timer <= 0.0:
+			blood_shroud_active = false
+	if not _ignition_enemy_cds.is_empty():
+		var to_erase: Array = []
+		for eid in _ignition_enemy_cds.keys():
+			_ignition_enemy_cds[eid] = float(_ignition_enemy_cds[eid]) - delta
+			if float(_ignition_enemy_cds[eid]) <= 0.0:
+				to_erase.append(eid)
+		for eid in to_erase:
+			_ignition_enemy_cds.erase(eid)
 
 	# 主動技能：在戰鬥場景按技能鍵觸發
 	if skill_cooldown > 0.0:
@@ -518,7 +554,10 @@ func get_effective_max_hp() -> float:
 
 
 func get_effective_damage_mult() -> float:
-	return damage_mult * get_level_damage_mult()
+	var d: float = damage_mult * get_level_damage_mult()
+	if flame_charges > 0:
+		d *= 1.0 + float(flame_charges) * 0.05
+	return d
 
 
 func get_effective_atk_power() -> float:
@@ -530,16 +569,22 @@ func get_effective_def() -> float:
 
 
 func get_effective_rate_mult() -> float:
+	var r: float = rate_mult
 	if mushin_active:
 		var s: Dictionary = GameData.get_skill_def("mushin")
-		return rate_mult * float(s.get("params", {}).get("combat_rate_mult", 1.4))
-	return rate_mult
+		r *= float(s.get("params", {}).get("combat_rate_mult", 1.4))
+	if passive_id == "blood_frenzy" and blood_frenzy_stack_timers.size() > 0:
+		var pdef: Dictionary = GameData.get_passive_def("blood_frenzy")
+		r *= 1.0 + float(pdef.get("params", {}).get("rate_per_stack", 0.08)) * float(blood_frenzy_stack_timers.size())
+	return r
 
 
 func get_effective_move_speed() -> float:
 	var spd: float = move_speed * speed_mult * get_level_speed_mult()
 	if _enemy_slow_time > 0.0:
 		spd *= _enemy_slow_factor
+	if blood_shroud_active:
+		spd *= 0.5
 	return spd
 
 
@@ -1034,6 +1079,49 @@ func _draw() -> void:
 		draw_string(fnt2, Vector2(-12, -42), lbl,
 			HORIZONTAL_ALIGNMENT_CENTER, 24, 12, Color(0.85, 0.95, 1.0))
 
+	# 血物壟罩：AOE 範圍脈衝光環
+	if blood_shroud_active:
+		var t_bs: float = Time.get_ticks_msec() * 0.004
+		var pulse_bs: float = 0.5 + 0.5 * sin(t_bs)
+		var bs_r: float = float(GameData.get_skill_def("blood_shroud").get("params", {}).get("combat_radius", 200.0))
+		draw_circle(Vector2.ZERO, bs_r, Color(0.75, 0.05, 0.12, 0.06 + pulse_bs * 0.04))
+		draw_arc(Vector2.ZERO, bs_r, 0.0, TAU, 64, Color(0.9, 0.15, 0.22, 0.28 + pulse_bs * 0.18), 2.0, true)
+		draw_arc(Vector2.ZERO, bs_r - 4.0, 0.0, TAU, 64, Color(1.0, 0.35, 0.42, 0.10 + pulse_bs * 0.08), 1.0, true)
+
+	# 血包點陣（最多5顆，y=-62）
+	if blood_packs > 0 or has_revival_charge:
+		var dot_r: float = 3.0
+		var gap: float = 3.0
+		var total_w: float = 5.0 * (dot_r * 2.0) + 4.0 * gap
+		var sx: float = -total_w * 0.5 + dot_r
+		var sy: float = -62.0
+		for i in 5:
+			var cx: float = sx + float(i) * (dot_r * 2.0 + gap)
+			var filled: bool = i < blood_packs
+			var c: Color = Color(0.9, 0.15, 0.2) if filled else Color(0.28, 0.06, 0.08)
+			draw_circle(Vector2(cx, sy), dot_r, c)
+		if has_revival_charge:
+			var fnt_bp := ThemeDB.fallback_font
+			draw_string(fnt_bp, Vector2(-5, sy - 6.0), "♥",
+				HORIZONTAL_ALIGNMENT_CENTER, 12, 11, Color(1.0, 0.55, 0.7))
+
+	# 焰氣點陣（最多5顆，y=-74）
+	if flame_charges > 0 or has_skill_boost:
+		var dot_r: float = 3.0
+		var gap: float = 3.0
+		var total_w: float = 5.0 * (dot_r * 2.0) + 4.0 * gap
+		var sx: float = -total_w * 0.5 + dot_r
+		var sy: float = -74.0
+		for i in 5:
+			var cx: float = sx + float(i) * (dot_r * 2.0 + gap)
+			var filled: bool = i < flame_charges
+			var c: Color = Color(1.0, 0.48, 0.06) if filled else Color(0.3, 0.13, 0.02)
+			draw_circle(Vector2(cx, sy), dot_r, c)
+		if has_skill_boost:
+			var fnt_fc := ThemeDB.fallback_font
+			draw_string(fnt_fc, Vector2(-5, sy - 6.0), "★",
+				HORIZONTAL_ALIGNMENT_CENTER, 12, 11, Color(1.0, 0.9, 0.2))
+
 
 func _village_overhead_label_y() -> float:
 	var y_off: float = -body_radius - 18.0
@@ -1080,13 +1168,21 @@ func take_damage(d: float) -> void:
 		create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.25)
 		_passive_unyielding_try_meter()
 		return
-	var actual: float = max(1.0, d * (1.0 - dmg_reduce) - get_effective_def() * 0.5)
+	var eff_reduce: float = clampf(dmg_reduce + float(blood_packs) * 0.05, 0.0, 0.75)
+	var actual: float = max(1.0, d * (1.0 - eff_reduce) - get_effective_def() * 0.5)
 	var taken_now: float = min(actual, hp)
 	hp -= actual
 	damage_taken += taken_now
 	iframe = 0.6
 	if hp <= 0:
 		hp = 0
+		if has_revival_charge:
+			has_revival_charge = false
+			_heal(get_effective_max_hp() * 0.2)
+			modulate = Color(1.5, 0.3, 0.3)
+			create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.5)
+			AudioManager.play_sfx("player_hurt", 0.06)
+			return
 		AudioManager.play_sfx("player_death", 0.02)
 		died.emit(self)
 	else:
@@ -1177,6 +1273,12 @@ func on_enemy_killed(_e: Node) -> void:
 	if passive_id == "fighting_spirit" and skill_id != "none":
 		passive_kill_counter += 1
 		_try_fighting_spirit_meter()
+	if passive_id == "blood_frenzy":
+		var pdef: Dictionary = GameData.get_passive_def("blood_frenzy")
+		var max_s: int = int(pdef.get("params", {}).get("max_stacks", 5))
+		var dur: float = float(pdef.get("params", {}).get("stack_duration", 3.0))
+		if blood_frenzy_stack_timers.size() < max_s:
+			blood_frenzy_stack_timers.append(dur)
 
 
 # ===== 被動 / 主動技能 =====
@@ -1184,6 +1286,9 @@ func _apply_passive() -> void:
 	passive_kill_counter = 0
 	passive_hit_counter = 0
 	passive_blade_aura_counter = 0
+	blood_frenzy_stack_timers.clear()
+	_ignition_enemy_cds.clear()
+	_ignition_explosion_counter = 0
 	breakthrough_same_enemy_hits.clear()
 	breakthrough_attack_hits.clear()
 	wild_impulse_window = 0.0
@@ -1321,6 +1426,19 @@ func on_weapon_hit(_e: Node, _weapon: Node) -> void:
 		if wid == "shard":
 			passive_blade_aura_counter += 1
 			_try_blade_aura_meter()
+	if passive_id == "ignition" and _weapon != null and _e != null and is_instance_valid(_e):
+		var wid2: String = String(_weapon.def.get("id", ""))
+		if wid2 == "flame" and _e.has_method("apply_status_burn"):
+			var eid: int = _e.get_instance_id()
+			if not _ignition_enemy_cds.has(eid) or float(_ignition_enemy_cds[eid]) <= 0.0:
+				var pdef: Dictionary = GameData.get_passive_def("ignition")
+				var prm: Dictionary = pdef.get("params", {})
+				var dmg: float = get_effective_atk_power() * float(prm.get("explosion_damage_mult", 0.6))
+				var radius: float = float(prm.get("explosion_radius", 72.0))
+				_ignition_explode(_e.global_position, dmg, radius)
+				_ignition_enemy_cds[eid] = float(prm.get("enemy_cd", 3.0))
+				_ignition_explosion_counter += 1
+				_ignition_try_meter()
 
 
 # 結算：在被動 CD 結束時把累計的命中數兌換成量表（與鬥志高昂相同模式）
@@ -1334,6 +1452,46 @@ func _try_quick_step_meter() -> void:
 		if not _try_grant_passive_skill_meter(fill):
 			break
 		passive_hit_counter -= need
+
+
+func grant_blood_pack() -> void:
+	blood_packs = mini(blood_packs + 1, 5)
+	if blood_packs >= 5:
+		blood_packs = 0
+		has_revival_charge = true
+		modulate = Color(1.4, 0.3, 0.3)
+		create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.4)
+
+
+func grant_flame_charge() -> void:
+	flame_charges = mini(flame_charges + 1, 5)
+	if flame_charges >= 5:
+		flame_charges = 0
+		has_skill_boost = true
+		modulate = Color(1.5, 0.6, 0.1)
+		create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.4)
+
+
+func _ignition_explode(center: Vector2, dmg: float, radius: float) -> void:
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e):
+			continue
+		var ee := e as Node2D
+		if ee == null:
+			continue
+		if ee.global_position.distance_to(center) <= radius:
+			if e.has_method("take_damage"):
+				e.take_damage(dmg, self)
+
+
+func _ignition_try_meter() -> void:
+	var pdef: Dictionary = GameData.get_passive_def("ignition")
+	var prm: Dictionary = pdef.get("params", {})
+	var need: int = int(prm.get("explosions_per_fill", 5))
+	var fill: float = float(prm.get("meter_fill", 25.0))
+	if _ignition_explosion_counter >= need:
+		_ignition_explosion_counter -= need
+		_try_grant_passive_skill_meter(fill)
 
 
 func _try_blade_aura_meter() -> void:
@@ -1460,6 +1618,10 @@ func use_skill(context: String = "combat") -> bool:
 				wild_impulse_charges_left = 2
 		"mushin":
 			_skill_mushin_combat(s)
+		"blood_shroud":
+			_skill_blood_shroud_combat(s)
+		"flame_burst":
+			_skill_flame_burst_combat(s)
 	return true
 
 
@@ -1862,6 +2024,91 @@ func _skill_mushin_combat(s: Dictionary) -> void:
 	play_skill_cast_anim()
 
 
+func _skill_blood_shroud_combat(s: Dictionary) -> void:
+	var params: Dictionary = s.get("params", {})
+	blood_shroud_active = true
+	blood_shroud_timer = float(params.get("combat_duration", 5.0))
+	blood_shroud_tick_timer = 0.0
+	modulate = Color(1.4, 0.2, 0.3)
+	create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.5)
+	play_skill_cast_anim()
+
+
+func _blood_shroud_tick() -> void:
+	var s: Dictionary = GameData.get_skill_def("blood_shroud")
+	var params: Dictionary = s.get("params", {})
+	var radius: float = float(params.get("combat_radius", 200.0))
+	var dmg: float = get_effective_atk_power() * float(params.get("combat_damage_mult", 0.8))
+	var heal_ratio: float = float(params.get("combat_heal_ratio", 0.3))
+	var bleed_dps_r: float = float(params.get("combat_bleed_dps_ratio", 0.15))
+	var total_heal: float = 0.0
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e):
+			continue
+		var ee := e as Node2D
+		if ee == null:
+			continue
+		if ee.global_position.distance_to(global_position) <= radius:
+			if e.has_method("take_damage"):
+				e.take_damage(dmg, self)
+				total_heal += dmg * heal_ratio
+			if e.has_method("apply_status_bleed"):
+				e.apply_status_bleed(dmg * bleed_dps_r,
+					GameData.ENEMY_STATUS_CLAW_BLEED_DURATION, self)
+	if total_heal > 0.0:
+		_heal(total_heal)
+
+
+func _skill_flame_burst_combat(s: Dictionary) -> void:
+	var params: Dictionary = s.get("params", {})
+	var boosted: bool = has_skill_boost
+	if boosted:
+		has_skill_boost = false
+	var aim: Vector2 = face_dir.normalized()
+	if aim == Vector2.ZERO:
+		aim = Vector2.RIGHT
+	var land: Vector2 = global_position + aim * float(params.get("combat_range", 280.0))
+	var inner_r: float = float(params.get("combat_inner_radius", 96.0))
+	var outer_r: float = float(params.get("combat_outer_radius", 192.0))
+	var dmg: float = max(float(params.get("combat_min_damage", 60.0)),
+		get_effective_atk_power() * float(params.get("combat_damage_mult", 5.0)))
+	if boosted:
+		dmg *= float(params.get("combat_boost_crit_mult", 2.0))
+	var push_dist: float = float(params.get("combat_push", 80.0))
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e):
+			continue
+		var ee := e as Node2D
+		if ee == null:
+			continue
+		var d: float = ee.global_position.distance_to(land)
+		if d <= inner_r:
+			if e.has_method("take_damage"):
+				e.take_damage(dmg, self)
+			if e.has_method("apply_position_push"):
+				var push_dir: Vector2 = (ee.global_position - land).normalized()
+				if push_dir == Vector2.ZERO:
+					push_dir = aim
+				e.apply_position_push(push_dir * push_dist)
+		if d <= outer_r and e.has_method("apply_status_burn"):
+			e.apply_status_burn(
+				GameData.ENEMY_STATUS_FLAME_BURN_DPS_RATIO * get_effective_atk_power(),
+				GameData.ENEMY_STATUS_FLAME_BURN_DURATION, self)
+	modulate = Color(1.6, 0.55, 0.1)
+	create_tween().tween_property(self, "modulate", Color(1, 1, 1), 0.4)
+	play_skill_cast_anim()
+	_spawn_flame_burst_vfx(land, inner_r, outer_r, boosted)
+
+
+func _spawn_flame_burst_vfx(center: Vector2, inner_r: float, outer_r: float, boosted: bool) -> void:
+	var vfx := _FlameBurstVFX.new()
+	vfx.inner_r = inner_r
+	vfx.outer_r = outer_r
+	vfx.boosted = boosted
+	get_parent().add_child(vfx)
+	vfx.global_position = center
+
+
 func add_weapon(weapon_id: String, allow_unaccounted_upgrade: bool = true) -> Dictionary:
 	for w in weapons:
 		if w["id"] == weapon_id:
@@ -2132,3 +2379,38 @@ class _MirrorMoonClone:
 			var a: float = clampf(slash_flash / 0.16, 0.0, 1.0)
 			draw_arc(Vector2.ZERO, slash_radius, -PI * 0.1, PI * 1.1, 32,
 				Color(0.8, 0.95, 1.0, 0.65 * a), 4.0)
+
+
+class _FlameBurstVFX:
+	extends Node2D
+
+	var inner_r: float = 96.0
+	var outer_r: float = 192.0
+	var boosted: bool = false
+	var life: float = 0.55
+	var age: float = 0.0
+
+	func _process(delta: float) -> void:
+		age += delta
+		queue_redraw()
+		if age >= life:
+			queue_free()
+
+	func _draw() -> void:
+		var t: float = clampf(age / life, 0.0, 1.0)
+		# 外圈（燃燒範圍）：橘紅，快速消散
+		var outer_a: float = (1.0 - t) * 0.55
+		draw_circle(Vector2.ZERO, outer_r, Color(1.0, 0.35, 0.04, outer_a * 0.25))
+		draw_arc(Vector2.ZERO, outer_r, 0.0, TAU, 64,
+			Color(1.0, 0.5, 0.08, outer_a), 2.5, true)
+		# 內圈（爆炸傷害核心）：先膨脹再消散
+		var burst_t: float = clampf(age / (life * 0.45), 0.0, 1.0)
+		var core_r: float = inner_r * (0.2 + 0.8 * burst_t)
+		var core_a: float = (1.0 - burst_t) * 0.85
+		draw_circle(Vector2.ZERO, core_r, Color(1.0, 0.7, 0.1, core_a * 0.55))
+		draw_arc(Vector2.ZERO, core_r, 0.0, TAU, 48,
+			Color(1.0, 0.9, 0.3, core_a), 3.5, true)
+		# 強化時：中央白核閃光
+		if boosted and burst_t < 0.5:
+			var wh_a: float = (1.0 - burst_t * 2.0) * 0.9
+			draw_circle(Vector2.ZERO, core_r * 0.45, Color(1.0, 1.0, 0.85, wh_a))

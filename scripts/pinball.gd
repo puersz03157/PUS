@@ -299,6 +299,16 @@ func _draw_pegs(node: Node2D) -> void:
 			node.draw_circle(pos, PEG_RADIUS + 1.0, Color(0.75, 0.45, 1.0, 0.45))
 			node.draw_circle(pos, PEG_RADIUS, Color(0.55, 0.35, 0.95))
 			node.draw_circle(pos, PEG_RADIUS - 2.0, Color(0.9, 0.75, 1.0))
+		# 血針
+		elif p.get("kind", "") == "blood":
+			node.draw_circle(pos, PEG_RADIUS + 2.0, Color(0.9, 0.15, 0.2, 0.5))
+			node.draw_circle(pos, PEG_RADIUS, Color(0.75, 0.1, 0.15))
+			node.draw_circle(pos, PEG_RADIUS - 2.0, Color(1.0, 0.5, 0.55))
+		# 炎針
+		elif p.get("kind", "") == "flame":
+			node.draw_circle(pos, PEG_RADIUS + 2.0, Color(1.0, 0.45, 0.05, 0.5))
+			node.draw_circle(pos, PEG_RADIUS, Color(0.9, 0.35, 0.05))
+			node.draw_circle(pos, PEG_RADIUS - 2.0, Color(1.0, 0.85, 0.3))
 		# 受過重裝彈珠撞擊：染上裂紋紅
 		elif hits > 0:
 			node.draw_circle(pos, PEG_RADIUS + 1.0, Color(0.95, 0.4, 0.35, 0.55))
@@ -622,7 +632,32 @@ func _handle_pinball_skill(s: Dictionary, b: Dictionary) -> bool:
 		"mushin":
 			b["score_mult"] = float(s.get("params", {}).get("pinball_score_mult", 2.0))
 			return true
+		"blood_shroud":
+			return _mark_special_pegs(b, "blood", s)
+		"flame_burst":
+			return _mark_special_pegs(b, "flame", s)
 	return false
+
+
+func _mark_special_pegs(b: Dictionary, kind: String, s: Dictionary) -> bool:
+	var params: Dictionary = s.get("params", {})
+	var count_min: int = int(params.get("pinball_peg_count_min", 4))
+	var count_max: int = int(params.get("pinball_peg_count_max", 6))
+	var count: int = count_min + randi() % max(1, count_max - count_min + 1)
+	var candidates: Array[int] = []
+	for i in pegs.size():
+		var peg: Dictionary = pegs[i]
+		if bool(peg.get("alive", true)) and String(peg.get("kind", "")) == "":
+			candidates.append(i)
+	candidates.shuffle()
+	var marked: int = 0
+	for idx in candidates:
+		if marked >= count:
+			break
+		pegs[idx]["kind"] = kind
+		marked += 1
+	pegs_node.queue_redraw()
+	return marked > 0
 
 
 func _start_wolf_impulse_targeting(p: Node, s: Dictionary) -> void:
@@ -940,6 +975,20 @@ func _step_ball(b: Dictionary, delta: float) -> void:
 					bounce_k *= float(b.get("peg_bounce_mult", 1.0))
 				b["vel"] -= n * dot * (1.0 + bounce_k)
 			AudioManager.play_sfx("pinball_bounce", 0.06)
+			# 血針 / 炎針
+			var peg_kind: String = String(peg.get("kind", ""))
+			if peg_kind == "blood" or peg_kind == "flame":
+				_grant_peg_score(b, PEG_HIT_SCORE * 2)
+				peg["alive"] = false
+				peg["kind"] = ""
+				pegs_changed = true
+				var p_owner: Node = b.get("player", null)
+				if p_owner != null:
+					if peg_kind == "blood" and p_owner.has_method("grant_blood_pack"):
+						p_owner.grant_blood_pack()
+					elif peg_kind == "flame" and p_owner.has_method("grant_flame_charge"):
+						p_owner.grant_flame_charge()
+				continue
 			# 計分：每撞 1 次彈針加分（純裝飾）
 			_grant_peg_score(b, PEG_HIT_SCORE)
 			# 重裝彈珠：撞擊累計，達門檻直接破壞
