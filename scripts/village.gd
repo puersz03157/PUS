@@ -32,6 +32,12 @@ const WELL_INTERACT_RADIUS := 88.0
 const FARMER_INTERACT_RADIUS := 90.0
 const VILLAGE_TOUCH_BTN_SIZE := Vector2(78.0, 56.0)
 
+# 時間流轉
+const VILLAGE_TIME_DAY_DURATION := 240.0      # 4 分鐘白天
+const VILLAGE_TIME_EVENING_DURATION := 120.0  # 2 分鐘傍晚
+const VILLAGE_TIME_NIGHT_DURATION := 120.0    # 2 分鐘夜晚
+const VILLAGE_TIME_CYCLE := 480.0             # 完整循環 8 分鐘
+
 const Coop := preload("res://scripts/coop_pair_follow.gd")
 const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
 const InputPrompt := preload("res://scripts/input_prompt.gd")
@@ -103,6 +109,12 @@ var _crop_dialog: CanvasLayer = null
 var _crop_dialog_slot: int = 0
 var _always_npc_nodes: Dictionary = {}
 var _talk_dialog: CanvasLayer = null
+var _village_time_sec: float = 0.0
+var _village_time_phase: String = "day"
+var _sky_overlay: ColorRect = null
+var _time_label: Label = null
+# 所有「只在白天出現」的功能性 NPC 節點（傍晚/夜晚隱藏且無法互動）
+var _timed_npc_nodes: Array[Node2D] = []
 
 
 func _ready() -> void:
@@ -126,6 +138,7 @@ func _ready() -> void:
 		hud.add_child(_coop_pointer_overlay)
 	_draw_background()
 	_setup_hud()
+	_setup_village_clock()
 
 
 func _setup_hud() -> void:
@@ -187,6 +200,7 @@ func _process(_delta: float) -> void:
 	_refresh_village_touch_visibility()
 	_position_camera()
 	_position_float_interact_prompt()
+	_update_village_time(_delta)
 
 
 func _build_village_touch_controls() -> void:
@@ -326,9 +340,9 @@ func _on_touch_interact_pressed() -> void:
 		_open_well_dialog()
 	elif _players_near_node(_farmer_shop_node, FARMER_INTERACT_RADIUS):
 		_open_farmer_dialog()
-	elif _players_near_node(_blacksmith_node, BLACKSMITH_INTERACT_RADIUS):
+	elif _blacksmith_node != null and _blacksmith_node.visible and _players_near_node(_blacksmith_node, BLACKSMITH_INTERACT_RADIUS):
 		_open_blacksmith_dialog()
-	elif _players_near_node(_merchant_node, MERCHANT_INTERACT_RADIUS):
+	elif _merchant_node != null and _merchant_node.visible and _players_near_node(_merchant_node, MERCHANT_INTERACT_RADIUS):
 		_open_merchant_dialog()
 	elif _try_open_nearest_always_npc_talk():
 		pass
@@ -542,6 +556,7 @@ func _spawn_blacksmith_if_rescued() -> void:
 	smith.global_position = pos
 	add_child(smith)
 	_blacksmith_node = smith
+	_timed_npc_nodes.append(smith)
 
 
 func _spawn_merchant_if_rescued() -> void:
@@ -561,6 +576,7 @@ func _spawn_merchant_if_rescued() -> void:
 	merchant.global_position = pos
 	add_child(merchant)
 	_merchant_node = merchant
+	_timed_npc_nodes.append(merchant)
 
 
 func _make_village_npc_marker(
@@ -659,6 +675,99 @@ func _map_marker_position(slot: Node, fallback: Vector2) -> Vector2:
 	return fallback
 
 
+func _setup_village_clock() -> void:
+	_sky_overlay = ColorRect.new()
+	_sky_overlay.name = "SkyOverlay"
+	_sky_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_sky_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sky_overlay.color = Color(0, 0, 0, 0)
+	_sky_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	hud.add_child(_sky_overlay)
+	hud.move_child(_sky_overlay, 0)
+
+	_time_label = Label.new()
+	_time_label.name = "TimeLabel"
+	_time_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_time_label.offset_left = -130.0
+	_time_label.offset_right = -12.0
+	_time_label.offset_top = 12.0
+	_time_label.offset_bottom = 38.0
+	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_time_label.process_mode = Node.PROCESS_MODE_ALWAYS
+	hud.add_child(_time_label)
+
+	_apply_time_visuals(false)
+
+
+func _is_any_dialog_open() -> bool:
+	return _pause_open or _blacksmith_dialog != null or _merchant_dialog != null \
+		or _facility_dialog != null or _house_dialog != null \
+		or _well_dialog != null or _farmer_dialog != null \
+		or _crop_dialog != null or _talk_dialog != null
+
+
+func _update_village_time(delta: float) -> void:
+	if _is_any_dialog_open():
+		return
+	_village_time_sec = fmod(_village_time_sec + delta, VILLAGE_TIME_CYCLE)
+	var new_phase := _calc_time_phase()
+	if new_phase != _village_time_phase:
+		_village_time_phase = new_phase
+		_apply_time_visuals(true)
+	_update_time_label()
+
+
+func _calc_time_phase() -> String:
+	if _village_time_sec < VILLAGE_TIME_DAY_DURATION:
+		return "day"
+	if _village_time_sec < VILLAGE_TIME_DAY_DURATION + VILLAGE_TIME_EVENING_DURATION:
+		return "evening"
+	return "night"
+
+
+func _apply_time_visuals(animated: bool) -> void:
+	var target_sky: Color
+	match _village_time_phase:
+		"day":
+			target_sky = Color(0, 0, 0, 0)
+		"evening":
+			target_sky = Color(0.72, 0.28, 0.05, 0.28)
+		_:
+			target_sky = Color(0.04, 0.06, 0.28, 0.52)
+	if is_instance_valid(_sky_overlay):
+		if animated:
+			create_tween().tween_property(_sky_overlay, "color", target_sky, 5.0)
+		else:
+			_sky_overlay.color = target_sky
+	for npc_id in _always_npc_nodes:
+		var node: Node2D = _always_npc_nodes.get(npc_id) as Node2D
+		if not is_instance_valid(node):
+			continue
+		var entry := GameData.get_village_always_npc(npc_id)
+		var phases: Array = entry.get("active_phases", ["day"])
+		node.visible = _village_time_phase in phases
+	var is_day: bool = (_village_time_phase == "day")
+	for tnode in _timed_npc_nodes:
+		if is_instance_valid(tnode):
+			tnode.visible = is_day
+	_update_time_label()
+
+
+func _update_time_label() -> void:
+	if not is_instance_valid(_time_label):
+		return
+	match _village_time_phase:
+		"day":
+			_time_label.text = tr("VILLAGE_TIME_DAY")
+			_time_label.modulate = Color(1.0, 0.95, 0.6)
+		"evening":
+			_time_label.text = tr("VILLAGE_TIME_EVENING")
+			_time_label.modulate = Color(1.0, 0.65, 0.3)
+		_:
+			_time_label.text = tr("VILLAGE_TIME_NIGHT")
+			_time_label.modulate = Color(0.6, 0.7, 1.0)
+
+
 func _spawn_village_always_npcs() -> void:
 	for entry in GameData.VILLAGE_ALWAYS_NPCS:
 		var npc_id: String = String(entry.get("id", ""))
@@ -716,6 +825,7 @@ func _spawn_rescued_story_npcs() -> void:
 		)
 		marker.global_position = pos
 		add_child(marker)
+		_timed_npc_nodes.append(marker)
 
 
 func _make_rescued_npc_marker(
@@ -756,6 +866,8 @@ func _spawn_village_facilities() -> void:
 		marker.global_position = pos
 		add_child(marker)
 		_facility_nodes[fid] = marker
+		if fdef.has("npc_strip"):
+			_timed_npc_nodes.append(marker)
 
 
 func _spawn_farm_and_well_nodes() -> void:
@@ -781,6 +893,7 @@ func _spawn_farm_and_well_nodes() -> void:
 		)
 		_farmer_shop_node.global_position = fpos
 		add_child(_farmer_shop_node)
+		_timed_npc_nodes.append(_farmer_shop_node)
 		for i in range(1, GameData.FARM_PLOT_COUNT + 1):
 			var slot_name: String = GameData.farm_plot_map_slot_name(i)
 			var crop_slot: Node = _find_map_object_by_name([slot_name])
@@ -880,7 +993,7 @@ func _update_well_interaction() -> bool:
 
 
 func _update_farmer_interaction() -> bool:
-	if _farmer_shop_node == null or not is_instance_valid(_farmer_shop_node):
+	if _farmer_shop_node == null or not is_instance_valid(_farmer_shop_node) or not _farmer_shop_node.visible:
 		return false
 	var near: Array[String] = _players_in_range_prefixes(_farmer_shop_node, FARMER_INTERACT_RADIUS)
 	if near.is_empty():
@@ -1236,7 +1349,7 @@ func _try_interact_prefixes(prefixes: Array[String]) -> bool:
 
 
 func _update_blacksmith_interaction() -> bool:
-	if _blacksmith_node == null or not is_instance_valid(_blacksmith_node):
+	if _blacksmith_node == null or not is_instance_valid(_blacksmith_node) or not _blacksmith_node.visible:
 		return false
 	var near: Array[String] = _players_in_range_prefixes(
 		_blacksmith_node, BLACKSMITH_INTERACT_RADIUS)
@@ -1250,7 +1363,7 @@ func _update_blacksmith_interaction() -> bool:
 
 
 func _update_merchant_interaction() -> bool:
-	if _merchant_node == null or not is_instance_valid(_merchant_node):
+	if _merchant_node == null or not is_instance_valid(_merchant_node) or not _merchant_node.visible:
 		return false
 	var near: Array[String] = _players_in_range_prefixes(
 		_merchant_node, MERCHANT_INTERACT_RADIUS)
@@ -1279,7 +1392,7 @@ func _nearest_always_npc_talk_id() -> String:
 				continue
 			var npc_id: String = String(entry.get("id", ""))
 			var node: Node2D = _always_npc_nodes.get(npc_id) as Node2D
-			if node == null or not is_instance_valid(node):
+			if node == null or not is_instance_valid(node) or not node.visible:
 				continue
 			var dist: float = p.global_position.distance_to(node.global_position)
 			if dist <= VILLAGE_TALK_NPC_RADIUS and dist < best_dist:
@@ -1356,7 +1469,7 @@ func _try_open_nearest_facility_dialog() -> bool:
 func _update_facility_interaction() -> bool:
 	for fid in _facility_nodes.keys():
 		var node: Node = _facility_nodes[fid]
-		if node == null or not is_instance_valid(node):
+		if node == null or not is_instance_valid(node) or not node.visible:
 			continue
 		var near: Array[String] = _players_in_range_prefixes(
 			node, VILLAGE_FACILITY_INTERACT_RADIUS)
@@ -1671,6 +1784,36 @@ func _open_house_dialog(player_slot: String) -> void:
 	_house_status_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
 	vbox.add_child(_house_status_label)
 
+	if player_slot == "p1":
+		var sep := HSeparator.new()
+		vbox.add_child(sep)
+
+		var rest_lbl := Label.new()
+		rest_lbl.text = tr("P1_HOUSE_REST_TITLE")
+		rest_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rest_lbl.add_theme_font_size_override("font_size", 14)
+		rest_lbl.add_theme_color_override("font_color", Color(0.75, 0.82, 0.95))
+		vbox.add_child(rest_lbl)
+
+		var rest_row := HBoxContainer.new()
+		rest_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		rest_row.add_theme_constant_override("separation", 10)
+		vbox.add_child(rest_row)
+
+		for phase_data in [
+			["day",     "P1_HOUSE_REST_DAY"],
+			["evening", "P1_HOUSE_REST_EVENING"],
+			["night",   "P1_HOUSE_REST_NIGHT"],
+		]:
+			var phase: String = phase_data[0]
+			var key: String = phase_data[1]
+			var btn := Button.new()
+			btn.text = tr(key)
+			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			btn.disabled = (_village_time_phase == phase)
+			btn.pressed.connect(_on_rest_until.bind(phase))
+			rest_row.add_child(btn)
+
 	var close_btn := Button.new()
 	close_btn.text = tr("P1_HOUSE_CLOSE")
 	close_btn.pressed.connect(_close_house_dialog)
@@ -1915,6 +2058,19 @@ func _apply_house_skins_to_village_players() -> void:
 		if cid == "":
 			continue
 		p.setup_from_character(cid)
+
+
+func _on_rest_until(phase: String) -> void:
+	match phase:
+		"day":
+			_village_time_sec = 0.0
+		"evening":
+			_village_time_sec = VILLAGE_TIME_DAY_DURATION
+		"night":
+			_village_time_sec = VILLAGE_TIME_DAY_DURATION + VILLAGE_TIME_EVENING_DURATION
+	_village_time_phase = phase
+	_apply_time_visuals(true)
+	_close_house_dialog()
 
 
 func _close_house_dialog() -> void:

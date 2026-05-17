@@ -1211,6 +1211,7 @@ const VILLAGE_ALWAYS_NPCS: Array[Dictionary] = [
 			"VILLAGE_HEADMAN_DIALOG_2",
 			"VILLAGE_HEADMAN_DIALOG_3",
 		],
+		"active_phases": ["day"],
 	},
 	{
 		"id": "bard_1",
@@ -1224,6 +1225,7 @@ const VILLAGE_ALWAYS_NPCS: Array[Dictionary] = [
 			"VILLAGE_BARD1_DIALOG_2",
 			"VILLAGE_BARD1_DIALOG_3",
 		],
+		"active_phases": ["day"],
 	},
 	{
 		"id": "bard_2",
@@ -1237,6 +1239,7 @@ const VILLAGE_ALWAYS_NPCS: Array[Dictionary] = [
 			"VILLAGE_BARD2_DIALOG_2",
 			"VILLAGE_BARD2_DIALOG_3",
 		],
+		"active_phases": ["day"],
 	},
 ]
 
