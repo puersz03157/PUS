@@ -1144,12 +1144,244 @@ const VILLAGE_MAP_MERCHANT_SLOTS: Array[String] = [
 const VILLAGE_MAP_HOME_P1_SLOTS: Array[String] = ["Home1", "home1", "HouseSlot1"]
 const VILLAGE_MAP_HOME_P2_SLOTS: Array[String] = ["Home2", "home2", "HouseSlot2"]
 const VILLAGE_MAP_ENTRANCE_SLOTS: Array[String] = ["entrance", "Entrance", "ENTRANCE"]
+const VILLAGE_MAP_TAVERN_DOOR_SLOTS: Array[String] = ["Tavern Door", "TavernDoor", "tavern_door"]
 const VILLAGE_MAP_FLOOR_SLOTS: Array[String] = ["Floor", "floor", "Ground", "ground"]
+
+## 酒館室內地圖（Tavern.tmx）— 50×25 tiles × 16px，場景內再 ×1.5
+const TAVERN_MAP_PATH := "res://assets/Maps/Tavern.tmx"
+const TAVERN_MAP_TILES := Vector2i(50, 25)
+const TAVERN_MAP_TILE_PX := 16
+const TAVERN_MAP_SCALE := 1.5
+const TAVERN_MAP_ENTER_SLOTS: Array[String] = ["Enter", "enter", "Exit", "exit"]
+const TAVERN_MAP_STAIR_UP_SLOTS: Array[String] = ["UP", "up"]
+const TAVERN_MAP_STAIR_DOWN_SLOTS: Array[String] = ["DOWN", "down"]
+const TAVERN_MAP_FLOOR_1F_SLOTS: Array[String] = ["Floor", "floor"]
+const TAVERN_MAP_FLOOR_2F_SLOTS: Array[String] = ["2F Floor", "2F_Floor", "2f floor", "2f_floor"]
+
+## 酒館常駐 NPC（解救酒館老闆後常駐；廚師同步開放）
+const TAVERN_PERMANENT_NPCS: Array[Dictionary] = [
+	{
+		"id": "tavern_owner",
+		"strip_id": "tavern_keeper",
+		"name_key": "VILLAGE_TAVERN_OWNER_NAME",
+		"map_slots": ["Tavern Keeper", "TavernKeeper", "tavern_keeper"],
+		"requires_rescued": "tavern_owner",
+	},
+	{
+		"id": "chef",
+		"strip_id": "chef",
+		"name_key": "VILLAGE_TAVERN_CHEF_NAME",
+		"subtitle_key": "VILLAGE_TAVERN_CHEF_PERSONAL_NAME",
+		"map_slots": ["Chef", "chef"],
+		"requires_rescued": "tavern_owner",
+		"dialogue_keys": [
+			"TAVERN_CHEF_DIALOG_1",
+			"TAVERN_CHEF_DIALOG_2",
+		],
+	},
+]
+
+## 傍晚來酒館社交的 NPC（對應 Tavern.tmx 物件名）
+const TAVERN_SOCIAL_NPCS: Array[Dictionary] = [
+	{
+		"id": "headman",
+		"strip_id": "headman",
+		"name_key": "VILLAGE_HEADMAN_NAME",
+		"subtitle_key": "VILLAGE_HEADMAN_PERSONAL_NAME",
+		"map_slots": ["Village Head", "VillageHead", "village_head"],
+		"dialogue_keys": [
+			"VILLAGE_HEADMAN_DIALOG_1",
+			"VILLAGE_HEADMAN_DIALOG_2",
+			"VILLAGE_HEADMAN_DIALOG_3",
+		],
+		"talk_kind": "headman",
+	},
+	{
+		"id": "merchant",
+		"strip_id": "merchant",
+		"name_key": "VILLAGE_MERCHANT_NAME",
+		"subtitle_key": "VILLAGE_MERCHANT_PERSONAL_NAME",
+		"map_slots": ["Shopkeeper", "shopkeeper"],
+		"requires_rescued": "merchant",
+		"dialogue_keys": [
+			"TAVERN_SOCIAL_MERCHANT_DIALOG_1",
+			"TAVERN_SOCIAL_MERCHANT_DIALOG_2",
+		],
+	},
+	{
+		"id": "miner",
+		"strip_id": "miner",
+		"name_key": "VILLAGE_QUARRY_NAME",
+		"map_slots": ["Miner", "miner"],
+		"requires_facility": "quarry",
+		"dialogue_keys": [
+			"TAVERN_SOCIAL_MINER_DIALOG_1",
+			"TAVERN_SOCIAL_MINER_DIALOG_2",
+		],
+	},
+	{
+		"id": "blacksmith",
+		"strip_id": "blacksmith_tavern",
+		"name_key": "VILLAGE_BLACKSMITH_NAME",
+		"subtitle_key": "VILLAGE_BLACKSMITH_PERSONAL_NAME",
+		"map_slots": ["Smith", "smith"],
+		"requires_rescued": "blacksmith",
+		"dialogue_keys": [
+			"BLACKSMITH_DIALOG_1",
+			"BLACKSMITH_DIALOG_2",
+			"BLACKSMITH_DIALOG_3",
+		],
+	},
+	{
+		"id": "bard_1",
+		"strip_id": "bard",
+		"anim_row": 0,
+		"name_key": "VILLAGE_BARD_NAME",
+		"subtitle_key": "VILLAGE_BARD1_PERSONAL_NAME",
+		"map_slots": ["Bard1", "bard1"],
+		"dialogue_keys": [
+			"VILLAGE_BARD1_DIALOG_1",
+			"VILLAGE_BARD1_DIALOG_2",
+			"VILLAGE_BARD1_DIALOG_3",
+		],
+	},
+	{
+		"id": "bard_2",
+		"strip_id": "bard",
+		"anim_row": 1,
+		"name_key": "VILLAGE_BARD_NAME",
+		"subtitle_key": "VILLAGE_BARD2_PERSONAL_NAME",
+		"map_slots": ["Bard2", "bard2"],
+		"dialogue_keys": [
+			"VILLAGE_BARD2_DIALOG_1",
+			"VILLAGE_BARD2_DIALOG_2",
+			"VILLAGE_BARD2_DIALOG_3",
+		],
+	},
+	{
+		"id": "farmer",
+		"strip_id": "farmer",
+		"name_key": "VILLAGE_FARMER_NAME",
+		"subtitle_key": "VILLAGE_FARMER_PERSONAL_NAME",
+		"map_slots": ["Farmer", "farmer"],
+		"requires_facility": "farm",
+		"dialogue_keys": [
+			"TAVERN_SOCIAL_FARMER_DIALOG_1",
+			"TAVERN_SOCIAL_FARMER_DIALOG_2",
+		],
+	},
+	{
+		"id": "woodcutter",
+		"strip_id": "woodcutter",
+		"name_key": "VILLAGE_LUMBERYARD_NAME",
+		"map_slots": ["Woodcutter", "woodcutter"],
+		"requires_facility": "lumberyard",
+		"dialogue_keys": [
+			"TAVERN_SOCIAL_WOODCUTTER_DIALOG_1",
+			"TAVERN_SOCIAL_WOODCUTTER_DIALOG_2",
+		],
+	},
+	{
+		"id": "traveler_1",
+		"strip_id": "traveler_1",
+		"name_key": "VILLAGE_TRAVELER_1_NAME",
+		"subtitle_key": "VILLAGE_TRAVELER_1_PERSONAL_NAME",
+		"map_slots": ["Traveler", "Traveler1", "traveler", "traveler1"],
+		"requires_traveler_today": 1,
+		"dialogue_keys": [
+			"TAVERN_TRAVELER_1_DIALOG_1",
+			"TAVERN_TRAVELER_1_DIALOG_2",
+		],
+	},
+	{
+		"id": "traveler_2",
+		"strip_id": "traveler_2",
+		"name_key": "VILLAGE_TRAVELER_2_NAME",
+		"subtitle_key": "VILLAGE_TRAVELER_2_PERSONAL_NAME",
+		"map_slots": ["Traveler", "Traveler2", "traveler", "traveler2"],
+		"requires_traveler_today": 2,
+		"dialogue_keys": [
+			"TAVERN_TRAVELER_2_DIALOG_1",
+			"TAVERN_TRAVELER_2_DIALOG_2",
+		],
+	},
+	{
+		"id": "traveler_3",
+		"strip_id": "traveler_3",
+		"name_key": "VILLAGE_TRAVELER_3_NAME",
+		"subtitle_key": "VILLAGE_TRAVELER_3_PERSONAL_NAME",
+		"map_slots": ["Traveler", "Traveler3", "traveler", "traveler3"],
+		"requires_traveler_today": 3,
+		"dialogue_keys": [
+			"TAVERN_TRAVELER_3_DIALOG_1",
+			"TAVERN_TRAVELER_3_DIALOG_2",
+		],
+	},
+	{
+		"id": "traveler_4",
+		"strip_id": "traveler_4",
+		"name_key": "VILLAGE_TRAVELER_4_NAME",
+		"subtitle_key": "VILLAGE_TRAVELER_4_PERSONAL_NAME",
+		"map_slots": ["Traveler", "Traveler4", "traveler", "traveler4"],
+		"requires_traveler_today": 4,
+		"dialogue_keys": [
+			"TAVERN_TRAVELER_4_DIALOG_1",
+			"TAVERN_TRAVELER_4_DIALOG_2",
+		],
+	},
+]
+
+
+func get_tavern_permanent_npc(npc_id: String) -> Dictionary:
+	for entry in TAVERN_PERMANENT_NPCS:
+		if String(entry.get("id", "")) == npc_id:
+			return entry
+	return {}
+
+
+func get_tavern_social_npc(npc_id: String) -> Dictionary:
+	for entry in TAVERN_SOCIAL_NPCS:
+		if String(entry.get("id", "")) == npc_id:
+			return entry
+	return {}
+
+
+func is_tavern_open_for_entry(phase: String) -> bool:
+	return phase != "night"
+
+
+func is_tavern_social_hours(phase: String) -> bool:
+	return phase == "evening"
+
+
+func tavern_npc_available(entry: Dictionary) -> bool:
+	if entry.is_empty():
+		return false
+	var req_rescued: String = String(entry.get("requires_rescued", ""))
+	if req_rescued != "" and not GameState.is_npc_rescued(req_rescued):
+		return false
+	var req_facility: String = String(entry.get("requires_facility", ""))
+	if req_facility != "" and not GameState.is_village_facility_unlocked(req_facility):
+		return false
+	var req_traveler: int = int(entry.get("requires_traveler_today", 0))
+	if req_traveler > 0 and GameState.tavern_traveler_today != req_traveler:
+		return false
+	return true
+
+
+func tavern_social_npc_available(entry: Dictionary) -> bool:
+	return tavern_npc_available(entry)
+
 
 ## 村莊 NPC 橫向 sprite strip（單列 hframes 循環待機）
 const VILLAGE_NPC_STRIPS: Dictionary = {
 	"blacksmith": {
 		"strip": "res://assets/characters/NPC/Blacksmith.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"blacksmith_tavern": {
+		"strip": "res://assets/characters/NPC/Blacksmith_Tavern.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
@@ -1187,6 +1419,36 @@ const VILLAGE_NPC_STRIPS: Dictionary = {
 		"strip": "res://assets/characters/NPC/Bard.png",
 		"hframes": 5,
 		"vframes": 2,
+		"fps": 6.0,
+	},
+	"tavern_keeper": {
+		"strip": "res://assets/characters/NPC/Tavern Keeper.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"chef": {
+		"strip": "res://assets/characters/NPC/Chef.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"traveler_1": {
+		"strip": "res://assets/characters/NPC/Traveler1_Apprentice Alchemist_.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"traveler_2": {
+		"strip": "res://assets/characters/NPC/Traveler2_Pirte.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"traveler_3": {
+		"strip": "res://assets/characters/NPC/Traveler3_SwordsWoman.png",
+		"hframes": 5,
+		"fps": 6.0,
+	},
+	"traveler_4": {
+		"strip": "res://assets/characters/NPC/Traveler4_Black Market Dealer.png",
+		"hframes": 5,
 		"fps": 6.0,
 	},
 }
@@ -1271,7 +1533,7 @@ const VILLAGE_RESCUED_NPC_MARKERS: Array[Dictionary] = [
 	{
 		"npc_id": "tavern_owner",
 		"name_key": "VILLAGE_TAVERN_OWNER_NAME",
-		"map_slots": ["Tavern Door", "TavernDoor", "tavern_door"],
+		"map_slots": ["Tavern Keeper", "TavernKeeper", "tavern_keeper"],
 	},
 	{
 		"npc_id": "rune_master",
@@ -1289,9 +1551,17 @@ const VILLAGE_RESCUED_NPC_MARKERS: Array[Dictionary] = [
 
 
 func village_map_pixel_size() -> Vector2:
+	return map_pixel_size(VILLAGE_MAP_TILES, VILLAGE_MAP_TILE_PX, VILLAGE_MAP_SCALE)
+
+
+func tavern_map_pixel_size() -> Vector2:
+	return map_pixel_size(TAVERN_MAP_TILES, TAVERN_MAP_TILE_PX, TAVERN_MAP_SCALE)
+
+
+func map_pixel_size(tiles: Vector2i, tile_px: int, scale: float) -> Vector2:
 	return Vector2(
-		float(VILLAGE_MAP_TILES.x * VILLAGE_MAP_TILE_PX) * VILLAGE_MAP_SCALE,
-		float(VILLAGE_MAP_TILES.y * VILLAGE_MAP_TILE_PX) * VILLAGE_MAP_SCALE,
+		float(tiles.x * tile_px) * scale,
+		float(tiles.y * tile_px) * scale,
 	)
 
 

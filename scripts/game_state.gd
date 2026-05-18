@@ -123,6 +123,10 @@ var unlocked_armament_recipes: Array[String] = []
 var blacksmith_rescued: bool = false
 var merchant_rescued: bool = false
 var tavern_owner_rescued: bool = false
+## 酒館旅行者每日輪替（1～4）；與 tavern_traveler_last 避免連續重複
+var tavern_traveler_today: int = 0
+var tavern_traveler_last: int = 0
+var village_day_count: int = 0
 var rune_master_rescued: bool = false
 var farmer_rescued: bool = false
 var blacksmith_tier2_unlocked: bool = false
@@ -839,6 +843,25 @@ func is_npc_rescued(npc_id: String) -> bool:
 			return false
 
 
+func ensure_tavern_traveler_for_today() -> void:
+	if tavern_traveler_today >= 1 and tavern_traveler_today <= 4:
+		return
+	roll_tavern_traveler_for_new_day()
+
+
+func roll_tavern_traveler_for_new_day() -> void:
+	var pool: Array[int] = [1, 2, 3, 4]
+	if tavern_traveler_last >= 1 and tavern_traveler_last <= 4:
+		pool.erase(tavern_traveler_last)
+	tavern_traveler_today = pool[randi() % pool.size()]
+	tavern_traveler_last = tavern_traveler_today
+
+
+func on_village_new_day() -> void:
+	village_day_count += 1
+	roll_tavern_traveler_for_new_day()
+
+
 func rescue_npc(npc_id: String) -> void:
 	if npc_id == "" or is_npc_rescued(npc_id):
 		return
@@ -1067,6 +1090,9 @@ func reset_account() -> void:
 	blacksmith_rescued = false
 	merchant_rescued = false
 	tavern_owner_rescued = false
+	tavern_traveler_today = 0
+	tavern_traveler_last = 0
+	village_day_count = 0
 	rune_master_rescued = false
 	farmer_rescued = false
 	blacksmith_tier2_unlocked = false
@@ -1253,6 +1279,9 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "blacksmith_rescued", blacksmith_rescued)
 	cfg.set_value("meta", "merchant_rescued", merchant_rescued)
 	cfg.set_value("meta", "tavern_owner_rescued", tavern_owner_rescued)
+	cfg.set_value("meta", "tavern_traveler_today", tavern_traveler_today)
+	cfg.set_value("meta", "tavern_traveler_last", tavern_traveler_last)
+	cfg.set_value("meta", "village_day_count", village_day_count)
 	cfg.set_value("meta", "rune_master_rescued", rune_master_rescued)
 	cfg.set_value("meta", "farmer_rescued", farmer_rescued)
 	cfg.set_value("meta", "blacksmith_tier2_unlocked", blacksmith_tier2_unlocked)
@@ -1302,6 +1331,7 @@ func load_from_disk() -> void:
 		p2_house_character_skins.clear()
 		p2_house_character_favorites.clear()
 		house_favorite_unlocked_slots = GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL
+		roll_tavern_traveler_for_new_day()
 		return
 	var should_save_migration: bool = not bool(cfg.get_value(
 		"meta", "base_weapon_craft_migrated", false))
@@ -1312,6 +1342,10 @@ func load_from_disk() -> void:
 	blacksmith_rescued = bool(cfg.get_value("meta", "blacksmith_rescued", false))
 	merchant_rescued = bool(cfg.get_value("meta", "merchant_rescued", false))
 	tavern_owner_rescued = bool(cfg.get_value("meta", "tavern_owner_rescued", false))
+	tavern_traveler_today = int(cfg.get_value("meta", "tavern_traveler_today", 0))
+	tavern_traveler_last = int(cfg.get_value("meta", "tavern_traveler_last", 0))
+	village_day_count = int(cfg.get_value("meta", "village_day_count", 0))
+	ensure_tavern_traveler_for_today()
 	rune_master_rescued = bool(cfg.get_value("meta", "rune_master_rescued", false))
 	farmer_rescued = bool(cfg.get_value("meta", "farmer_rescued", false))
 	blacksmith_tier2_unlocked = bool(cfg.get_value("meta", "blacksmith_tier2_unlocked", false))

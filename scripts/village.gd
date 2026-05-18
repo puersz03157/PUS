@@ -15,19 +15,16 @@ const VILLAGE_NPC_LABEL_Y := -62.0
 const VILLAGE_NPC_TITLE_WITH_SUBTITLE_Y := -76.0
 const VILLAGE_NPC_SUBTITLE_Y := -58.0
 const VILLAGE_TALK_NPC_RADIUS := 90.0
-const MAP_PATH := GameData.VILLAGE_MAP_PATH
-# New Village.tmx：200×15 tiles（16px）→ 3200×240，場景內再放大 1.5 倍 → 4800×360。
-const MAP_SCALE := GameData.VILLAGE_MAP_SCALE
-const MAP_SIZE: Vector2 = Vector2(
-	float(GameData.VILLAGE_MAP_TILES.x * GameData.VILLAGE_MAP_TILE_PX) * MAP_SCALE,
-	float(GameData.VILLAGE_MAP_TILES.y * GameData.VILLAGE_MAP_TILE_PX) * MAP_SCALE,
-)
 const CAMERA_ZOOM := Vector2(2.0, 2.0)
 const BLACKSMITH_INTERACT_RADIUS := 90.0
 const MERCHANT_INTERACT_RADIUS := 90.0
 const VILLAGE_FACILITY_INTERACT_RADIUS := 90.0
 const P1_HOUSE_INTERACT_RADIUS := 100.0
 const ENTRANCE_INTERACT_RADIUS := 96.0
+const TAVERN_DOOR_INTERACT_RADIUS := 96.0
+const TAVERN_EXIT_INTERACT_RADIUS := 88.0
+const TAVERN_STAIR_INTERACT_RADIUS := 80.0
+const TAVERN_STAIR_LAND_X_OFFSET := 40.0
 const CROP_PLOT_INTERACT_RADIUS := 72.0
 const WELL_INTERACT_RADIUS := 88.0
 const FARMER_INTERACT_RADIUS := 90.0
@@ -42,6 +39,7 @@ const VILLAGE_TIME_CYCLE := 480.0             # 完整循環 8 分鐘
 const Coop := preload("res://scripts/coop_pair_follow.gd")
 const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
 const InputPrompt := preload("res://scripts/input_prompt.gd")
+const BlockingNotice := preload("res://scripts/blocking_notice.gd")
 
 @onready var camera: Camera2D = $Camera
 @onready var hud: CanvasLayer = $HUD
@@ -54,6 +52,9 @@ const InputPrompt := preload("res://scripts/input_prompt.gd")
 
 var players: Array = []
 var map_node: Node = null
+var _map_size: Vector2 = GameData.village_map_pixel_size()
+var _map_scale: float = GameData.VILLAGE_MAP_SCALE
+var _current_location: String = "village"
 var spawn_origin: Vector2 = Vector2.ZERO
 var tile_size: int = 16
 var blocked_tiles: Dictionary = {}
@@ -61,19 +62,28 @@ var blocked_tiles: Dictionary = {}
 var floor_y: float = 0.0
 # 左側 Obstacle 物件框右緣（可走區下限）
 var _map_walk_min_x: float = 8.0
+var _tavern_door_node = null
+var _tavern_exit_node = null
+var _tavern_stair_up_node = null
+var _tavern_stair_down_node = null
+var _tavern_floor: int = 1
+var _tavern_floor_1_y: float = 0.0
+var _tavern_floor_2_y: float = 0.0
+var _tavern_permanent_npc_nodes: Dictionary = {}
+var _tavern_social_npc_nodes: Dictionary = {}
 
 var _pause_open: bool = false
 var _transitioning: bool = false
 var _coop_pointer_overlay: Control = null
-var _blacksmith_node: Node2D = null
-var _merchant_node: Node2D = null
+var _blacksmith_node = null
+var _merchant_node = null
 var _blacksmith_dialog: CanvasLayer = null
 var _smith_status_label: Label = null
 var _smith_gold_label: Label = null
 var _merchant_dialog: CanvasLayer = null
-var _entrance_node: Node2D = null
-var _p1_house_node: Node2D = null
-var _p2_house_node: Node2D = null
+var _entrance_node = null
+var _p1_house_node = null
+var _p2_house_node = null
 var _expedition_dialog: CanvasLayer = null
 var _p2_join_dialog: CanvasLayer = null
 var _p2_leave_dialog: CanvasLayer = null
@@ -104,9 +114,9 @@ var _touch_menu_button: Button = null
 var _float_prompt_layer: Control = null
 var _float_prompt_panel: PanelContainer = null
 var _float_prompt_box: VBoxContainer = null
-var _float_prompt_target: Node2D = null
-var _well_node: Node2D = null
-var _farmer_shop_node: Node2D = null
+var _float_prompt_target = null
+var _well_node = null
+var _farmer_shop_node = null
 var _crop_plot_nodes: Dictionary = {}
 var _well_dialog: CanvasLayer = null
 var _farmer_dialog: CanvasLayer = null
@@ -127,7 +137,7 @@ var _village_time_phase: String = "day"
 var _sky_overlay: ColorRect = null
 var _time_label: Label = null
 # 所有「只在白天出現」的功能性 NPC 節點（傍晚/夜晚隱藏且無法互動）
-var _timed_npc_nodes: Array[Node2D] = []
+var _timed_npc_nodes: Array = []
 
 
 func _ready() -> void:
@@ -135,16 +145,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	# 2P 僅在主選單進村時由 prepare_enter_village() 重置；出征返回村莊時保留
 	camera.make_current()
-	_spawn_map()
-	_spawn_blacksmith_if_rescued()
-	_spawn_merchant_if_rescued()
-	_spawn_village_always_npcs()
-	_spawn_rescued_story_npcs()
-	_spawn_village_facilities()
-	_spawn_farm_and_well_nodes()
-	_spawn_p1_house_marker()
-	_spawn_p2_house_marker()
-	_spawn_entrance_marker()
+	_setup_village_exterior()
 	_spawn_players()
 	_spawn_quest_markers()
 	_position_camera()
@@ -372,12 +373,28 @@ func _on_touch_interact_pressed() -> void:
 		_open_blacksmith_dialog()
 	elif _merchant_node != null and _merchant_node.visible and _players_near_node(_merchant_node, MERCHANT_INTERACT_RADIUS):
 		_open_merchant_dialog()
+	elif _try_open_nearest_tavern_talk():
+		pass
 	elif _try_open_nearest_always_npc_talk():
 		pass
 	elif _try_open_nearest_facility_dialog():
 		pass
-	elif _players_near_node(_entrance_node, ENTRANCE_INTERACT_RADIUS):
+	elif not _is_in_tavern() and _players_near_node(_tavern_door_node, TAVERN_DOOR_INTERACT_RADIUS):
+		if GameData.is_tavern_open_for_entry(_village_time_phase):
+			_enter_tavern()
+		else:
+			_show_tavern_closed_notice()
+	elif not _is_in_tavern() and _players_near_node(_entrance_node, ENTRANCE_INTERACT_RADIUS):
 		_open_expedition_dialog()
+	elif _is_in_tavern() and _tavern_floor == 1 \
+			and _players_near_node(_tavern_stair_up_node, TAVERN_STAIR_INTERACT_RADIUS):
+		_tavern_go_upstairs()
+	elif _is_in_tavern() and _tavern_floor == 2 \
+			and _players_near_node(_tavern_stair_down_node, TAVERN_STAIR_INTERACT_RADIUS):
+		_tavern_go_downstairs()
+	elif _is_in_tavern() and _tavern_floor == 1 \
+			and _players_near_node(_tavern_exit_node, TAVERN_EXIT_INTERACT_RADIUS):
+		_exit_tavern()
 	elif _player_near_node(_p1_house_node, P1_HOUSE_INTERACT_RADIUS, "p1"):
 		_open_house_dialog("p1")
 	elif _players_near_node(_p2_house_node, P1_HOUSE_INTERACT_RADIUS):
@@ -409,45 +426,166 @@ func _leave_village() -> void:
 
 
 # ---------------- 地圖 ----------------
-func _spawn_map() -> void:
-	# 不論成功/失敗，先給一組預設攝影機設定（沒地圖時也能走）
+func _is_in_tavern() -> bool:
+	return _current_location == "tavern"
+
+
+func _setup_village_exterior() -> void:
+	_current_location = "village"
+	_spawn_map(
+		GameData.VILLAGE_MAP_PATH,
+		GameData.VILLAGE_MAP_TILES,
+		GameData.VILLAGE_MAP_TILE_PX,
+		GameData.VILLAGE_MAP_SCALE,
+		GameData.village_map_pixel_size(),
+		true,
+	)
+	_spawn_blacksmith_if_rescued()
+	_spawn_merchant_if_rescued()
+	_spawn_village_always_npcs()
+	_spawn_rescued_story_npcs()
+	_spawn_village_facilities()
+	_spawn_farm_and_well_nodes()
+	_spawn_p1_house_marker()
+	_spawn_p2_house_marker()
+	_spawn_entrance_marker()
+	_spawn_tavern_door_marker()
+	_apply_village_npc_schedule()
+	if hint_label:
+		hint_label.text = tr("VILLAGE_HINT")
+	_refresh_quest_markers()
+
+
+func _setup_tavern_interior() -> void:
+	_current_location = "tavern"
+	_spawn_map(
+		GameData.TAVERN_MAP_PATH,
+		GameData.TAVERN_MAP_TILES,
+		GameData.TAVERN_MAP_TILE_PX,
+		GameData.TAVERN_MAP_SCALE,
+		GameData.tavern_map_pixel_size(),
+		false,
+	)
+	_cache_tavern_floor_heights()
+	_tavern_floor = 1
+	_apply_tavern_floor(1, false)
+	_spawn_tavern_exit_marker()
+	_spawn_tavern_stair_markers()
+	_spawn_tavern_permanent_npcs()
+	_refresh_tavern_social_npcs()
+	_refresh_tavern_interior_npc_visibility()
+	_refresh_tavern_hud_hint()
+	_refresh_quest_markers()
+
+
+func _unload_active_map() -> void:
+	if map_node != null and is_instance_valid(map_node):
+		remove_child(map_node)
+		map_node.free()
+	map_node = null
+	blocked_tiles.clear()
+
+
+func _clear_village_exterior_markers() -> void:
+	_hide_float_interact_prompt()
+	for n in _timed_npc_nodes:
+		_release_node(n)
+	_timed_npc_nodes.clear()
+	for npc_id in _always_npc_nodes.keys():
+		_release_node(_always_npc_nodes[npc_id])
+	_always_npc_nodes.clear()
+	for fid in _facility_nodes.keys():
+		_release_node(_facility_nodes[fid])
+	_facility_nodes.clear()
+	for slot_key in _crop_plot_nodes.keys():
+		_release_node(_crop_plot_nodes[slot_key])
+	_crop_plot_nodes.clear()
+	_release_node(_blacksmith_node)
+	_release_node(_merchant_node)
+	_release_node(_entrance_node)
+	_release_node(_p1_house_node)
+	_release_node(_p2_house_node)
+	_release_node(_tavern_door_node)
+	_release_node(_well_node)
+	_release_node(_farmer_shop_node)
+	_blacksmith_node = null
+	_merchant_node = null
+	_entrance_node = null
+	_p1_house_node = null
+	_p2_house_node = null
+	_tavern_door_node = null
+	_well_node = null
+	_farmer_shop_node = null
+
+
+func _clear_tavern_interior_markers() -> void:
+	_hide_float_interact_prompt()
+	_clear_tavern_social_npcs()
+	_clear_tavern_permanent_npcs()
+	_release_node(_tavern_exit_node)
+	_release_node(_tavern_stair_up_node)
+	_release_node(_tavern_stair_down_node)
+	_tavern_exit_node = null
+	_tavern_stair_up_node = null
+	_tavern_stair_down_node = null
+	_tavern_floor = 1
+
+
+func _release_node(node) -> void:
+	if node != null and is_instance_valid(node):
+		node.free()
+
+
+func _prune_invalid_tavern_social_nodes() -> void:
+	for npc_id in _tavern_social_npc_nodes.keys():
+		var n = _tavern_social_npc_nodes[npc_id]
+		if n == null or not is_instance_valid(n):
+			_tavern_social_npc_nodes.erase(npc_id)
+
+
+func _spawn_map(
+		map_path: String,
+		tiles: Vector2i,
+		tile_px: int,
+		map_scale: float,
+		map_size: Vector2,
+		use_village_entrance: bool,
+) -> void:
+	_unload_active_map()
+	_map_scale = map_scale
+	_map_size = map_size
+	_map_walk_min_x = 8.0
 	camera.zoom = CAMERA_ZOOM
 	camera.limit_left = 0
 	camera.limit_top = 0
-	camera.limit_right = int(MAP_SIZE.x)
-	camera.limit_bottom = int(MAP_SIZE.y)
-	tile_size = int(round(16.0 * MAP_SCALE))
-	# 預設地面：地圖偏下，玩家腳踩於此
-	floor_y = MAP_SIZE.y * 0.70
-	spawn_origin = Vector2(MAP_SIZE.x * 0.10, floor_y)
-	if not ResourceLoader.exists(MAP_PATH):
-		push_warning("[Village] 找不到地圖：%s，使用空白世界。" % MAP_PATH)
+	camera.limit_right = int(_map_size.x)
+	camera.limit_bottom = int(_map_size.y)
+	tile_size = int(round(float(tile_px) * _map_scale))
+	floor_y = _map_size.y * 0.70
+	spawn_origin = Vector2(_map_size.x * 0.10, floor_y)
+	if not ResourceLoader.exists(map_path):
+		push_warning("[Village] 找不到地圖：%s，使用空白世界。" % map_path)
 		return
-	var packed: PackedScene = load(MAP_PATH)
+	var packed: PackedScene = load(map_path)
 	if packed == null:
-		push_warning("[Village] 地圖載入失敗：%s" % MAP_PATH)
+		push_warning("[Village] 地圖載入失敗：%s" % map_path)
 		return
 	map_node = packed.instantiate()
 	add_child(map_node)
 	move_child(map_node, 0)
 	if map_node is Node2D:
 		(map_node as Node2D).z_index = -10
-		(map_node as Node2D).scale = Vector2(MAP_SCALE, MAP_SCALE)
+		(map_node as Node2D).scale = Vector2(_map_scale, _map_scale)
 	if background:
 		background.visible = false
-	# 物件層：若有 Entrance/entrance 採用該座標當「出生 X」
-	var entrance: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_ENTRANCE_SLOTS)
-	if entrance is Node2D:
-		spawn_origin = (entrance as Node2D).global_position
-	var obstacle: Node = _find_map_object_by_name(["Obstacle", "obstacle"])
-	if obstacle is Node2D:
-		# TMX 中 Obstacle 寬約 78.67 tile 單位，與地圖同乘 MAP_SCALE
-		_map_walk_min_x = (obstacle as Node2D).global_position.x + 79.0 * MAP_SCALE
-	# 地面 Y 採取下面優先順序：
-	#   1) 物件層名稱為 Floor / Ground / floor / ground 的物件 Y
-	#   2) Buildings 群組底下所有 Sprite2D 的視覺底部最大值（建築物腳）
-	#   3) Entrance 自身 Y
-	#   4) MAP_SIZE.y * 0.85（保險預設）
+	var spawn_slot: Node = null
+	if use_village_entrance:
+		spawn_slot = _find_map_object_by_name(GameData.VILLAGE_MAP_ENTRANCE_SLOTS)
+		if spawn_slot is Node2D:
+			spawn_origin = (spawn_slot as Node2D).global_position
+		var obstacle: Node = _find_map_object_by_name(["Obstacle", "obstacle"])
+		if obstacle is Node2D:
+			_map_walk_min_x = (obstacle as Node2D).global_position.x + 79.0 * _map_scale
 	var floor_obj: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_FLOOR_SLOTS)
 	if floor_obj is Node2D:
 		floor_y = (floor_obj as Node2D).global_position.y
@@ -455,9 +593,310 @@ func _spawn_map() -> void:
 		var auto_y: float = _detect_floor_y_from_group("Buildings")
 		if auto_y > 0.0:
 			floor_y = auto_y
-		elif entrance is Node2D:
-			floor_y = (entrance as Node2D).global_position.y
+		elif spawn_slot is Node2D:
+			floor_y = (spawn_slot as Node2D).global_position.y
 	_build_blocked_grid()
+
+
+func _spawn_tavern_door_marker() -> void:
+	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_TAVERN_DOOR_SLOTS)
+	var pos: Vector2 = _map_marker_position(slot, Vector2(_map_size.x * 0.36, floor_y - 42.0))
+	if slot is Node2D:
+		pos = (slot as Node2D).global_position
+	_tavern_door_node = _make_door_interact_anchor("VillageTavernDoor", pos)
+
+
+func _spawn_tavern_exit_marker() -> void:
+	var slot: Node = _find_map_object_by_name(GameData.TAVERN_MAP_ENTER_SLOTS)
+	var pos: Vector2 = _map_marker_position(slot, Vector2(_map_size.x * 0.64, _tavern_floor_1_y - 42.0))
+	if slot is Node2D:
+		pos = (slot as Node2D).global_position
+	_tavern_exit_node = _make_door_interact_anchor("TavernExit", pos)
+
+
+func _cache_tavern_floor_heights() -> void:
+	var f1: Node = _find_map_object_by_name(GameData.TAVERN_MAP_FLOOR_1F_SLOTS)
+	var f2: Node = _find_map_object_by_name(GameData.TAVERN_MAP_FLOOR_2F_SLOTS)
+	_tavern_floor_1_y = floor_y
+	_tavern_floor_2_y = floor_y * 0.45
+	if f1 is Node2D:
+		_tavern_floor_1_y = (f1 as Node2D).global_position.y
+	if f2 is Node2D:
+		_tavern_floor_2_y = (f2 as Node2D).global_position.y
+
+
+func _apply_tavern_floor(floor_num: int, reposition_players: bool) -> void:
+	_tavern_floor = clampi(floor_num, 1, 2)
+	floor_y = _tavern_floor_1_y if _tavern_floor == 1 else _tavern_floor_2_y
+	if _tavern_stair_up_node != null and is_instance_valid(_tavern_stair_up_node):
+		_tavern_stair_up_node.visible = (_tavern_floor == 1)
+	if _tavern_stair_down_node != null and is_instance_valid(_tavern_stair_down_node):
+		_tavern_stair_down_node.visible = (_tavern_floor == 2)
+	if _tavern_exit_node != null and is_instance_valid(_tavern_exit_node):
+		_tavern_exit_node.visible = (_tavern_floor == 1)
+	if reposition_players:
+		_position_camera()
+
+
+func _spawn_tavern_stair_markers() -> void:
+	var up_slot: Node = _find_map_object_by_name(GameData.TAVERN_MAP_STAIR_UP_SLOTS)
+	var up_pos: Vector2 = _map_marker_position(up_slot, Vector2(48.0, _tavern_floor_1_y - 42.0))
+	if up_slot is Node2D:
+		up_pos = (up_slot as Node2D).global_position
+	_tavern_stair_up_node = _make_door_interact_anchor("TavernStairUp", up_pos)
+	var down_slot: Node = _find_map_object_by_name(GameData.TAVERN_MAP_STAIR_DOWN_SLOTS)
+	var down_pos: Vector2 = _map_marker_position(down_slot, Vector2(360.0, _tavern_floor_2_y - 42.0))
+	if down_slot is Node2D:
+		down_pos = (down_slot as Node2D).global_position
+	_tavern_stair_down_node = _make_door_interact_anchor("TavernStairDown", down_pos)
+	_apply_tavern_floor(_tavern_floor, false)
+
+
+func _tavern_stair_land_feet_x(slots: Array) -> float:
+	var slot: Node = _find_map_object_by_name(slots)
+	if slot is Node2D:
+		return (slot as Node2D).global_position.x + TAVERN_STAIR_LAND_X_OFFSET
+	return spawn_origin.x
+
+
+func _tavern_go_upstairs() -> void:
+	if _transitioning or not _is_in_tavern() or _tavern_floor != 1:
+		return
+	AudioManager.play_sfx("ui_confirm")
+	_transitioning = true
+	_apply_tavern_floor(2, false)
+	_teleport_players_to_feet_x(_tavern_stair_land_feet_x(GameData.TAVERN_MAP_STAIR_DOWN_SLOTS))
+	_refresh_tavern_interior_npc_visibility()
+	_refresh_tavern_hud_hint()
+	_transitioning = false
+
+
+func _tavern_go_downstairs() -> void:
+	if _transitioning or not _is_in_tavern() or _tavern_floor != 2:
+		return
+	AudioManager.play_sfx("ui_confirm")
+	_transitioning = true
+	_apply_tavern_floor(1, false)
+	_teleport_players_to_feet_x(_tavern_stair_land_feet_x(GameData.TAVERN_MAP_STAIR_UP_SLOTS))
+	_refresh_tavern_interior_npc_visibility()
+	_transitioning = false
+
+
+func _refresh_tavern_interior_npc_visibility() -> void:
+	_prune_invalid_tavern_social_nodes()
+	for npc_id in _tavern_permanent_npc_nodes.keys():
+		var n = _tavern_permanent_npc_nodes[npc_id]
+		if n == null or not is_instance_valid(n):
+			continue
+		var npc_floor: int = int(n.get_meta("tavern_floor", 1))
+		n.visible = npc_floor == _tavern_floor
+	var social_active: bool = GameData.is_tavern_social_hours(_village_time_phase)
+	for npc_id in _tavern_social_npc_nodes.keys():
+		var n = _tavern_social_npc_nodes[npc_id]
+		if n == null or not is_instance_valid(n):
+			continue
+		var npc_floor: int = int(n.get_meta("tavern_floor", 1))
+		n.visible = social_active and npc_floor == _tavern_floor
+
+
+func _refresh_tavern_hud_hint() -> void:
+	if not hint_label or not _is_in_tavern():
+		return
+	if GameData.is_tavern_social_hours(_village_time_phase):
+		hint_label.text = tr("TAVERN_HINT_EVENING")
+	elif _village_time_phase == "day":
+		hint_label.text = tr("TAVERN_HINT_DAY")
+	else:
+		hint_label.text = tr("TAVERN_HINT")
+
+
+func _clear_tavern_social_npcs() -> void:
+	for npc_id in _tavern_social_npc_nodes.keys():
+		_release_node(_tavern_social_npc_nodes[npc_id])
+	_tavern_social_npc_nodes.clear()
+
+
+func _clear_tavern_permanent_npcs() -> void:
+	for npc_id in _tavern_permanent_npc_nodes.keys():
+		_release_node(_tavern_permanent_npc_nodes[npc_id])
+	_tavern_permanent_npc_nodes.clear()
+
+
+func _tavern_npc_label_color(strip_id: String) -> Color:
+	if strip_id == "bard":
+		return Color(0.85, 0.78, 1.0)
+	if strip_id == "blacksmith" or strip_id == "blacksmith_tavern":
+		return Color(1.0, 0.88, 0.48)
+	if strip_id == "merchant":
+		return Color(0.68, 0.92, 1.0)
+	if strip_id == "miner":
+		return Color(0.82, 0.9, 1.0)
+	if strip_id == "farmer":
+		return Color(0.75, 1.0, 0.65)
+	if strip_id == "woodcutter":
+		return Color(0.75, 1.0, 0.7)
+	if strip_id.begins_with("traveler"):
+		return Color(0.9, 0.82, 1.0)
+	if strip_id == "chef":
+		return Color(1.0, 0.82, 0.55)
+	return Color(0.95, 0.88, 0.55)
+
+
+func _spawn_tavern_npc_from_entry(entry: Dictionary, node_prefix: String) -> void:
+	if not GameData.tavern_npc_available(entry):
+		return
+	var npc_id: String = String(entry.get("id", ""))
+	if npc_id == "":
+		return
+	var slots: Array = []
+	for s in entry.get("map_slots", []):
+		slots.append(String(s))
+	var slot: Node = _find_map_object_by_name(slots)
+	var pos: Vector2 = _tavern_map_npc_position(
+		slot, Vector2(_map_size.x * 0.5, _tavern_floor_1_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+	var slot_floor: int = 1
+	if slot is Node2D:
+		slot_floor = _tavern_npc_floor_from_slot_y((slot as Node2D).global_position.y)
+	var strip_id: String = String(entry.get("strip_id", npc_id))
+	var name_key: String = String(entry.get("name_key", ""))
+	var subtitle_key: String = String(entry.get("subtitle_key", ""))
+	var label_text: String = tr(name_key) if name_key != "" else ""
+	var subtitle_text: String = tr(subtitle_key) if subtitle_key != "" else ""
+	var marker := _make_village_npc_marker(
+		strip_id,
+		label_text,
+		_tavern_npc_label_color(strip_id),
+		"%s_%s" % [node_prefix, npc_id],
+		7,
+		int(entry.get("anim_row", -1)),
+		subtitle_text,
+	)
+	marker.global_position = pos
+	marker.set_meta("tavern_npc_id", npc_id)
+	marker.set_meta("tavern_floor", slot_floor)
+	add_child(marker)
+	if node_prefix == "TavernPermanent":
+		marker.set_meta("tavern_permanent", true)
+		_tavern_permanent_npc_nodes[npc_id] = marker
+	else:
+		marker.set_meta("tavern_social", true)
+		_tavern_social_npc_nodes[npc_id] = marker
+
+
+func _spawn_tavern_permanent_npcs() -> void:
+	_clear_tavern_permanent_npcs()
+	if not GameState.is_npc_rescued("tavern_owner"):
+		return
+	for entry in GameData.TAVERN_PERMANENT_NPCS:
+		_spawn_tavern_npc_from_entry(entry, "TavernPermanent")
+
+
+func _refresh_tavern_social_npcs() -> void:
+	_clear_tavern_social_npcs()
+	if not _is_in_tavern() or not GameData.is_tavern_social_hours(_village_time_phase):
+		return
+	GameState.ensure_tavern_traveler_for_today()
+	for entry in GameData.TAVERN_SOCIAL_NPCS:
+		_spawn_tavern_npc_from_entry(entry, "TavernSocial")
+	_refresh_tavern_interior_npc_visibility()
+
+
+func _on_village_phase_changed() -> void:
+	if _is_in_tavern():
+		if not GameData.is_tavern_open_for_entry(_village_time_phase):
+			_eject_tavern_at_closing()
+			return
+		_refresh_tavern_social_npcs()
+		_refresh_tavern_hud_hint()
+
+
+func _eject_tavern_at_closing() -> void:
+	if not _is_in_tavern() or _transitioning:
+		return
+	var notice: String = tr("TAVERN_CLOSED_KICK_NOTICE")
+	_exit_tavern()
+	if is_inside_tree():
+		BlockingNotice.present(
+			get_tree(),
+			tr("TAVERN_CLOSED_TITLE"),
+			notice,
+			"",
+			tr("PINBALL_REWARD_OK"),
+		)
+
+
+func _show_tavern_closed_notice() -> void:
+	if not is_inside_tree():
+		return
+	AudioManager.play_sfx("ui_back")
+	BlockingNotice.present(
+		get_tree(),
+		tr("TAVERN_CLOSED_TITLE"),
+		tr("TAVERN_CLOSED_NOTICE"),
+		"",
+		tr("PINBALL_REWARD_OK"),
+	)
+
+
+func _make_door_interact_anchor(node_name: String, pos: Vector2) -> Node2D:
+	var anchor := Node2D.new()
+	anchor.name = node_name
+	anchor.global_position = pos
+	anchor.set_meta("float_prompt_offset_y", -56.0)
+	add_child(anchor)
+	return anchor
+
+
+func _teleport_players_to_feet_x(feet_x: float) -> void:
+	var idx := 0
+	for p in players:
+		if p == null or not is_instance_valid(p):
+			continue
+		var offset_x: float = -30.0 if idx == 0 else 30.0
+		if players.size() == 1:
+			offset_x = 0.0
+		p.position = Vector2(feet_x + offset_x, floor_y - p.body_radius)
+		idx += 1
+	_position_camera()
+
+
+func _enter_tavern() -> void:
+	if _transitioning or _is_in_tavern():
+		return
+	if not GameData.is_tavern_open_for_entry(_village_time_phase):
+		_show_tavern_closed_notice()
+		return
+	AudioManager.play_sfx("ui_confirm")
+	_transitioning = true
+	var door_x: float = spawn_origin.x
+	if _tavern_door_node != null and is_instance_valid(_tavern_door_node):
+		door_x = _tavern_door_node.global_position.x
+	_clear_village_exterior_markers()
+	_setup_tavern_interior()
+	var enter_slot: Node = _find_map_object_by_name(GameData.TAVERN_MAP_ENTER_SLOTS)
+	var feet_x: float = door_x
+	if enter_slot is Node2D:
+		feet_x = (enter_slot as Node2D).global_position.x - 40.0
+	_teleport_players_to_feet_x(feet_x)
+	_transitioning = false
+
+
+func _exit_tavern() -> void:
+	if _transitioning or not _is_in_tavern():
+		return
+	AudioManager.play_sfx("ui_back")
+	_transitioning = true
+	var return_x: float = spawn_origin.x
+	if _tavern_exit_node != null and is_instance_valid(_tavern_exit_node):
+		return_x = _tavern_exit_node.global_position.x
+	_clear_tavern_interior_markers()
+	_setup_village_exterior()
+	var door_slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_TAVERN_DOOR_SLOTS)
+	var feet_x: float = return_x
+	if door_slot is Node2D:
+		feet_x = (door_slot as Node2D).global_position.x
+	_teleport_players_to_feet_x(feet_x)
+	_transitioning = false
 
 
 # 找一個群組節點底下所有 Sprite2D 視覺底部 Y 的最大值（=最低位置）
@@ -545,9 +984,9 @@ func is_world_blocked_at(pos: Vector2, radius: float = 8.0) -> bool:
 		return true
 	if pos.y - radius < 8.0:
 		return true
-	if pos.x + radius > MAP_SIZE.x - 8.0:
+	if pos.x + radius > _map_size.x - 8.0:
 		return true
-	if pos.y + radius > MAP_SIZE.y - 8.0:
+	if pos.y + radius > _map_size.y - 8.0:
 		return true
 	if blocked_tiles.is_empty():
 		return false
@@ -573,7 +1012,7 @@ func _spawn_blacksmith_if_rescued() -> void:
 	if not bool(GameState.blacksmith_rescued):
 		return
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_BLACKSMITH_SLOTS)
-	var pos: Vector2 = _village_npc_spawn_position(slot, Vector2(MAP_SIZE.x * 0.65, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+	var pos: Vector2 = _village_npc_spawn_position(slot, Vector2(_map_size.x * 0.65, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
 	var smith := _make_village_npc_marker(
 		"blacksmith",
 		tr("VILLAGE_BLACKSMITH_NAME"),
@@ -593,7 +1032,7 @@ func _spawn_merchant_if_rescued() -> void:
 	if not bool(GameState.merchant_rescued):
 		return
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_MERCHANT_SLOTS)
-	var pos: Vector2 = _village_npc_spawn_position(slot, Vector2(MAP_SIZE.x * 0.53, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+	var pos: Vector2 = _village_npc_spawn_position(slot, Vector2(_map_size.x * 0.53, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
 	var merchant := _make_village_npc_marker(
 		"merchant",
 		tr("VILLAGE_MERCHANT_NAME"),
@@ -693,6 +1132,25 @@ func _village_npc_spawn_position(slot: Node, fallback: Vector2) -> Vector2:
 	return fallback
 
 
+## 酒館內：X 取自 TMX 標記，Y 對齊該樓 Floor 地面線（與村莊外 NPC 相同）
+func _tavern_map_npc_position(slot: Node, fallback: Vector2) -> Vector2:
+	if slot is Node2D:
+		var slot_pos: Vector2 = (slot as Node2D).global_position
+		var fl: int = _tavern_npc_floor_from_slot_y(slot_pos.y)
+		var walk_y: float = _tavern_floor_2_y if fl == 2 else _tavern_floor_1_y
+		return Vector2(slot_pos.x, walk_y + VILLAGE_NPC_ROOT_Y_OFFSET)
+	return fallback
+
+
+func _tavern_npc_floor_from_slot_y(slot_y: float) -> int:
+	var floor_mid_y: float = (_tavern_floor_1_y + _tavern_floor_2_y) * 0.5
+	return 2 if slot_y < floor_mid_y else 1
+
+
+func _apply_village_npc_schedule() -> void:
+	_apply_time_visuals(false)
+
+
 func _rescued_story_npc_strip_id(npc_id: String) -> String:
 	if GameData.get_village_npc_strip_def(npc_id).is_empty():
 		return ""
@@ -738,13 +1196,20 @@ func _is_any_dialog_open() -> bool:
 
 
 func _update_village_time(delta: float) -> void:
+	# 酒館內暫停村莊時段，避免探索時變傍晚／打烊被打斷
+	if _is_in_tavern():
+		return
 	if _is_any_dialog_open():
 		return
 	_village_time_sec = fmod(_village_time_sec + delta, VILLAGE_TIME_CYCLE)
 	var new_phase := _calc_time_phase()
 	if new_phase != _village_time_phase:
+		var old_phase: String = _village_time_phase
 		_village_time_phase = new_phase
+		if old_phase == "night" and new_phase == "day":
+			GameState.on_village_new_day()
 		_apply_time_visuals(true)
+		_on_village_phase_changed()
 	_update_time_label()
 
 
@@ -771,8 +1236,8 @@ func _apply_time_visuals(animated: bool) -> void:
 		else:
 			_sky_overlay.color = target_sky
 	for npc_id in _always_npc_nodes:
-		var node: Node2D = _always_npc_nodes.get(npc_id) as Node2D
-		if not is_instance_valid(node):
+		var node = _always_npc_nodes.get(npc_id)
+		if node == null or not is_instance_valid(node):
 			continue
 		var entry := GameData.get_village_always_npc(npc_id)
 		var phases: Array = entry.get("active_phases", ["day"])
@@ -812,7 +1277,7 @@ func _spawn_village_always_npcs() -> void:
 			slots.append(String(s))
 		var slot: Node = _find_map_object_by_name(slots)
 		var pos: Vector2 = _village_npc_spawn_position(
-			slot, Vector2(MAP_SIZE.x * 0.5, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+			slot, Vector2(_map_size.x * 0.5, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
 		var name_key: String = String(entry.get("name_key", ""))
 		var label_text: String = tr(name_key) if name_key != "" else ""
 		var subtitle_key: String = String(entry.get("subtitle_key", ""))
@@ -841,6 +1306,8 @@ func _spawn_rescued_story_npcs() -> void:
 		var npc_id: String = String(entry.get("npc_id", ""))
 		if npc_id == "" or not GameState.is_npc_rescued(npc_id):
 			continue
+		if npc_id == "tavern_owner":
+			continue
 		if npc_id == "farmer" and GameState.is_village_facility_unlocked("farm"):
 			continue
 		var slots: Array = []
@@ -848,7 +1315,7 @@ func _spawn_rescued_story_npcs() -> void:
 			slots.append(String(s))
 		var slot: Node = _find_map_object_by_name(slots)
 		var pos: Vector2 = _village_npc_spawn_position(
-			slot, Vector2(MAP_SIZE.x * 0.5, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+			slot, Vector2(_map_size.x * 0.5, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
 		var marker := _make_rescued_npc_marker(
 			npc_id,
 			String(entry.get("name_key", "")),
@@ -891,7 +1358,7 @@ func _spawn_village_facilities() -> void:
 			candidates.append(String(s))
 		var slot: Node = _find_map_object_by_name(candidates)
 		var pos: Vector2 = _village_npc_spawn_position(slot, Vector2(
-			MAP_SIZE.x * float(fdef.get("fallback_x_mult", 0.1)),
+			_map_size.x * float(fdef.get("fallback_x_mult", 0.1)),
 			floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
 		var marker := _make_village_facility_marker(fid, fdef)
 		marker.global_position = pos
@@ -905,14 +1372,14 @@ func _spawn_farm_and_well_nodes() -> void:
 	_crop_plot_nodes.clear()
 	if GameState.is_village_facility_unlocked("well"):
 		var well_slot: Node = _find_map_object_by_name(["Water", "water", "well"])
-		var wpos: Vector2 = _map_marker_position(well_slot, Vector2(MAP_SIZE.x * 0.11, floor_y - 42.0))
+		var wpos: Vector2 = _map_marker_position(well_slot, Vector2(_map_size.x * 0.11, floor_y - 42.0))
 		_well_node = _make_well_interact_anchor()
 		_well_node.global_position = wpos
 		add_child(_well_node)
 	if GameState.is_village_facility_unlocked("farm"):
 		var farmer_slot: Node = _find_map_object_by_name(["Farmer", "farmer", "farm"])
 		var fpos: Vector2 = _village_npc_spawn_position(
-			farmer_slot, Vector2(MAP_SIZE.x * 0.16, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
+			farmer_slot, Vector2(_map_size.x * 0.16, floor_y + VILLAGE_NPC_ROOT_Y_OFFSET))
 		_farmer_shop_node = _make_village_npc_marker(
 			"farmer",
 			tr("VILLAGE_FARMER_NAME"),
@@ -929,7 +1396,7 @@ func _spawn_farm_and_well_nodes() -> void:
 			var slot_name: String = GameData.farm_plot_map_slot_name(i)
 			var crop_slot: Node = _find_map_object_by_name([slot_name])
 			var cpos: Vector2 = _map_marker_position(
-				crop_slot, Vector2(MAP_SIZE.x * 0.12 + float(i) * 18.0, floor_y - 36.0))
+				crop_slot, Vector2(_map_size.x * 0.12 + float(i) * 18.0, floor_y - 36.0))
 			var plot := _make_crop_plot_marker(i)
 			plot.global_position = cpos
 			add_child(plot)
@@ -992,8 +1459,8 @@ func _update_crop_plot_interaction() -> bool:
 	var slot: int = _nearest_crop_plot_slot()
 	if slot <= 0:
 		return false
-	var node: Node2D = _crop_plot_nodes.get(slot) as Node2D
-	if node == null:
+	var node = _crop_plot_nodes.get(slot)
+	if node == null or not is_instance_valid(node):
 		return false
 	var near: Array[String] = _players_in_range_prefixes(node, CROP_PLOT_INTERACT_RADIUS)
 	if near.is_empty():
@@ -1290,6 +1757,18 @@ func _update_npc_interactions() -> void:
 			or _p2_join_dialog != null or _p2_leave_dialog != null:
 		_hide_float_interact_prompt()
 		return
+	if _is_in_tavern():
+		if _update_tavern_talk_interaction():
+			return
+		if _update_tavern_stair_up_interaction():
+			return
+		if _update_tavern_stair_down_interaction():
+			return
+		if _update_tavern_exit_interaction():
+			return
+		_hide_float_interact_prompt()
+		_refresh_tavern_hud_hint()
+		return
 	if _update_crop_plot_interaction():
 		return
 	if _update_well_interaction():
@@ -1301,6 +1780,8 @@ func _update_npc_interactions() -> void:
 	if _update_merchant_interaction():
 		return
 	if _update_facility_interaction():
+		return
+	if _update_tavern_door_interaction():
 		return
 	if _update_entrance_interaction():
 		return
@@ -1315,7 +1796,7 @@ func _update_npc_interactions() -> void:
 
 
 func _players_in_range_prefixes(
-		node: Node2D, radius: float, only_prefix: String = "") -> Array[String]:
+		node, radius: float, only_prefix: String = "") -> Array[String]:
 	if node == null or not is_instance_valid(node):
 		return []
 	var out: Array[String] = []
@@ -1342,7 +1823,7 @@ func _interact_line_text(prefix: String, action_text: String, show_player_tag: b
 
 
 func _show_float_interact_prompt(
-		target: Node2D, near_prefixes: Array[String], action_text: String) -> void:
+		target, near_prefixes: Array[String], action_text: String) -> void:
 	if _float_prompt_box == null or target == null or not is_instance_valid(target):
 		return
 	_float_prompt_target = target
@@ -1435,7 +1916,7 @@ func _nearest_always_npc_talk_id() -> String:
 			if not _always_npc_has_talk(entry):
 				continue
 			var npc_id: String = String(entry.get("id", ""))
-			var node: Node2D = _always_npc_nodes.get(npc_id) as Node2D
+			var node = _always_npc_nodes.get(npc_id)
 			if node == null or not is_instance_valid(node) or not node.visible:
 				continue
 			var dist: float = p.global_position.distance_to(node.global_position)
@@ -1457,7 +1938,7 @@ func _update_always_npc_talk_interaction() -> bool:
 	var npc_id: String = _nearest_always_npc_talk_id()
 	if npc_id == "":
 		return false
-	var node: Node2D = _always_npc_nodes.get(npc_id) as Node2D
+	var node = _always_npc_nodes.get(npc_id)
 	if node == null or not is_instance_valid(node):
 		return false
 	var near: Array[String] = _players_in_range_prefixes(node, VILLAGE_TALK_NPC_RADIUS)
@@ -1467,6 +1948,98 @@ func _update_always_npc_talk_interaction() -> bool:
 	if _try_interact_prefixes(near):
 		_open_always_npc_talk_dialog(npc_id)
 	return true
+
+
+func _tavern_npc_has_talk(entry: Dictionary) -> bool:
+	var keys: Array = entry.get("dialogue_keys", [])
+	return not keys.is_empty()
+
+
+func _tavern_talk_node_for_id(npc_id: String):
+	if _tavern_permanent_npc_nodes.has(npc_id):
+		return _tavern_permanent_npc_nodes[npc_id]
+	return _tavern_social_npc_nodes.get(npc_id)
+
+
+func _nearest_tavern_talk_id() -> String:
+	if not _is_in_tavern():
+		return ""
+	var best_id: String = ""
+	var best_dist: float = INF
+	var social_hours: bool = GameData.is_tavern_social_hours(_village_time_phase)
+	for p in players:
+		if p == null or not is_instance_valid(p):
+			continue
+		for entry in GameData.TAVERN_PERMANENT_NPCS:
+			if not GameData.tavern_npc_available(entry):
+				continue
+			if not _tavern_npc_has_talk(entry):
+				continue
+			var npc_id: String = String(entry.get("id", ""))
+			var node = _tavern_talk_node_for_id(npc_id)
+			if node == null or not is_instance_valid(node) or not node.visible:
+				continue
+			var dist: float = p.global_position.distance_to(node.global_position)
+			if dist <= VILLAGE_TALK_NPC_RADIUS and dist < best_dist:
+				best_dist = dist
+				best_id = npc_id
+		if not social_hours:
+			return best_id
+		for entry in GameData.TAVERN_SOCIAL_NPCS:
+			if not GameData.tavern_social_npc_available(entry):
+				continue
+			if not _tavern_npc_has_talk(entry):
+				continue
+			var npc_id: String = String(entry.get("id", ""))
+			var node = _tavern_talk_node_for_id(npc_id)
+			if node == null or not is_instance_valid(node) or not node.visible:
+				continue
+			var dist: float = p.global_position.distance_to(node.global_position)
+			if dist <= VILLAGE_TALK_NPC_RADIUS and dist < best_dist:
+				best_dist = dist
+				best_id = npc_id
+	return best_id
+
+
+func _try_open_nearest_tavern_talk() -> bool:
+	var npc_id: String = _nearest_tavern_talk_id()
+	if npc_id == "":
+		return false
+	_open_tavern_talk_dialog(npc_id)
+	return true
+
+
+func _update_tavern_talk_interaction() -> bool:
+	var npc_id: String = _nearest_tavern_talk_id()
+	if npc_id == "":
+		return false
+	var node = _tavern_talk_node_for_id(npc_id)
+	if node == null or not is_instance_valid(node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(node, VILLAGE_TALK_NPC_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(node, near, tr("VILLAGE_INTERACT_ACTION_TALK"))
+	if _try_interact_prefixes(near):
+		_open_tavern_talk_dialog(npc_id)
+	return true
+
+
+func _open_tavern_talk_dialog(npc_id: String) -> void:
+	if _talk_dialog != null:
+		return
+	var entry: Dictionary = GameData.get_tavern_permanent_npc(npc_id)
+	if entry.is_empty():
+		entry = GameData.get_tavern_social_npc(npc_id)
+	if entry.is_empty() or not _tavern_npc_has_talk(entry):
+		return
+	if String(entry.get("talk_kind", "")) == "headman":
+		var headman_entry: Dictionary = GameData.get_village_always_npc("headman")
+		if headman_entry.is_empty():
+			headman_entry = entry
+		_open_headman_dialog(headman_entry)
+	else:
+		_open_npc_random_talk(entry)
 
 
 func _random_always_npc_dialogue_line(entry: Dictionary) -> String:
@@ -1871,6 +2444,9 @@ func _refresh_quest_markers() -> void:
 	var lbl: Label = _quest_marker_labels.get("headman") as Label
 	if lbl == null:
 		return
+	if _is_in_tavern():
+		lbl.visible = false
+		return
 	lbl.visible = (not GameState.quest_headman_intro_done) or \
 		(GameState.blacksmith_rescued and not GameState.quest_blacksmith_rewarded)
 
@@ -1882,7 +2458,7 @@ func _update_quest_marker_positions() -> void:
 		var lbl: Label = _quest_marker_labels[npc_id] as Label
 		if lbl == null or not lbl.visible:
 			continue
-		var node: Node2D = _always_npc_nodes.get(npc_id) as Node2D
+		var node = _always_npc_nodes.get(npc_id)
 		if node == null or not is_instance_valid(node) or not node.visible:
 			lbl.visible = false
 			continue
@@ -1988,7 +2564,7 @@ func _close_facility_dialog() -> void:
 
 func _spawn_p1_house_marker() -> void:
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_HOME_P1_SLOTS)
-	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.47, floor_y - 42.0))
+	var pos: Vector2 = _map_marker_position(slot, Vector2(_map_size.x * 0.47, floor_y - 42.0))
 	if slot is Node2D:
 		pos = (slot as Node2D).global_position
 	_p1_house_node = _make_house_interact_anchor("VillageP1House", pos)
@@ -2003,7 +2579,7 @@ func _make_house_interact_anchor(node_name: String, pos: Vector2) -> Node2D:
 	return home
 
 
-func _player_near_node(node: Node2D, radius: float, input_prefix: String) -> bool:
+func _player_near_node(node, radius: float, input_prefix: String) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
 	for p in players:
@@ -2043,6 +2619,66 @@ func _update_p2_house_interaction() -> bool:
 		_p2_house_node, near, tr("VILLAGE_INTERACT_ACTION_HOUSE"))
 	if _try_interact_prefixes(near):
 		_open_house_dialog("p2")
+	return true
+
+
+func _update_tavern_door_interaction() -> bool:
+	if _tavern_door_node == null or not is_instance_valid(_tavern_door_node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(_tavern_door_node, TAVERN_DOOR_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	var open: bool = GameData.is_tavern_open_for_entry(_village_time_phase)
+	var action: String = tr("VILLAGE_INTERACT_ACTION_TAVERN_ENTER") if open \
+		else tr("VILLAGE_INTERACT_ACTION_TAVERN_CLOSED")
+	_show_float_interact_prompt(_tavern_door_node, near, action)
+	if _try_interact_prefixes(near):
+		if open:
+			_enter_tavern()
+		else:
+			_show_tavern_closed_notice()
+	return true
+
+
+func _update_tavern_stair_up_interaction() -> bool:
+	if _tavern_floor != 1:
+		return false
+	if _tavern_stair_up_node == null or not is_instance_valid(_tavern_stair_up_node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(_tavern_stair_up_node, TAVERN_STAIR_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(_tavern_stair_up_node, near, tr("VILLAGE_INTERACT_ACTION_TAVERN_STAIR_UP"))
+	if _try_interact_prefixes(near):
+		_tavern_go_upstairs()
+	return true
+
+
+func _update_tavern_stair_down_interaction() -> bool:
+	if _tavern_floor != 2:
+		return false
+	if _tavern_stair_down_node == null or not is_instance_valid(_tavern_stair_down_node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(_tavern_stair_down_node, TAVERN_STAIR_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(_tavern_stair_down_node, near, tr("VILLAGE_INTERACT_ACTION_TAVERN_STAIR_DOWN"))
+	if _try_interact_prefixes(near):
+		_tavern_go_downstairs()
+	return true
+
+
+func _update_tavern_exit_interaction() -> bool:
+	if _tavern_floor != 1:
+		return false
+	if _tavern_exit_node == null or not is_instance_valid(_tavern_exit_node):
+		return false
+	var near: Array[String] = _players_in_range_prefixes(_tavern_exit_node, TAVERN_EXIT_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(_tavern_exit_node, near, tr("VILLAGE_INTERACT_ACTION_TAVERN_EXIT"))
+	if _try_interact_prefixes(near):
+		_exit_tavern()
 	return true
 
 
@@ -2212,7 +2848,7 @@ func _close_p2_leave_dialog() -> void:
 
 func _spawn_entrance_marker() -> void:
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_ENTRANCE_SLOTS)
-	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.88, floor_y - 42.0))
+	var pos: Vector2 = _map_marker_position(slot, Vector2(_map_size.x * 0.88, floor_y - 42.0))
 	if slot is Node2D:
 		pos = (slot as Node2D).global_position
 	_entrance_node = Node2D.new()
@@ -2224,7 +2860,7 @@ func _spawn_entrance_marker() -> void:
 
 func _spawn_p2_house_marker() -> void:
 	var slot: Node = _find_map_object_by_name(GameData.VILLAGE_MAP_HOME_P2_SLOTS)
-	var pos: Vector2 = _map_marker_position(slot, Vector2(MAP_SIZE.x * 0.53, floor_y - 42.0))
+	var pos: Vector2 = _map_marker_position(slot, Vector2(_map_size.x * 0.53, floor_y - 42.0))
 	if slot is Node2D:
 		pos = (slot as Node2D).global_position
 	_p2_house_node = _make_house_interact_anchor("VillageP2House", pos)
@@ -2697,7 +3333,7 @@ func _close_house_dialog() -> void:
 	get_tree().paused = false
 
 
-func _players_near_node(node: Node2D, radius: float) -> bool:
+func _players_near_node(node, radius: float) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
 	for p in players:
@@ -3216,7 +3852,7 @@ func _position_camera() -> void:
 			camera.zoom = CAMERA_ZOOM
 	else:
 		camera.zoom = CAMERA_ZOOM
-	Coop.clamp_camera_position(camera, MAP_SIZE, vp_size)
+	Coop.clamp_camera_position(camera, _map_size, vp_size)
 
 
 # ---------------- 後備背景（無地圖時的網格）----------------
