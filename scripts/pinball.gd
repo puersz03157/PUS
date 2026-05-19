@@ -20,6 +20,8 @@ const PEG_DESTROY_EXTRA_SCORE := 5
 const SCORE_SLOT_UPGRADE_EVERY := 20
 const SCORE_SLOT_UPGRADE_MAX_MULT := 3
 const FALLBACK_GOLD_REWARD := 20
+const SLOT_ICON_SIZE := 28.0
+const SLOT_CELL_PAD := 4.0
 
 
 var board_rect: Rect2 = Rect2()
@@ -37,6 +39,8 @@ var board_panel: Panel
 var title_label: Label
 var instructions_label: Label
 var slot_labels: Array = []
+var slot_icons: Array = []
+var slot_roots: Array = []
 
 # 計分板：每次彈珠（含能量彈）撞到彈針加分；擊毀彈針再加分。分數每達 20 的倍數會隨機升級一格獎勵。
 var player_scores: Dictionary = {}   # Node(player) -> int
@@ -235,8 +239,8 @@ func _upgrade_random_alive_reward_slot() -> void:
 	var idx: int = candidates[randi() % candidates.size()]
 	slots[idx]["reward_mult"] = int(slots[idx].get("reward_mult", 1)) + 1
 	slots[idx]["upgraded"] = true
+	_refresh_slot_display(idx)
 	var lbl: Label = slot_labels[idx]
-	lbl.text = _slot_display_name(slots[idx])
 	lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
 	slots_node.queue_redraw()
 	var tw := lbl.create_tween()
@@ -250,6 +254,19 @@ func _slot_display_name(slot: Dictionary) -> String:
 	if mult > 1:
 		return "%s x%d" % [name, mult]
 	return name
+
+
+func _slot_display_subtitle(slot: Dictionary) -> String:
+	if slot.get("destroyed", false):
+		return ""
+	var desc: String = String(slot.get("desc", ""))
+	var title: String = String(slot.get("name", ""))
+	if desc == "" or desc == title:
+		return ""
+	# 副標一行：簡短說明（過長則省略）
+	if desc.length() > 18:
+		return desc.substr(0, 17) + "…"
+	return desc
 
 
 func _action_label(a: String) -> String:
@@ -339,20 +356,94 @@ func _build_slots() -> void:
 	slots = picked
 
 	slot_w = board_rect.size.x / SLOT_COUNT
+	slot_labels.clear()
+	slot_icons.clear()
+	slot_roots.clear()
 	for i in SLOT_COUNT:
+		var cell_h: float = slot_h - 8.0
+		var root := Panel.new()
+		root.position = Vector2(board_rect.position.x + slot_w * i, board_rect.end.y + 6.0)
+		root.size = Vector2(slot_w, cell_h)
+		root.mouse_filter = Control.MOUSE_FILTER_STOP
+		root.process_mode = Node.PROCESS_MODE_ALWAYS
+		root.z_index = 2
+		var slot_sb := StyleBoxFlat.new()
+		slot_sb.bg_color = Color(0.04, 0.06, 0.12, 0.72)
+		slot_sb.set_corner_radius_all(4)
+		root.add_theme_stylebox_override("panel", slot_sb)
+		add_child(root)
+		slot_roots.append(root)
+
+		var icon := TextureRect.new()
+		icon.position = Vector2(
+			SLOT_CELL_PAD, (cell_h - SLOT_ICON_SIZE) * 0.5)
+		icon.size = Vector2(SLOT_ICON_SIZE, SLOT_ICON_SIZE)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		icon.visible = false
+		root.add_child(icon)
+		slot_icons.append(icon)
+
+		var text_left: float = SLOT_CELL_PAD + SLOT_ICON_SIZE + SLOT_CELL_PAD
 		var lbl := Label.new()
-		lbl.position = Vector2(board_rect.position.x + slot_w * i,
-			board_rect.end.y + 6.0)
-		lbl.size = Vector2(slot_w, slot_h - 8.0)
-		lbl.text = _slot_display_name(slots[i])
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.position = Vector2(text_left, 0.0)
+		lbl.size = Vector2(maxf(48.0, slot_w - text_left - SLOT_CELL_PAD), cell_h)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		lbl.add_theme_font_size_override("font_size", 16)
-		lbl.add_theme_color_override("font_color", Color(1, 1, 1))
-		add_child(lbl)
+		lbl.clip_text = false
+		lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.add_theme_color_override("font_color", Color(1.0, 0.98, 0.92))
+		lbl.add_theme_color_override("font_outline_color", Color(0.05, 0.08, 0.14))
+		lbl.add_theme_constant_override("outline_size", 2)
+		root.add_child(lbl)
 		slot_labels.append(lbl)
+		_refresh_slot_display(i)
 	slots_node.queue_redraw()
+
+
+func _slot_tooltip_text(slot: Dictionary) -> String:
+	var lines: Array[String] = []
+	var title: String = String(slot.get("name", ""))
+	var desc: String = String(slot.get("desc", ""))
+	if title != "":
+		lines.append(title)
+	if desc != "" and desc != title:
+		lines.append(desc)
+	var mult: int = int(slot.get("reward_mult", 1))
+	if mult > 1:
+		lines.append(tr("PINBALL_SLOT_TOOLTIP_MULT_FMT") % mult)
+	return "\n".join(lines)
+
+
+func _refresh_slot_display(idx: int) -> void:
+	if idx < 0 or idx >= SLOT_COUNT:
+		return
+	var slot: Dictionary = slots[idx]
+	var lbl: Label = slot_labels[idx] as Label
+	var icon: TextureRect = slot_icons[idx] as TextureRect
+	var root: Control = slot_roots[idx] as Control
+	if lbl == null or icon == null or root == null:
+		return
+	root.tooltip_text = _slot_tooltip_text(slot)
+	if slot.get("destroyed", false):
+		icon.visible = false
+		return
+	var tex: Texture2D = GameData.pinball_reward_icon(slot.get("reward", {}))
+	icon.texture = tex
+	icon.visible = tex != null
+	var title: String = _slot_display_name(slot)
+	var subtitle: String = _slot_display_subtitle(slot)
+	if subtitle != "":
+		lbl.text = "%s\n%s" % [title, subtitle]
+	else:
+		lbl.text = title
+	if not bool(slot.get("upgraded", false)):
+		lbl.add_theme_color_override("font_color", Color(1.0, 0.98, 0.92))
+	else:
+		lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
 
 
 func _draw_slots(node: Node2D) -> void:
@@ -475,11 +566,9 @@ func _any_leveler_can_take_common(common_id: String) -> bool:
 
 
 func _player_can_take_common(p: Node, common_id: String) -> bool:
-	var def: Dictionary = GameData.get_common_upgrade_def(common_id)
-	if def.is_empty():
+	if p == null or not p.has_method("can_acquire_common_upgrade"):
 		return false
-	var log: Dictionary = p.common_upgrade_log
-	return int(log.get(common_id, 0)) < int(def.get("max", 0))
+	return bool(p.call("can_acquire_common_upgrade", common_id))
 
 
 func _player_weapon_entry(p: Node, weapon_id: String) -> Dictionary:
@@ -826,8 +915,8 @@ func _reroll_alive_reward_slots() -> bool:
 		return false
 	for idx in planned.keys():
 		slots[int(idx)] = planned[idx]
+		_refresh_slot_display(int(idx))
 		var lbl: Label = slot_labels[int(idx)]
-		lbl.text = _slot_display_name(slots[int(idx)])
 		lbl.add_theme_color_override("font_color", Color(0.78, 0.95, 1.0))
 		lbl.modulate = Color(1.25, 1.45, 1.6)
 		var t := lbl.create_tween()
@@ -899,6 +988,7 @@ func _destroy_slot_at_index(idx: int, p: Node) -> bool:
 	if alive_count <= 2:
 		return false
 	slots[idx]["destroyed"] = true
+	_refresh_slot_display(idx)
 	var lbl: Label = slot_labels[idx]
 	lbl.text = tr("PINBALL_SLOT_DESTROYED")
 	lbl.add_theme_color_override("font_color", Color(1, 0.5, 0.5))
@@ -1075,6 +1165,7 @@ func _resolve_judgment_drop_slot(b: Dictionary, slot_idx: int) -> void:
 	var key: String = _reward_key_from_slot(slot)
 	var p: Node = b.get("player", null)
 	if key != "" and _register_run_destroyed_reward(key):
+		_refresh_slot_display(slot_idx)
 		var lbl: Label = slot_labels[slot_idx]
 		lbl.text = tr("PINBALL_JUDGMENT_DESTROY_FMT") % String(slot.get("name", ""))
 		lbl.add_theme_color_override("font_color", Color(1.0, 0.55, 0.35))
@@ -1283,25 +1374,26 @@ func _format_pinball_reward_line(p: Node, slot: Dictionary, info: Dictionary) ->
 	match String(info.get("kind", "")):
 		"weapon_new":
 			return tr("PINBALL_REWARD_WEAPON_NEW_FMT") % [
-				pname, GameData.tr_weapon_name(String(info.get("weapon_id", "")))]
+				pname, GameData.format_weapon_name_bbcode(String(info.get("weapon_id", "")))]
 		"weapon_upgrade":
-			var udef: Dictionary = GameData.get_weapon_upgrade_def(String(info.get("upgrade_id", "")))
-			var up_name: String = GameData.tr_name(udef) if not udef.is_empty() else String(info.get("upgrade_id", ""))
+			var wid_up: String = String(info.get("weapon_id", ""))
+			var up_tag: String = GameData.format_weapon_upgrade_label_bbcode(
+				String(info.get("upgrade_id", "")))
 			return tr("PINBALL_REWARD_WEAPON_UP_FMT") % [
 				pname,
-				GameData.tr_weapon_name(String(info.get("weapon_id", ""))),
-				up_name,
+				GameData.format_weapon_name_bbcode(wid_up),
+				up_tag,
 				int(info.get("current", 0)),
 				int(info.get("max", 0)),
 			]
 		"weapon_upgrade_max":
 			return tr("PINBALL_REWARD_WEAPON_MAX_FMT") % [
-				pname, GameData.tr_weapon_name(String(info.get("weapon_id", "")))]
+				pname, GameData.format_weapon_name_bbcode(String(info.get("weapon_id", "")))]
 		"common_upgrade":
-			var cdef: Dictionary = GameData.get_common_upgrade_def(String(info.get("upgrade_id", "")))
-			var cname: String = GameData.tr_name(cdef) if not cdef.is_empty() else String(info.get("upgrade_id", ""))
+			var cid: String = String(info.get("upgrade_id", ""))
+			var cup_tag: String = GameData.format_common_upgrade_label_bbcode(cid)
 			return tr("PINBALL_REWARD_COMMON_FMT") % [
-				pname, cname, int(info.get("current", 0)), int(info.get("max", 0))]
+				pname, cup_tag, int(info.get("current", 0)), int(info.get("max", 0))]
 		"gold":
 			return tr("PINBALL_REWARD_GOLD_FMT") % [pname, int(info.get("amount", 0))]
 		_:

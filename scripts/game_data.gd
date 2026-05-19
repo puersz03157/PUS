@@ -19,7 +19,14 @@ extends Node
 
 const CRIT_DAMAGE_MULT_BASE := 2.0
 
+## 角色美術依作者分類（資料夾名稱與 assets/characters/ 一致）
 const DREAMIR_CHAR_ROOT := "res://assets/characters/dreamir/"
+const CHIERIT_CHAR_ROOT := "res://assets/characters/chierit/"
+const MATTZ_CHAR_ROOT := "res://assets/characters/Mattz Art/"
+const OTSOGA_CHAR_ROOT := "res://assets/characters/Otsoga/"
+const GANDALF_CHAR_ROOT := "res://assets/characters/GandalfHardcore/"
+const GANDALF_NPC_ROOT := GANDALF_CHAR_ROOT + "NPC/"
+const SAVE_NPC_TEXTURE := GANDALF_CHAR_ROOT + "Save NPC.png"
 ## 遊戲角色 id → dreamir 資料夾與子目錄（逐幀 PNG，執行時掃描排序）
 const DREAMIR_CHARACTER_ANIMS: Dictionary = {
 	"swordsman": {
@@ -48,7 +55,7 @@ var _chierit_sprite_frames_cache: Dictionary = {}
 var _sprite_sheet_row_bands_cache: Dictionary = {}
 var _sprite_sheet_anim_frames_cache: Dictionary = {}
 
-const FIRE_KNIGHT_ROOT := "res://assets/characters/chierit/fire_knight/"
+const FIRE_KNIGHT_ROOT := CHIERIT_CHAR_ROOT + "fire_knight/"
 ## chierit 逐幀素材（單幀約 288×128）— 戰鬥顯示倍率（相對 CHARACTERS 預設 scale=1）
 const CHIERIT_CHARACTER_SCALE := 1
 ## chierit 造型在房屋／選角預覽的顯示倍率（可與戰鬥分開調）
@@ -68,7 +75,7 @@ const FIRE_KNIGHT_ANIM_FOLDERS: Dictionary = {
 	"hurt": "10_take_hit",
 	"death": "11_death",
 }
-const LEAF_RANGER_ROOT := "res://assets/characters/chierit/Leaf_Ranger/"
+const LEAF_RANGER_ROOT := CHIERIT_CHAR_ROOT + "Leaf_Ranger/"
 ## 遊俠專屬造型 leaf_ranger（chierit）— sp_atk 為技能施放
 const LEAF_RANGER_ANIM_FOLDERS: Dictionary = {
 	"idle": "idle",
@@ -79,10 +86,18 @@ const LEAF_RANGER_ANIM_FOLDERS: Dictionary = {
 	"death": "death",
 }
 const BOW_ARROW_PROJECTILE_TEXTURE := "res://assets/Effects/arrow/arrow_.png"
+## 武器 HUD／圖鑑圖示：res://assets/icons/weapons/<weapon_id>.png（無圖則 fallback）
+const WEAPON_ICON_ROOT := "res://assets/icons/weapons/"
+## 通用能力升級圖示：res://assets/icons/common/<upgrade_id>.png（id 同 COMMON_UPGRADES）
+const COMMON_ICON_ROOT := "res://assets/icons/common/"
+## 局內共通強化「種類」格數：初始 5，符文大師可擴至 7（每種強化佔一格，同種可疊層）
+const COMMON_UPGRADE_SLOT_INITIAL := 5
+const COMMON_UPGRADE_SLOT_MAX := 7
+const COMMON_UPGRADE_SLOT_DUST_COSTS: Dictionary = {6: 12, 7: 20}
 
-## 戰士 dreamir 大圖：列號 1 起算（與美術表一致），執行時轉 0-based
+## 戰士 dreamir 大圖（Mattz Art/Warrior 為備用 strip，戰鬥以本表為準）
 const WARRIOR_SPRITE_SHEET: Dictionary = {
-	"sheet": "res://assets/characters/dreamir/Warrior.png",
+	"sheet": DREAMIR_CHAR_ROOT + "Warrior.png",
 	"frame_w": 115,
 	"frame_h": 84,
 	"anims": {
@@ -583,18 +598,19 @@ const CHARACTERS: Array[Dictionary] = [
 		"sprite": "",
 		"sprite_faces_left": false,
 		"sprite_strips": {
-			"human_idle": "res://assets/characters/Werewolf/IDLE HUMAN.png",
-			"transform": "res://assets/characters/Werewolf/TRANSFORMATION.png",
-			"idle": "res://assets/characters/Werewolf/IDLE.png",
-			"walk": "res://assets/characters/Werewolf/RUN.png",
-			"attack": "res://assets/characters/Werewolf/ATTACK.png",
-			"hurt": "res://assets/characters/Werewolf/HURT.png",
-			"death": "res://assets/characters/Werewolf/DEATH.png",
+			"human_idle": MATTZ_CHAR_ROOT + "Werewolf/IDLE HUMAN.png",
+			"transform": MATTZ_CHAR_ROOT + "Werewolf/TRANSFORMATION.png",
+			"idle": MATTZ_CHAR_ROOT + "Werewolf/IDLE.png",
+			"walk": MATTZ_CHAR_ROOT + "Werewolf/RUN.png",
+			"attack": MATTZ_CHAR_ROOT + "Werewolf/ATTACK.png",
+			"hurt": MATTZ_CHAR_ROOT + "Werewolf/HURT.png",
+			"death": MATTZ_CHAR_ROOT + "Werewolf/DEATH.png",
 		},
 		"preview_strip": "idle",
 		"preview_trim_top": 8,
 		"preview_trim_bottom": 4,
 		"start_transform": true,
+		"strip_frame_w": 158,
 		"strip_hframes": 6,
 		"strip_hframes_by_strip": {
 			"human_idle": 6, "transform": 8, "idle": 6, "walk": 6, "attack": 7, "hurt": 6, "death": 10,
@@ -619,6 +635,21 @@ const CHARACTERS: Array[Dictionary] = [
 		"color": Color(0.72, 0.78, 0.98),
 		"sprite": "",
 		"sprite_faces_left": false,
+		"sprite_strips": {
+			"idle": MATTZ_CHAR_ROOT + "Samurai/IDLE.png",
+			"walk": MATTZ_CHAR_ROOT + "Samurai/RUN.png",
+			"attack": MATTZ_CHAR_ROOT + "Samurai/ATTACK.png",
+			"hurt": MATTZ_CHAR_ROOT + "Samurai/HURT.png",
+			"death": MATTZ_CHAR_ROOT + "Samurai/DEATH.png",
+		},
+		"strip_frame_w": 106,
+		"strip_hframes": 14,
+		"strip_hframes_by_strip": {
+			"idle": 14, "walk": 8, "attack": 5, "hurt": 4, "death": 10,
+		},
+		"strip_frames": {
+			"idle": 14, "walk": 8, "attack": 5, "hit": 4, "death": 10,
+		},
 		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
 		"scale": 1,
@@ -635,12 +666,12 @@ const CHARACTERS: Array[Dictionary] = [
 		"desc": "傳說血族：爪擊與高機動兼顧，擅長貼身纏鬥與持續壓制。",
 		"desc_key": "CHAR_VAMPIRE_LORD_DESC",
 		"color": Color(0.55, 0.22, 0.32),
-		## NightLord：每動作一組獨立 PNG（無 hurt，會落到 idle）
+		## Otsoga / NightLord：每動作一組獨立 PNG（無 hurt，會落到 idle）
 		"sprite_frames": {
-			"idle":   {"pattern": "res://assets/characters/NightLord/Idle/Idle{i}.png",        "count": 14},
-			"walk":   {"pattern": "res://assets/characters/NightLord/Run/Running{i}.png",      "count": 10},
-			"attack": {"pattern": "res://assets/characters/NightLord/Attacks/LightAtk{i}.png", "count": 25},
-			"death":  {"pattern": "res://assets/characters/NightLord/Death/Death{i}.png",      "count": 43},
+			"idle":   {"pattern": OTSOGA_CHAR_ROOT + "NightLord/Idle/Idle{i}.png",        "count": 14},
+			"walk":   {"pattern": OTSOGA_CHAR_ROOT + "NightLord/Run/Running{i}.png",      "count": 10},
+			"attack": {"pattern": OTSOGA_CHAR_ROOT + "NightLord/Attacks/LightAtk{i}.png", "count": 25},
+			"death":  {"pattern": OTSOGA_CHAR_ROOT + "NightLord/Death/Death{i}.png",      "count": 43},
 		},
 		"anim_fps": 18.0,
 		"sprite_faces_left": false,
@@ -659,13 +690,13 @@ const CHARACTERS: Array[Dictionary] = [
 		"desc": "傳說術者：駕馭火焰範圍傷害，爆發與控場兼備。",
 		"desc_key": "CHAR_FLAME_WITCH_DESC",
 		"color": Color(1.0, 0.45, 0.25),
-		## SalamanderWitch：每動作一組獨立 PNG
+		## Otsoga / SalamanderWitch：每動作一組獨立 PNG
 		"sprite_frames": {
-			"idle":   {"pattern": "res://assets/characters/SalamanderWitch/Idle/Idle{i}.png",         "count": 9},
-			"walk":   {"pattern": "res://assets/characters/SalamanderWitch/Move/Move{i}.png",         "count": 13},
-			"attack": {"pattern": "res://assets/characters/SalamanderWitch/Attacks/ComboAtk{i}.png",  "count": 28},
-			"hurt":   {"pattern": "res://assets/characters/SalamanderWitch/Hurt/Hurt{i}.png",         "count": 5},
-			"death":  {"pattern": "res://assets/characters/SalamanderWitch/Death/Die{i}.png",         "count": 30},
+			"idle":   {"pattern": OTSOGA_CHAR_ROOT + "SalamanderWitch/Idle/Idle{i}.png",         "count": 9},
+			"walk":   {"pattern": OTSOGA_CHAR_ROOT + "SalamanderWitch/Move/Move{i}.png",         "count": 13},
+			"attack": {"pattern": OTSOGA_CHAR_ROOT + "SalamanderWitch/Attacks/ComboAtk{i}.png",  "count": 28},
+			"hurt":   {"pattern": OTSOGA_CHAR_ROOT + "SalamanderWitch/Hurt/Hurt{i}.png",         "count": 5},
+			"death":  {"pattern": OTSOGA_CHAR_ROOT + "SalamanderWitch/Death/Die{i}.png",         "count": 30},
 		},
 		"anim_fps": 18.0,
 		"sprite_faces_left": false,
@@ -714,6 +745,8 @@ const COMMON_UPGRADES: Array[Dictionary] = [
 	{"id": "c_armor",    "name": "鋼鐵肌膚", "name_key": "CUP_C_ARMOR_NAME",    "desc": "受傷減少 10%",  "desc_key": "CUP_C_ARMOR_DESC",    "max": 3, "value": 0.10, "field": "dmg_reduce"},
 	{"id": "c_regen",    "name": "回復術",   "name_key": "CUP_C_REGEN_NAME",    "desc": "每秒回復 +0.5", "desc_key": "CUP_C_REGEN_DESC",    "max": 3, "value": 0.5,  "field": "regen_add"},
 	{"id": "c_atk",      "name": "力量強化", "name_key": "CUP_C_ATK_NAME",      "desc": "全武器傷害 +10%","desc_key": "CUP_C_ATK_DESC",      "max": 5, "value": 0.10, "field": "damage_mult"},
+	{"id": "c_crit_chance", "name": "精準打擊", "name_key": "CUP_C_CRIT_CHANCE_NAME", "desc": "爆擊率 +3%",   "desc_key": "CUP_C_CRIT_CHANCE_DESC", "max": 5, "value": 0.03, "field": "crit_chance"},
+	{"id": "c_crit_damage", "name": "殘忍打擊", "name_key": "CUP_C_CRIT_DAMAGE_NAME", "desc": "爆擊傷害 +15%","desc_key": "CUP_C_CRIT_DAMAGE_DESC", "max": 5, "value": 0.15, "field": "crit_damage_mult"},
 ]
 
 
@@ -727,7 +760,12 @@ func get_weapon_upgrade_def(id: String) -> Dictionary:
 func get_common_upgrade_def(id: String) -> Dictionary:
 	for u in COMMON_UPGRADES:
 		if u["id"] == id:
-			return u
+			var d: Dictionary = u.duplicate(true)
+			if not d.has("icon") or String(d.get("icon", "")) == "":
+				var icon_path: String = common_upgrade_icon_path(id)
+				if icon_path != "":
+					d["icon"] = icon_path
+			return d
 	return {}
 
 
@@ -775,6 +813,10 @@ func get_weapon_def(id: String) -> Dictionary:
 				d["crit_chance"] = 0.05
 			if not d.has("crit_damage_mult"):
 				d["crit_damage_mult"] = CRIT_DAMAGE_MULT_BASE
+			if not d.has("icon") or String(d.get("icon", "")) == "":
+				var icon_path: String = WEAPON_ICON_ROOT + id + ".png"
+				if ResourceLoader.exists(icon_path, "Texture2D"):
+					d["icon"] = icon_path
 			return d
 	return {}
 
@@ -922,11 +964,140 @@ func _format_favorite_stat_value(value: float, decimals: int = 0) -> String:
 	return ("%0." + str(decimals) + "f") % value
 
 
+const ARMAMENT_STAT_ICON_SIZE := 18
+const PAUSE_LIVE_STAT_ICON_SIZE := 16
+
+## 暫停選單「即時素質」列 → 通用能力圖示 id
+func live_stat_common_icon_id(stat_key: String) -> String:
+	match stat_key:
+		"hp":
+			return "c_regen"
+		"atk":
+			return "c_atk"
+		"def":
+			return "c_armor"
+		"rate":
+			return "c_cooldown"
+		"move":
+			return "c_speed"
+		"dmg_reduce":
+			return "c_armor"
+		"crit_chance":
+			return "c_crit_chance"
+		"crit_damage":
+			return "c_crit_damage"
+		_:
+			return ""
+
+
+func format_live_stat_bbcode(stat_key: String, value_text: String, size: int = PAUSE_LIVE_STAT_ICON_SIZE) -> String:
+	var icon: String = common_upgrade_icon_bbcode(live_stat_common_icon_id(stat_key), size)
+	if icon != "":
+		return "%s %s" % [icon, value_text]
+	return value_text
+
+
+## 暫停選單即時素質：爆擊率／爆傷（玩家 + 已裝備武器取較高，與命中爆擊時一致）
+func player_live_crit_chance(p: Node) -> float:
+	if p == null:
+		return 0.0
+	var total: float = float(p.crit_chance) if p.get("crit_chance") != null else 0.0
+	if not (p.get("weapons") is Array):
+		return total
+	for w in p.weapons:
+		var wdef: Dictionary = get_weapon_def(String(w.get("id", "")))
+		if not wdef.is_empty():
+			total = maxf(total, float(wdef.get("crit_chance", 0.0)))
+	return total
+
+
+func player_live_crit_damage_mult(p: Node) -> float:
+	if p == null:
+		return CRIT_DAMAGE_MULT_BASE
+	var total: float = float(p.crit_damage_mult) if p.get("crit_damage_mult") != null \
+		else CRIT_DAMAGE_MULT_BASE
+	if not (p.get("weapons") is Array):
+		return total
+	for w in p.weapons:
+		var wdef: Dictionary = get_weapon_def(String(w.get("id", "")))
+		if not wdef.is_empty():
+			total = maxf(total, float(wdef.get("crit_damage_mult", CRIT_DAMAGE_MULT_BASE)))
+	return total
+
+## 武裝平面屬性 → 通用能力圖示 id（無圖則改顯示文字）
+func armament_stat_common_icon_id(stat_field: String) -> String:
+	match stat_field:
+		"hp_add":
+			return "c_regen"
+		"def_add":
+			return "c_armor"
+		"atk_add":
+			return "c_atk"
+		"spd_add":
+			return "c_speed"
+		"rate_add":
+			return "c_cooldown"
+		"crit_rate_add":
+			return "c_crit_chance"
+		"crit_dmg_add":
+			return "c_crit_damage"
+		_:
+			return ""
+
+
+func common_upgrade_icon_bbcode(upgrade_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	if upgrade_id == "":
+		return ""
+	var path: String = common_upgrade_icon_path(upgrade_id)
+	if path == "" or not ResourceLoader.exists(path):
+		return ""
+	return "[img=%dx%d]%s[/img]" % [size, size, path]
+
+
+func _armament_stat_label_key(stat_field: String) -> String:
+	match stat_field:
+		"hp_add":
+			return "ARMAMENT_FAV_STAT_HP"
+		"def_add":
+			return "ARMAMENT_FAV_STAT_DEF"
+		"atk_add":
+			return "ARMAMENT_FAV_STAT_ATK"
+		"spd_add":
+			return "ARMAMENT_FAV_STAT_SPD"
+		"rate_add":
+			return "ARMAMENT_FAV_STAT_RATE"
+		"crit_rate_add":
+			return "ARMAMENT_FAV_STAT_CRIT_RATE"
+		"crit_dmg_add":
+			return "ARMAMENT_FAV_STAT_CRIT_DMG"
+		_:
+			return ""
+
+
 func armament_stat_line(label_key: String, value: float, decimals: int = 0) -> String:
 	return "%s +%s" % [tr(label_key), _format_favorite_stat_value(value, decimals)]
 
 
-func _append_armament_flat_stat_parts(parts: Array[String], stats: Dictionary) -> void:
+func format_armament_stat_part(stat_field: String, value: float, as_bbcode: bool = true, decimals: int = 0) -> String:
+	var label_key: String = _armament_stat_label_key(stat_field)
+	if label_key == "":
+		return ""
+	if stat_field in ["rate_add", "crit_rate_add", "crit_dmg_add"]:
+		var pct: int = int(round(value * 100.0))
+		if as_bbcode:
+			var icon_pct: String = common_upgrade_icon_bbcode(armament_stat_common_icon_id(stat_field))
+			if icon_pct != "":
+				return "%s +%d%%" % [icon_pct, pct]
+		return "%s +%d%%" % [tr(label_key), pct]
+	var val_s: String = "+%s" % _format_favorite_stat_value(value, decimals)
+	if as_bbcode:
+		var icon: String = common_upgrade_icon_bbcode(armament_stat_common_icon_id(stat_field))
+		if icon != "":
+			return "%s %s" % [icon, val_s]
+	return armament_stat_line(label_key, value, decimals)
+
+
+func _append_armament_flat_stat_parts(parts: Array[String], stats: Dictionary, as_bbcode: bool = true) -> void:
 	var hp_add: float = float(stats.get("hp_add", 0.0))
 	var def_add: float = float(stats.get("def_add", 0.0))
 	var atk_add: float = float(stats.get("atk_add", 0.0))
@@ -935,50 +1106,50 @@ func _append_armament_flat_stat_parts(parts: Array[String], stats: Dictionary) -
 	var crit_rate_add: float = float(stats.get("crit_rate_add", 0.0))
 	var crit_dmg_add: float = float(stats.get("crit_dmg_add", 0.0))
 	if hp_add > 0.0:
-		parts.append(armament_stat_line("ARMAMENT_FAV_STAT_HP", hp_add, 0))
+		parts.append(format_armament_stat_part("hp_add", hp_add, as_bbcode, 0))
 	if def_add > 0.0:
-		parts.append(armament_stat_line("ARMAMENT_FAV_STAT_DEF", def_add, 0))
+		parts.append(format_armament_stat_part("def_add", def_add, as_bbcode, 0))
 	if atk_add > 0.0:
-		parts.append(armament_stat_line("ARMAMENT_FAV_STAT_ATK", atk_add, 1))
+		parts.append(format_armament_stat_part("atk_add", atk_add, as_bbcode, 1))
 	if spd_add > 0.0:
-		parts.append(armament_stat_line("ARMAMENT_FAV_STAT_SPD", spd_add, 1))
+		parts.append(format_armament_stat_part("spd_add", spd_add, as_bbcode, 1))
 	if rate_add > 0.0:
-		parts.append("%s +%d%%" % [tr("ARMAMENT_FAV_STAT_RATE"), int(round(rate_add * 100.0))])
+		parts.append(format_armament_stat_part("rate_add", rate_add, as_bbcode))
 	if crit_rate_add > 0.0:
-		parts.append("%s +%d%%" % [tr("ARMAMENT_FAV_STAT_CRIT_RATE"), int(round(crit_rate_add * 100.0))])
+		parts.append(format_armament_stat_part("crit_rate_add", crit_rate_add, as_bbcode))
 	if crit_dmg_add > 0.0:
-		parts.append("%s +%d%%" % [tr("ARMAMENT_FAV_STAT_CRIT_DMG"), int(round(crit_dmg_add * 100.0))])
+		parts.append(format_armament_stat_part("crit_dmg_add", crit_dmg_add, as_bbcode))
 
 
-func armament_flat_stat_parts_from_def(adef: Dictionary) -> Array[String]:
+func armament_flat_stat_parts_from_def(adef: Dictionary, as_bbcode: bool = true) -> Array[String]:
 	var parts: Array[String] = []
 	if adef.is_empty():
 		return parts
-	_append_armament_flat_stat_parts(parts, adef)
+	_append_armament_flat_stat_parts(parts, adef, as_bbcode)
 	return parts
 
 
-func format_armament_flat_stats_from_def(adef: Dictionary) -> String:
-	var parts: Array[String] = armament_flat_stat_parts_from_def(adef)
+func format_armament_flat_stats_from_def(adef: Dictionary, as_bbcode: bool = true) -> String:
+	var parts: Array[String] = armament_flat_stat_parts_from_def(adef, as_bbcode)
 	if parts.is_empty():
 		return ""
 	return " / ".join(parts)
 
 
-func format_armament_favorite_bonus_text(stats: Dictionary) -> String:
+func format_armament_favorite_bonus_text(stats: Dictionary, as_bbcode: bool = true) -> String:
 	var parts: Array[String] = []
-	_append_armament_flat_stat_parts(parts, stats)
+	_append_armament_flat_stat_parts(parts, stats, as_bbcode)
 	if parts.is_empty():
 		return tr("ARMAMENT_FAV_STAT_NONE")
 	return " / ".join(parts)
 
 
-func tr_armament_desc_with_flat_stats(armament_id: String) -> String:
+func tr_armament_desc_with_flat_stats(armament_id: String, as_bbcode: bool = true) -> String:
 	var adef: Dictionary = get_armament_def(armament_id)
 	if adef.is_empty():
 		return ""
 	var text: String = tr_desc(adef)
-	var flat: String = format_armament_flat_stats_from_def(adef)
+	var flat: String = format_armament_flat_stats_from_def(adef, as_bbcode)
 	if flat != "":
 		text += "\n" + tr("ARMAMENT_FLAT_STATS_PREFIX") + flat
 	return text
@@ -1376,78 +1547,78 @@ func tavern_social_npc_available(entry: Dictionary) -> bool:
 ## 村莊 NPC 橫向 sprite strip（單列 hframes 循環待機）
 const VILLAGE_NPC_STRIPS: Dictionary = {
 	"blacksmith": {
-		"strip": "res://assets/characters/NPC/Blacksmith.png",
+		"strip": GANDALF_NPC_ROOT + "Blacksmith.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"blacksmith_tavern": {
-		"strip": "res://assets/characters/NPC/Blacksmith_Tavern.png",
+		"strip": GANDALF_NPC_ROOT + "Blacksmith_Tavern.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"merchant": {
-		"strip": "res://assets/characters/NPC/Grocer.png",
+		"strip": GANDALF_NPC_ROOT + "Grocer.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"rune_master": {
-		"strip": "res://assets/characters/NPC/Runemaster.png",
+		"strip": GANDALF_NPC_ROOT + "Runemaster.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"farmer": {
-		"strip": "res://assets/characters/NPC/Farmer.png",
+		"strip": GANDALF_NPC_ROOT + "Farmer.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"miner": {
-		"strip": "res://assets/characters/NPC/Miner.png",
+		"strip": GANDALF_NPC_ROOT + "Miner.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"woodcutter": {
-		"strip": "res://assets/characters/NPC/Woodcutter.png",
+		"strip": GANDALF_NPC_ROOT + "Woodcutter.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"headman": {
-		"strip": "res://assets/characters/NPC/Headman.png",
+		"strip": GANDALF_NPC_ROOT + "Headman.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"bard": {
-		"strip": "res://assets/characters/NPC/Bard.png",
+		"strip": GANDALF_NPC_ROOT + "Bard.png",
 		"hframes": 5,
 		"vframes": 2,
 		"fps": 6.0,
 	},
 	"tavern_keeper": {
-		"strip": "res://assets/characters/NPC/Tavern Keeper.png",
+		"strip": GANDALF_NPC_ROOT + "Tavern Keeper.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"chef": {
-		"strip": "res://assets/characters/NPC/Chef.png",
+		"strip": GANDALF_NPC_ROOT + "Chef.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"traveler_1": {
-		"strip": "res://assets/characters/NPC/Traveler1_Apprentice Alchemist_.png",
+		"strip": GANDALF_NPC_ROOT + "Traveler1_Apprentice Alchemist_.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"traveler_2": {
-		"strip": "res://assets/characters/NPC/Traveler2_Pirte.png",
+		"strip": GANDALF_NPC_ROOT + "Traveler2_Pirte.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"traveler_3": {
-		"strip": "res://assets/characters/NPC/Traveler3_SwordsWoman.png",
+		"strip": GANDALF_NPC_ROOT + "Traveler3_SwordsWoman.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
 	"traveler_4": {
-		"strip": "res://assets/characters/NPC/Traveler4_Black Market Dealer.png",
+		"strip": GANDALF_NPC_ROOT + "Traveler4_Black Market Dealer.png",
 		"hframes": 5,
 		"fps": 6.0,
 	},
@@ -2588,6 +2759,100 @@ func load_skill_icon(skill_id: String) -> Texture2D:
 func load_passive_icon(passive_id: String) -> Texture2D:
 	var p: Dictionary = get_passive_def(passive_id)
 	return _load_icon_safe(String(p.get("icon", "")))
+
+
+func load_weapon_icon(weapon_id: String) -> Texture2D:
+	if weapon_id == "":
+		return null
+	var w: Dictionary = get_weapon_def(weapon_id)
+	return _load_icon_safe(String(w.get("icon", "")))
+
+
+## 彈珠台底部獎勵格圖示（武器／通用強化；金幣等無圖則回 null）
+func pinball_reward_icon(reward: Dictionary) -> Texture2D:
+	var rtype: String = String(reward.get("type", "noop"))
+	var rid: String = String(reward.get("id", ""))
+	match rtype:
+		"weapon", "weapon_up":
+			return load_weapon_icon(rid)
+		"common":
+			return load_common_upgrade_icon(rid)
+		_:
+			return null
+
+
+func load_common_upgrade_icon(upgrade_id: String) -> Texture2D:
+	if upgrade_id == "":
+		return null
+	var u: Dictionary = get_common_upgrade_def(upgrade_id)
+	return _load_icon_safe(String(u.get("icon", "")))
+
+
+func common_upgrade_icon_path(upgrade_id: String) -> String:
+	if upgrade_id == "":
+		return ""
+	var path: String = COMMON_ICON_ROOT + upgrade_id + ".png"
+	if ResourceLoader.exists(path):
+		return path
+	return ""
+
+
+## 武器升級項 → 通用能力圖示（無對應則回空，UI 改顯示文字名稱）
+func weapon_upgrade_common_icon_id(upgrade_id: String) -> String:
+	match upgrade_id:
+		"w_damage":
+			return "c_atk"
+		"w_rate":
+			return "c_cooldown"
+		"w_range":
+			return "c_pickup"
+		"w_count":
+			return "c_w_count"
+		_:
+			return ""
+
+
+func weapon_icon_bbcode(weapon_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	var path: String = weapon_icon_path(weapon_id)
+	if path == "" or not ResourceLoader.exists(path):
+		return ""
+	return "[img=%dx%d]%s[/img]" % [size, size, path]
+
+
+func format_weapon_name_bbcode(weapon_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	var icon: String = weapon_icon_bbcode(weapon_id, size)
+	var wname: String = tr_weapon_name(weapon_id)
+	if icon != "":
+		return "%s %s" % [icon, wname]
+	return wname
+
+
+func format_weapon_upgrade_label_bbcode(upgrade_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	var icon: String = common_upgrade_icon_bbcode(weapon_upgrade_common_icon_id(upgrade_id), size)
+	if icon != "":
+		return icon
+	var udef: Dictionary = get_weapon_upgrade_def(upgrade_id)
+	return tr_name(udef) if not udef.is_empty() else upgrade_id
+
+
+func format_common_upgrade_label_bbcode(common_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	var icon: String = common_upgrade_icon_bbcode(common_id, size)
+	if icon != "":
+		return icon
+	var cdef: Dictionary = get_common_upgrade_def(common_id)
+	return tr_name(cdef) if not cdef.is_empty() else common_id
+
+
+func weapon_icon_path(weapon_id: String) -> String:
+	if weapon_id == "":
+		return ""
+	var from_def: String = String(get_weapon_def(weapon_id).get("icon", ""))
+	if from_def != "":
+		return from_def
+	var path: String = WEAPON_ICON_ROOT + weapon_id + ".png"
+	if ResourceLoader.exists(path):
+		return path
+	return ""
 
 
 func _load_icon_safe(path: String) -> Texture2D:

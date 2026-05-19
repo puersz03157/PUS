@@ -13,6 +13,7 @@ const BLACKSMITH_TIER2_WEAPON_IDS: Array[String] = ["shard", "holy"]
 const BLACKSMITH_TIER1_WEAPON_SLOT_MAX := 4
 const BLACKSMITH_TIER1_HOUSE_SLOT_MAX := 3
 const BLACKSMITH_SLOT_COSTS: Dictionary = {4: 200, 5: 350}
+const DEFAULT_UNLOCKED_COMMON_UPGRADE_SLOTS := GameData.COMMON_UPGRADE_SLOT_INITIAL
 ## 喜愛武裝擴充：解鎖「第 3～5 格」所需金幣（1P／2P 同步）
 const BLACKSMITH_HOUSE_FAVORITE_SLOT_COSTS: Dictionary = {3: 130, 4: 240, 5: 400}
 const BLACKSMITH_WEAPON_KIND_COST := 180
@@ -117,6 +118,7 @@ var current_stage_id: String = "slime_forest"
 var unlocked_characters: Array[String] = DEFAULT_UNLOCKED_CHARACTERS.duplicate()
 var unlocked_weapons: Array[String] = []
 var unlocked_weapon_slots: int = DEFAULT_UNLOCKED_WEAPON_SLOTS
+var unlocked_common_upgrade_slots: int = DEFAULT_UNLOCKED_COMMON_UPGRADE_SLOTS
 var unlocked_armaments: Array[String] = ["none"]
 ## 已取得製作書、可在鐵匠製作的武裝 id（第二關偶發事件等）
 var unlocked_armament_recipes: Array[String] = []
@@ -216,11 +218,50 @@ func get_unlocked_weapon_slot_count() -> int:
 	return clampi(unlocked_weapon_slots, 1, MAX_WEAPON_SLOTS)
 
 
+func get_unlocked_common_upgrade_slot_count() -> int:
+	return clampi(
+		unlocked_common_upgrade_slots,
+		GameData.COMMON_UPGRADE_SLOT_INITIAL,
+		GameData.COMMON_UPGRADE_SLOT_MAX)
+
+
+func next_common_upgrade_slot_unlock_cost() -> int:
+	var next_slot: int = get_unlocked_common_upgrade_slot_count() + 1
+	if next_slot > GameData.COMMON_UPGRADE_SLOT_MAX:
+		return -1
+	return int(GameData.COMMON_UPGRADE_SLOT_DUST_COSTS.get(next_slot, -1))
+
+
+func spend_rune_dust(amount: int) -> bool:
+	if amount <= 0:
+		return true
+	if rune_dust < amount:
+		return false
+	rune_dust -= amount
+	save_to_disk()
+	return true
+
+
+func buy_next_common_upgrade_slot() -> bool:
+	if not rune_master_rescued:
+		return false
+	var cost: int = next_common_upgrade_slot_unlock_cost()
+	if cost < 0 or not spend_rune_dust(cost):
+		return false
+	unlocked_common_upgrade_slots = clampi(
+		unlocked_common_upgrade_slots + 1,
+		GameData.COMMON_UPGRADE_SLOT_INITIAL,
+		GameData.COMMON_UPGRADE_SLOT_MAX)
+	save_to_disk()
+	return true
+
+
 func unlock_all_weapons_and_slots() -> void:
 	unlocked_weapons.clear()
 	for w in GameData.WEAPONS:
 		unlocked_weapons.append(String(w.get("id", "")))
 	unlocked_weapon_slots = MAX_WEAPON_SLOTS
+	unlocked_common_upgrade_slots = GameData.COMMON_UPGRADE_SLOT_MAX
 	unlock_all_house_favorite_slots()
 	save_to_disk()
 
@@ -1085,6 +1126,7 @@ func reset_account() -> void:
 	unlocked_characters = DEFAULT_UNLOCKED_CHARACTERS.duplicate()
 	unlocked_weapons = _default_unlocked_weapons()
 	unlocked_weapon_slots = DEFAULT_UNLOCKED_WEAPON_SLOTS
+	unlocked_common_upgrade_slots = DEFAULT_UNLOCKED_COMMON_UPGRADE_SLOTS
 	unlocked_armaments = ["none"]
 	unlocked_armament_recipes.clear()
 	blacksmith_rescued = false
@@ -1273,6 +1315,7 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "unlocked_characters", unlocked_characters)
 	cfg.set_value("meta", "unlocked_weapons", unlocked_weapons)
 	cfg.set_value("meta", "unlocked_weapon_slots", unlocked_weapon_slots)
+	cfg.set_value("meta", "unlocked_common_upgrade_slots", unlocked_common_upgrade_slots)
 	cfg.set_value("meta", "unlocked_armaments", unlocked_armaments)
 	cfg.set_value("meta", "unlocked_armament_recipes", unlocked_armament_recipes)
 	cfg.set_value("meta", "base_weapon_craft_migrated", true)
@@ -1378,6 +1421,9 @@ func load_from_disk() -> void:
 	unlocked_weapon_slots = clampi(int(cfg.get_value(
 		"meta", "unlocked_weapon_slots", DEFAULT_UNLOCKED_WEAPON_SLOTS)),
 		1, MAX_WEAPON_SLOTS)
+	unlocked_common_upgrade_slots = clampi(int(cfg.get_value(
+		"meta", "unlocked_common_upgrade_slots", DEFAULT_UNLOCKED_COMMON_UPGRADE_SLOTS)),
+		GameData.COMMON_UPGRADE_SLOT_INITIAL, GameData.COMMON_UPGRADE_SLOT_MAX)
 	if unlocked_weapons.is_empty():
 		unlocked_weapons = _default_unlocked_weapons()
 	else:

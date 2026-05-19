@@ -3,7 +3,7 @@ extends Node2D
 ## ESC 開啟離開村莊選單。
 
 const PLAYER_SCENE := preload("res://scenes/Player.tscn")
-const RESCUE_NPC_TEXTURE := preload("res://assets/characters/Save NPC.png")
+const RESCUE_NPC_TEXTURE := preload("res://assets/characters/GandalfHardcore/Save NPC.png")
 const VILLAGE_NPC_ANIM_SCRIPT := preload("res://scripts/village_npc_anim.gd")
 const VILLAGE_NPC_SPRITE_HEIGHT := 72.0
 ## 標記根節點相對 floor_y（愈小＝整體愈高）；原 -42，略抬高腳底接線
@@ -81,6 +81,10 @@ var _blacksmith_dialog: CanvasLayer = null
 var _smith_status_label: Label = null
 var _smith_gold_label: Label = null
 var _merchant_dialog: CanvasLayer = null
+var _rune_master_node = null
+var _rune_master_dialog: CanvasLayer = null
+var _rune_master_status_label: Label = null
+var _rune_master_dust_label: Label = null
 var _entrance_node = null
 var _p1_house_node = null
 var _p2_house_node = null
@@ -89,7 +93,7 @@ var _p2_join_dialog: CanvasLayer = null
 var _p2_leave_dialog: CanvasLayer = null
 var _house_dialog: CanvasLayer = null
 var _house_player_slot: String = "p1"
-var _house_status_label: Label = null
+var _house_status_label: RichTextLabel = null
 var _house_char_index: int = 0
 var _house_suppress_ui: bool = false
 var _house_preview: TextureRect = null
@@ -189,6 +193,9 @@ func _process(_delta: float) -> void:
 			return
 		if _merchant_dialog != null:
 			_close_merchant_dialog()
+			return
+		if _rune_master_dialog != null:
+			_close_rune_master_dialog()
 			return
 		if _facility_dialog != null:
 			_close_facility_dialog()
@@ -342,6 +349,7 @@ func _refresh_village_touch_visibility() -> void:
 		return
 	var show: bool = bool(GameState.touch_controls_enabled) and not _transitioning \
 		and not _pause_open and _blacksmith_dialog == null and _merchant_dialog == null \
+		and _rune_master_dialog == null \
 		and _facility_dialog == null and _house_dialog == null \
 		and _well_dialog == null and _farmer_dialog == null and _crop_dialog == null \
 		and _talk_dialog == null and _expedition_dialog == null \
@@ -358,6 +366,7 @@ func _release_village_touch_actions() -> void:
 
 func _on_touch_interact_pressed() -> void:
 	if _pause_open or _blacksmith_dialog != null or _merchant_dialog != null \
+			or _rune_master_dialog != null \
 			or _facility_dialog != null or _house_dialog != null \
 			or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null \
 			or _talk_dialog != null or _expedition_dialog != null \
@@ -373,6 +382,9 @@ func _on_touch_interact_pressed() -> void:
 		_open_blacksmith_dialog()
 	elif _merchant_node != null and _merchant_node.visible and _players_near_node(_merchant_node, MERCHANT_INTERACT_RADIUS):
 		_open_merchant_dialog()
+	elif _rune_master_node != null and _rune_master_node.visible \
+			and _players_near_node(_rune_master_node, BLACKSMITH_INTERACT_RADIUS):
+		_open_rune_master_dialog()
 	elif _try_open_nearest_tavern_talk():
 		pass
 	elif _try_open_nearest_always_npc_talk():
@@ -502,6 +514,7 @@ func _clear_village_exterior_markers() -> void:
 	_crop_plot_nodes.clear()
 	_release_node(_blacksmith_node)
 	_release_node(_merchant_node)
+	_release_node(_rune_master_node)
 	_release_node(_entrance_node)
 	_release_node(_p1_house_node)
 	_release_node(_p2_house_node)
@@ -510,6 +523,7 @@ func _clear_village_exterior_markers() -> void:
 	_release_node(_farmer_shop_node)
 	_blacksmith_node = null
 	_merchant_node = null
+	_rune_master_node = null
 	_entrance_node = null
 	_p1_house_node = null
 	_p2_house_node = null
@@ -1189,6 +1203,7 @@ func _setup_village_clock() -> void:
 
 func _is_any_dialog_open() -> bool:
 	return _pause_open or _blacksmith_dialog != null or _merchant_dialog != null \
+		or _rune_master_dialog != null \
 		or _facility_dialog != null or _house_dialog != null \
 		or _well_dialog != null or _farmer_dialog != null \
 		or _crop_dialog != null or _talk_dialog != null \
@@ -1324,6 +1339,8 @@ func _spawn_rescued_story_npcs() -> void:
 		marker.global_position = pos
 		add_child(marker)
 		_timed_npc_nodes.append(marker)
+		if npc_id == "rune_master":
+			_rune_master_node = marker
 
 
 func _make_rescued_npc_marker(
@@ -1724,6 +1741,7 @@ func _close_crop_dialog() -> void:
 
 func _any_modal_village_ui_open() -> bool:
 	return _blacksmith_dialog != null or _merchant_dialog != null \
+		or _rune_master_dialog != null \
 		or _facility_dialog != null or _house_dialog != null \
 		or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null \
 		or _talk_dialog != null or _expedition_dialog != null \
@@ -1751,6 +1769,7 @@ func _make_village_facility_marker(facility_id: String, fdef: Dictionary) -> Nod
 
 func _update_npc_interactions() -> void:
 	if _pause_open or _blacksmith_dialog != null or _merchant_dialog != null \
+			or _rune_master_dialog != null \
 			or _facility_dialog != null or _house_dialog != null \
 			or _well_dialog != null or _farmer_dialog != null or _crop_dialog != null \
 			or _talk_dialog != null or _expedition_dialog != null \
@@ -1778,6 +1797,8 @@ func _update_npc_interactions() -> void:
 	if _update_blacksmith_interaction():
 		return
 	if _update_merchant_interaction():
+		return
+	if _update_rune_master_interaction():
 		return
 	if _update_facility_interaction():
 		return
@@ -3003,10 +3024,13 @@ func _open_house_dialog(player_slot: String) -> void:
 	for i in n_fav:
 		_house_fav_grid.add_child(_make_p1_house_favorite_row(i))
 
-	_house_status_label = Label.new()
+	_house_status_label = RichTextLabel.new()
+	_house_status_label.bbcode_enabled = true
 	_house_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_house_status_label.fit_content = true
+	_house_status_label.scroll_active = false
 	_house_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_house_status_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
+	_house_status_label.add_theme_color_override("default_color", Color(0.7, 0.9, 1.0))
 	vbox.add_child(_house_status_label)
 
 	if player_slot == "p1":
@@ -3249,7 +3273,8 @@ func _update_house_status_label(status: String, char_id: String) -> void:
 		return
 	var stats: Dictionary = GameData.sum_armament_flat_stats(
 		GameState.house_favorite_armament_ids_for_battle(_house_player_slot, char_id))
-	var bonus_line: String = tr("P1_HOUSE_BONUS_PREVIEW_PREFIX") + GameData.format_armament_favorite_bonus_text(stats)
+	var bonus_line: String = tr("P1_HOUSE_BONUS_PREVIEW_PREFIX") \
+		+ GameData.format_armament_favorite_bonus_text(stats, true)
 	if status != "":
 		_house_status_label.text = status + "\n" + bonus_line
 	else:
@@ -3553,7 +3578,7 @@ func _refresh_blacksmith_dialog(status: String) -> void:
 						btn.disabled = not GameState.can_craft_armament(arm_id)
 						btn.text = tr("BLACKSMITH_CRAFT_ARMAMENT_FMT") % [
 							GameData.tr_name(adef), cost_text,
-							GameData.tr_armament_desc_with_flat_stats(arm_id)]
+							GameData.tr_armament_desc_with_flat_stats(arm_id, false)]
 
 
 func _format_weapon_craft_cost(weapon_id: String) -> String:
@@ -3799,6 +3824,148 @@ func _close_merchant_dialog() -> void:
 	_merchant_status_label = null
 	_merchant_gold_label = null
 	_merchant_inventory_label = null
+	get_tree().paused = false
+
+
+func _update_rune_master_interaction() -> bool:
+	if _rune_master_node == null or not is_instance_valid(_rune_master_node) \
+			or not _rune_master_node.visible:
+		return false
+	var near: Array[String] = _players_in_range_prefixes(
+		_rune_master_node, BLACKSMITH_INTERACT_RADIUS)
+	if near.is_empty():
+		return false
+	_show_float_interact_prompt(
+		_rune_master_node, near, tr("VILLAGE_INTERACT_ACTION_RUNE_MASTER"))
+	if _try_interact_prefixes(near):
+		_open_rune_master_dialog()
+	return true
+
+
+func _open_rune_master_dialog() -> void:
+	if _rune_master_dialog != null:
+		return
+	get_tree().paused = true
+	_rune_master_dialog = CanvasLayer.new()
+	_rune_master_dialog.layer = 240
+	_rune_master_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_rune_master_dialog)
+
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_rune_master_dialog.add_child(root)
+
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0.58)
+	root.add_child(dim)
+
+	var panel := PanelContainer.new()
+	var panel_w: float = min(560.0, vp.x - 40.0)
+	var panel_h: float = min(420.0, vp.y - 40.0)
+	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
+	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	root.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 18)
+	margin.add_theme_constant_override("margin_bottom", 18)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = tr("RUNE_MASTER_SHOP_TITLE")
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", Color(0.78, 0.62, 1.0))
+	vbox.add_child(title)
+
+	var who := Label.new()
+	who.text = "%s　%s" % [
+		tr("VILLAGE_RUNE_MASTER_NAME"),
+		GameData.tr_village_npc_subtitle("rune_master"),
+	]
+	who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	who.add_theme_font_size_override("font_size", 14)
+	who.add_theme_color_override("font_color", Color(0.78, 0.88, 0.95))
+	vbox.add_child(who)
+
+	var line := Label.new()
+	line.text = tr("RUNE_MASTER_DIALOG_INTRO")
+	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	line.add_theme_font_size_override("font_size", 15)
+	vbox.add_child(line)
+
+	_rune_master_dust_label = Label.new()
+	_rune_master_dust_label.add_theme_color_override("font_color", Color(0.78, 0.62, 1.0))
+	vbox.add_child(_rune_master_dust_label)
+
+	_rune_master_status_label = Label.new()
+	_rune_master_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_rune_master_status_label.add_theme_color_override("font_color", Color(0.75, 0.9, 1.0))
+	vbox.add_child(_rune_master_status_label)
+
+	var goods := VBoxContainer.new()
+	goods.name = "RuneMasterGoods"
+	goods.add_theme_constant_override("separation", 6)
+	vbox.add_child(goods)
+
+	var slot_btn := Button.new()
+	slot_btn.name = "RuneMasterCommonSlotBtn"
+	slot_btn.custom_minimum_size = Vector2(0, 44)
+	slot_btn.pressed.connect(_buy_rune_master_common_slot)
+	goods.add_child(slot_btn)
+
+	var close_btn := Button.new()
+	close_btn.text = tr("MERCHANT_CLOSE")
+	close_btn.custom_minimum_size = Vector2(220, 46)
+	close_btn.pressed.connect(_close_rune_master_dialog)
+	vbox.add_child(close_btn)
+
+	_refresh_rune_master_dialog("")
+
+
+func _refresh_rune_master_dialog(status: String) -> void:
+	if _rune_master_dialog == null:
+		return
+	if _rune_master_dust_label:
+		_rune_master_dust_label.text = tr("RUNE_MASTER_DUST_FMT") % GameState.rune_dust
+	if _rune_master_status_label:
+		_rune_master_status_label.text = status
+	var btn: Button = _rune_master_dialog.find_child("RuneMasterCommonSlotBtn", true, false) as Button
+	if btn == null:
+		return
+	var cost: int = GameState.next_common_upgrade_slot_unlock_cost()
+	if cost < 0:
+		btn.disabled = true
+		btn.text = tr("RUNE_MASTER_BUY_COMMON_SLOT_DONE")
+	else:
+		btn.disabled = false
+		btn.text = tr("RUNE_MASTER_BUY_COMMON_SLOT_FMT") % [
+			GameState.get_unlocked_common_upgrade_slot_count() + 1, cost]
+
+
+func _buy_rune_master_common_slot() -> void:
+	var before: int = GameState.get_unlocked_common_upgrade_slot_count()
+	if GameState.buy_next_common_upgrade_slot():
+		_refresh_rune_master_dialog(tr("RUNE_MASTER_BOUGHT_COMMON_SLOT_FMT") % (before + 1))
+	else:
+		_refresh_rune_master_dialog(tr("RUNE_MASTER_NOT_ENOUGH_DUST"))
+
+
+func _close_rune_master_dialog() -> void:
+	if _rune_master_dialog != null and is_instance_valid(_rune_master_dialog):
+		_rune_master_dialog.queue_free()
+	_rune_master_dialog = null
+	_rune_master_status_label = null
+	_rune_master_dust_label = null
+	get_tree().paused = false
 	get_tree().paused = false
 
 

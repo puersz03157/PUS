@@ -4,7 +4,7 @@ extends Node2D
 const PLAYER_SCENE := preload("res://scenes/Player.tscn")
 const ENEMY_SCENE := preload("res://scenes/Enemy.tscn")
 const PINBALL_SCENE := preload("res://scenes/Pinball.tscn")
-const RESCUE_NPC_TEXTURE := preload("res://assets/characters/Save NPC.png")
+const RESCUE_NPC_TEXTURE := preload("res://assets/characters/GandalfHardcore/Save NPC.png")
 const RESCUE_NPC_DISPLAY_SCALE := 1.85
 
 # 預設地圖（YATI 匯入的 .tmx → PackedScene）— 若關卡未指定則用這個
@@ -329,24 +329,26 @@ func _format_start_weapon_line(p: Node, info: Dictionary) -> String:
 			var hstats: Dictionary = info.get("stats", {})
 			if hstats is Dictionary and not (hstats as Dictionary).is_empty():
 				return tr("START_REWARD_HOUSE_FAVORITES_FMT") % [
-					pname, source, GameData.format_armament_favorite_bonus_text(hstats)]
+					pname, source, GameData.format_armament_favorite_bonus_text(hstats, true)]
 			return tr("START_REWARD_HOUSE_FAVORITES_NONE_FMT") % [pname, source]
 		"common_upgrade":
 			var cid: String = String(info.get("upgrade_id", ""))
-			var cdef: Dictionary = GameData.get_common_upgrade_def(cid)
+			var cup_tag: String = GameData.format_common_upgrade_label_bbcode(cid)
 			return tr("START_REWARD_COMMON_FMT") % [
-				pname, source, GameData.tr_name(cdef),
+				pname, source, cup_tag,
 				int(info.get("current", 0)), int(info.get("max", 0))]
 		"weapon_new":
 			var wid0: String = String(info.get("weapon_id", ""))
-			var weapon_name0: String = GameData.tr_weapon_name(wid0)
-			return tr("START_REWARD_WEAPON_NEW_FMT") % [pname, source, weapon_name0]
+			return tr("START_REWARD_WEAPON_NEW_FMT") % [
+				pname, source, GameData.format_weapon_name_bbcode(wid0)]
 		"weapon_upgrade":
 			var wid1: String = String(info.get("weapon_id", ""))
-			var weapon_name1: String = GameData.tr_weapon_name(wid1)
-			var udef: Dictionary = GameData.get_weapon_upgrade_def(String(info.get("upgrade_id", "")))
+			var up_id: String = String(info.get("upgrade_id", ""))
+			var up_tag: String = GameData.format_weapon_upgrade_label_bbcode(up_id)
 			return tr("START_REWARD_WEAPON_UP_FMT") % [
-				pname, source, weapon_name1, GameData.tr_name(udef),
+				pname, source,
+				GameData.format_weapon_name_bbcode(wid1),
+				up_tag,
 				int(info.get("current", 0)), int(info.get("max", 0))]
 		"weapon_upgrade_max":
 			var wid2: String = String(info.get("weapon_id", ""))

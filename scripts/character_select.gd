@@ -20,7 +20,7 @@ const FOCUS_ARMAMENT := 3
 @onready var p1_stats: Label = $P1Panel/Stats
 @onready var p1_passive: Label = $P1Panel/Passive
 @onready var p1_skill: Label = $P1Panel/Skill
-@onready var p1_equipment: Label = $P1Panel/Equipment
+@onready var p1_equipment: RichTextLabel = $P1Panel/Equipment
 @onready var p1_rune: Label = $P1Panel/Rune
 @onready var p1_passive_icon: TextureRect = $P1Panel/PassiveIcon
 @onready var p1_skill_icon: TextureRect = $P1Panel/SkillIcon
@@ -33,7 +33,7 @@ const FOCUS_ARMAMENT := 3
 @onready var p2_stats: Label = $P2Panel/Stats
 @onready var p2_passive: Label = $P2Panel/Passive
 @onready var p2_skill: Label = $P2Panel/Skill
-@onready var p2_equipment: Label = $P2Panel/Equipment
+@onready var p2_equipment: RichTextLabel = $P2Panel/Equipment
 @onready var p2_rune: Label = $P2Panel/Rune
 @onready var p2_passive_icon: TextureRect = $P2Panel/PassiveIcon
 @onready var p2_skill_icon: TextureRect = $P2Panel/SkillIcon
@@ -90,6 +90,7 @@ func _ready() -> void:
 	if title_label:
 		title_label.text = tr("CSEL_TITLE_VILLAGE") if GameState.next_scene == "village" else tr("CSEL_TITLE_BATTLE")
 	_apply_panel_layout()
+	_setup_armament_rich_labels()
 	_build_touch_controls()
 	_update_panels()
 	_apply_touch_visibility()
@@ -162,6 +163,13 @@ func _notification(what: int) -> void:
 
 
 ## 單人時將 P1 資訊卡水平置中；雙人維持左右並排。
+func _setup_armament_rich_labels() -> void:
+	for rtl in [p1_equipment, p2_equipment]:
+		if rtl:
+			rtl.bbcode_enabled = true
+			rtl.scroll_active = false
+
+
 func _apply_panel_layout() -> void:
 	if not is_node_ready() or p1_panel == null or p2_panel == null:
 		return
@@ -415,23 +423,34 @@ func _reset_panel_heights() -> void:
 		pnl.offset_bottom = PANEL_OFFSET_BOTTOM
 
 
-func _measure_label_height(lbl: Label, row_w: float) -> float:
-	if lbl == null or lbl.text.is_empty():
+func _measure_option_row_height(lbl: Control, row_w: float) -> float:
+	if lbl == null:
 		return 28.0
-	var font: Font = lbl.get_theme_font("font")
-	var fs: int = lbl.get_theme_font_size("font_size")
-	if font == null:
-		return 36.0
-	var sz: Vector2 = font.get_multiline_string_size(
-		lbl.text, HORIZONTAL_ALIGNMENT_LEFT, row_w, fs)
-	return maxf(28.0, sz.y + 6.0)
+	if lbl is RichTextLabel:
+		var rtl: RichTextLabel = lbl as RichTextLabel
+		if rtl.text.is_empty():
+			return 28.0
+		rtl.custom_minimum_size.x = row_w
+		return maxf(28.0, rtl.get_content_height() + 6.0)
+	if lbl is Label:
+		var plain: Label = lbl as Label
+		if plain.text.is_empty():
+			return 28.0
+		var font: Font = plain.get_theme_font("font")
+		var fs: int = plain.get_theme_font_size("font_size")
+		if font == null:
+			return 36.0
+		var sz: Vector2 = font.get_multiline_string_size(
+			plain.text, HORIZONTAL_ALIGNMENT_LEFT, row_w, fs)
+		return maxf(28.0, sz.y + 6.0)
+	return 28.0
 
 
 func _layout_one_option_row(
-		lbl: Label, icon: TextureRect, y: float, row_w: float, min_h: float = 32.0) -> float:
+		lbl: Control, icon: TextureRect, y: float, row_w: float, min_h: float = 32.0) -> float:
 	if lbl == null:
 		return y
-	var h: float = maxf(min_h, _measure_label_height(lbl, row_w))
+	var h: float = maxf(min_h, _measure_option_row_height(lbl, row_w))
 	lbl.offset_top = y
 	lbl.offset_bottom = y + h
 	lbl.clip_contents = false
@@ -442,7 +461,7 @@ func _layout_one_option_row(
 
 
 func _layout_panel_option_rows(
-		passive_lbl: Label, skill_lbl: Label, equip_lbl: Label, rune_lbl: Label,
+		passive_lbl: Label, skill_lbl: Label, equip_lbl: RichTextLabel, rune_lbl: Label,
 		passive_icon: TextureRect, skill_icon: TextureRect,
 		equip_icon: TextureRect, rune_icon: TextureRect,
 		pnl: Panel) -> float:
@@ -482,7 +501,7 @@ func _ensure_unlocked_selection() -> void:
 func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int, focus: int, ready: bool,
 		n: Label, d: Label, s: Label, p_lbl: Label, sk_lbl: Label,
 		p_icon: TextureRect, sk_icon: TextureRect,
-		eq_lbl: Label, rune_lbl: Label, eq_icon: TextureRect, rune_icon: TextureRect,
+		eq_lbl: RichTextLabel, rune_lbl: Label, eq_icon: TextureRect, rune_icon: TextureRect,
 		col: ColorRect, prev: TextureRect, pnl: Panel, player_slot: String) -> void:
 	var char_id: String = String(GameData.CHARACTERS[idx].get("id", ""))
 	var c: Dictionary = GameData.get_character_def(char_id)
@@ -544,7 +563,7 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 		eq_lbl.text = "%s\n%s" % [
 			_row_text(tr("CSEL_ARMAMENT_LBL"), arm_name,
 				arm_opts.size() > 1, focus == FOCUS_ARMAMENT and not ready),
-			GameData.tr_armament_desc_with_flat_stats(arm_id) if not arm_def.is_empty() else ""]
+			GameData.tr_armament_desc_with_flat_stats(arm_id, true) if not arm_def.is_empty() else ""]
 		eq_lbl.modulate = Color(1, 1, 1) if (focus == FOCUS_ARMAMENT and not ready) else Color(0.7, 0.78, 0.92)
 	if rune_lbl:
 		rune_lbl.text = tr("CSEL_ROW_FMT") % [tr("CSEL_RUNE_LBL"), empty_txt]

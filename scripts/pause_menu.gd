@@ -4,6 +4,12 @@ extends CanvasLayer
 
 const RESPONSE_KEYS := ["ui_back"]
 const WEAPON_SLOT_MAX := 5
+const PANEL_W := 900.0
+const PANEL_H_SOLO := 640.0
+const PANEL_H_DUO := 720.0
+const PANEL_HEADER_H := 58.0
+const PANEL_FOOTER_H := 84.0
+const PANEL_PAD := 20.0
 
 var open_state: bool = false
 var game_ref: Node = null
@@ -12,6 +18,7 @@ var _transitioning: bool = false
 var background: ColorRect
 var panel: Panel
 var title_label: Label
+var content_scroll: ScrollContainer
 var content_root: VBoxContainer
 var resume_button: Button
 var menu_button: Button
@@ -55,6 +62,7 @@ func _set_open(v: bool) -> void:
 	visible = v
 	get_tree().paused = v
 	if v:
+		_layout_pause_panel(get_viewport().get_visible_rect().size)
 		_refresh_stats()
 		resume_button.grab_focus()
 
@@ -69,11 +77,7 @@ func _build_ui() -> void:
 	background.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(background)
 
-	var panel_w: float = 900.0
-	var panel_h: float = 640.0
 	panel = Panel.new()
-	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
-	panel.size = Vector2(panel_w, panel_h)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.06, 0.08, 0.18, 1.0)
 	sb.border_color = Color(0.95, 0.65, 0.18)
@@ -91,22 +95,24 @@ func _build_ui() -> void:
 	title_label = Label.new()
 	title_label.text = tr("PAUSE_TITLE")
 	title_label.position = Vector2(0, 14)
-	title_label.size = Vector2(panel_w, 40)
+	title_label.size = Vector2(PANEL_W, 40)
 	title_label.add_theme_font_size_override("font_size", 30)
 	title_label.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(title_label)
 
-	content_root = VBoxContainer.new()
-	content_root.position = Vector2(20, 60)
-	content_root.size = Vector2(panel_w - 40, panel_h - 60 - 80)
-	content_root.add_theme_constant_override("separation", 8)
-	panel.add_child(content_root)
+	content_scroll = ScrollContainer.new()
+	content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	content_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	panel.add_child(content_scroll)
 
-	var button_y: float = panel_h - 64.0
+	content_root = VBoxContainer.new()
+	content_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_root.add_theme_constant_override("separation", 8)
+	content_scroll.add_child(content_root)
+
 	resume_button = Button.new()
 	resume_button.text = tr("PAUSE_BTN_RESUME")
-	resume_button.position = Vector2(140, button_y)
 	resume_button.size = Vector2(240, 48)
 	resume_button.add_theme_font_size_override("font_size", 18)
 	resume_button.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -115,12 +121,43 @@ func _build_ui() -> void:
 
 	menu_button = Button.new()
 	menu_button.text = tr("PAUSE_BTN_MENU")
-	menu_button.position = Vector2(panel_w - 240 - 140, button_y)
 	menu_button.size = Vector2(240, 48)
 	menu_button.add_theme_font_size_override("font_size", 18)
 	menu_button.process_mode = Node.PROCESS_MODE_ALWAYS
 	menu_button.pressed.connect(_on_main_menu)
 	panel.add_child(menu_button)
+
+	_layout_pause_panel(vp)
+	if not get_viewport().size_changed.is_connected(_layout_pause_panel):
+		get_viewport().size_changed.connect(_layout_pause_panel)
+
+
+func _pause_panel_height(vp: Vector2) -> float:
+	var duo: bool = false
+	if game_ref != null:
+		var players: Array = game_ref.get("players")
+		duo = players.size() >= 2
+	var h: float = PANEL_H_DUO if duo else PANEL_H_SOLO
+	return minf(h, maxf(PANEL_H_SOLO, vp.y - 48.0))
+
+
+func _layout_pause_panel(vp: Vector2 = Vector2.ZERO) -> void:
+	if panel == null or content_scroll == null:
+		return
+	if vp == Vector2.ZERO:
+		vp = get_viewport().get_visible_rect().size
+	background.size = vp
+	var panel_w: float = minf(PANEL_W, vp.x - 32.0)
+	var panel_h: float = _pause_panel_height(vp)
+	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
+	panel.size = Vector2(panel_w, panel_h)
+	title_label.size.x = panel_w
+	var content_h: float = maxf(120.0, panel_h - PANEL_HEADER_H - PANEL_FOOTER_H - 8.0)
+	content_scroll.position = Vector2(PANEL_PAD, PANEL_HEADER_H)
+	content_scroll.size = Vector2(panel_w - PANEL_PAD * 2.0, content_h)
+	var btn_y: float = panel_h - PANEL_FOOTER_H + 18.0
+	resume_button.position = Vector2(140.0, btn_y)
+	menu_button.position = Vector2(panel_w - 240.0 - 140.0, btn_y)
 
 
 func _on_resume() -> void:
@@ -161,6 +198,7 @@ func _refresh_stats() -> void:
 		if p == null:
 			continue
 		_build_player_section(p)
+	_layout_pause_panel()
 
 
 func _build_player_section(p: Node) -> void:
@@ -246,24 +284,18 @@ func _build_player_section(p: Node) -> void:
 	for i in weapon_cap:
 		if i < weapon_count:
 			var w: Dictionary = p.weapons[i]
-			var wdef: Dictionary = GameData.get_weapon_def(w["id"])
+			var wid: String = String(w.get("id", ""))
+			var wdef: Dictionary = GameData.get_weapon_def(wid)
 			var name_str: String = (tr("PAUSE_WEAPON_NAME_LV_FMT").replace("\\n", "\n")) % [
 				GameData.tr_name(wdef), int(w["level"])]
-			w_row.add_child(_make_slot(name_str, true,
-				Color(0.55, 0.95, 0.6), 96, 44, 12))
+			var w_tex: Texture2D = GameData.load_weapon_icon(wid)
+			w_row.add_child(_make_slot_with_icon(name_str, true,
+				Color(0.55, 0.95, 0.6), 96, 44, 11, w_tex))
 		else:
 			w_row.add_child(_make_slot(tr("PAUSE_SLOT_EMPTY"), false,
 				Color(0.4, 0.4, 0.5), 96, 44, 12))
 
-	# 共通強化堆疊（顯示在最下方一行）
-	var stacks: Array[String] = _build_stack_lines(p)
-	if not stacks.is_empty():
-		var stk := Label.new()
-		stk.text = tr("PAUSE_STACKS_PREFIX") + "    ".join(stacks)
-		stk.add_theme_font_size_override("font_size", 13)
-		stk.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
-		stk.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		inner.add_child(stk)
+	_build_common_upgrade_slots(inner, p)
 
 
 func _build_live_stat_section(inner: VBoxContainer, p: Node, c_def: Dictionary) -> void:
@@ -271,7 +303,7 @@ func _build_live_stat_section(inner: VBoxContainer, p: Node, c_def: Dictionary) 
 	stat.bbcode_enabled = true
 	stat.fit_content = true
 	stat.scroll_active = false
-	stat.custom_minimum_size = Vector2(0, 58)
+	stat.custom_minimum_size = Vector2(0, 28)
 	stat.add_theme_font_size_override("normal_font_size", 13)
 	stat.text = _live_stat_text(p, c_def)
 	inner.add_child(stat)
@@ -280,15 +312,28 @@ func _build_live_stat_section(inner: VBoxContainer, p: Node, c_def: Dictionary) 
 func _live_stat_text(p: Node, _c_def: Dictionary) -> String:
 	var effective_hp: float = _effective_max_hp(p)
 	var effective_atk: float = _call_float(p, "get_effective_atk_power", p.atk * p.damage_mult)
+	var dmg_mult_pct: int = int(round(
+		_call_float(p, "get_effective_damage_mult", p.damage_mult) * 100.0))
 	var effective_def: float = _call_float(p, "get_effective_def", p.def_value)
 	var effective_rate: float = _call_float(p, "get_effective_rate_mult", p.rate_mult)
 	var effective_move: float = _call_float(p, "get_effective_move_speed", p.move_speed * p.speed_mult)
-	var lines: Array[String] = []
-	lines.append("[color=#ffd24d]即時素質[/color]  HP %d/%d    ATK %.1f    DEF %.1f" % [
-		int(p.hp), int(effective_hp), effective_atk, effective_def])
-	lines.append("SPD(atk) %.2fx    SPD(move) %.0f    減傷 %.0f%%" % [
-		effective_rate, effective_move, float(p.dmg_reduce) * 100.0])
-	return "\n".join(lines)
+	var parts: Array[String] = []
+	parts.append(GameData.format_live_stat_bbcode(
+		"hp", "%d/%d" % [int(p.hp), int(effective_hp)]))
+	parts.append(GameData.format_live_stat_bbcode(
+		"atk", "%.1f (%s)" % [effective_atk, tr("PAUSE_LIVE_DAMAGE_MULT_FMT") % dmg_mult_pct]))
+	parts.append(GameData.format_live_stat_bbcode("def", "%.1f" % effective_def))
+	parts.append(GameData.format_live_stat_bbcode("rate", "%.2fx" % effective_rate))
+	parts.append(GameData.format_live_stat_bbcode("move", "%.0f" % effective_move))
+	parts.append(GameData.format_live_stat_bbcode(
+		"dmg_reduce", "%.0f%%" % int(round(float(p.dmg_reduce) * 100.0))))
+	var crit_rate: float = GameData.player_live_crit_chance(p)
+	parts.append(GameData.format_live_stat_bbcode(
+		"crit_chance", "%d%%" % int(round(crit_rate * 100.0))))
+	var crit_dmg_mult: float = GameData.player_live_crit_damage_mult(p)
+	parts.append(GameData.format_live_stat_bbcode(
+		"crit_damage", "%d%%" % int(round(crit_dmg_mult * 100.0))))
+	return "[color=#ffd24d]%s[/color]  %s" % [tr("PAUSE_LIVE_STATS_LABEL"), "    ".join(parts)]
 
 
 func _call_float(target: Node, method: String, fallback: float) -> float:
@@ -299,6 +344,46 @@ func _call_float(target: Node, method: String, fallback: float) -> float:
 
 func _effective_max_hp(p: Node) -> float:
 	return _call_float(p, "get_effective_max_hp", p.max_hp * p.hp_mult)
+
+
+func _build_common_upgrade_slots(inner: VBoxContainer, p: Node) -> void:
+	var cap: int = p.get_common_upgrade_slot_max() if p.has_method("get_common_upgrade_slot_max") \
+		else GameData.COMMON_UPGRADE_SLOT_INITIAL
+	var filled: int = p.get_common_upgrade_filled_count() if p.has_method("get_common_upgrade_filled_count") \
+		else p.common_upgrade_log.size()
+	var c_caption := Label.new()
+	var cap_color: Color = Color(0.7, 0.9, 1.0)
+	if filled >= cap:
+		cap_color = Color(1.0, 0.6, 0.5)
+	c_caption.text = tr("PAUSE_COMMON_CAP_FMT") % [filled, cap]
+	c_caption.add_theme_font_size_override("font_size", 14)
+	c_caption.add_theme_color_override("font_color", cap_color)
+	inner.add_child(c_caption)
+
+	var ids: Array[String] = []
+	for raw_id in p.common_upgrade_log.keys():
+		ids.append(String(raw_id))
+	ids.sort()
+	var c_row := HBoxContainer.new()
+	c_row.add_theme_constant_override("separation", 4)
+	inner.add_child(c_row)
+	const SLOT_W := 80.0
+	const SLOT_H := 44.0
+	for i in cap:
+		if i < ids.size():
+			var cid: String = ids[i]
+			var lv: int = int(p.common_upgrade_log.get(cid, 0))
+			var cdef: Dictionary = GameData.get_common_upgrade_def(cid)
+			var slot_text: String = tr("PAUSE_COMMON_SLOT_LV_FMT") % lv
+			var c_tex: Texture2D = GameData.load_common_upgrade_icon(cid)
+			var cup_slot: Panel = _make_slot_with_icon(
+				slot_text, true, Color(0.55, 0.85, 0.95), SLOT_W, SLOT_H, 10, c_tex)
+			if not cdef.is_empty():
+				cup_slot.tooltip_text = "%s\n%s" % [GameData.tr_name(cdef), GameData.tr_desc(cdef)]
+			c_row.add_child(cup_slot)
+		else:
+			c_row.add_child(_make_slot(
+				tr("PAUSE_SLOT_EMPTY"), false, Color(0.4, 0.4, 0.5), SLOT_W, SLOT_H, 11))
 
 
 func _build_stack_lines(p: Node) -> Array[String]:

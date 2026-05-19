@@ -2167,14 +2167,11 @@ func _apply_start_armament() -> void:
 	var common_id: String = String(adef.get("common_upgrade_id", ""))
 	if common_id != "":
 		var cdef: Dictionary = GameData.get_common_upgrade_def(common_id)
-		if not cdef.is_empty():
-			var have: int = int(common_upgrade_log.get(common_id, 0))
-			var cap: int = int(cdef.get("max", 0))
-			if have < cap:
-				var cinfo: Dictionary = apply_common_upgrade(common_id)
-				cinfo["source_kind"] = "armament"
-				cinfo["source_id"] = armament_id
-				start_weapon_reward_log.append(cinfo)
+		if not cdef.is_empty() and can_acquire_common_upgrade(common_id):
+			var cinfo: Dictionary = apply_common_upgrade(common_id)
+			cinfo["source_kind"] = "armament"
+			cinfo["source_id"] = armament_id
+			start_weapon_reward_log.append(cinfo)
 	var wfrom: String = String(adef.get("weapon_id", ""))
 	if wfrom != "":
 		_add_start_weapon(wfrom, "armament", armament_id)
@@ -2184,6 +2181,28 @@ func get_weapon_slot_max() -> int:
 	if is_instance_valid(GameState):
 		return GameState.get_unlocked_weapon_slot_count()
 	return WEAPON_SLOT_MAX
+
+
+func get_common_upgrade_slot_max() -> int:
+	if is_instance_valid(GameState):
+		return GameState.get_unlocked_common_upgrade_slot_count()
+	return GameData.COMMON_UPGRADE_SLOT_INITIAL
+
+
+func get_common_upgrade_filled_count() -> int:
+	return common_upgrade_log.size()
+
+
+func can_acquire_common_upgrade(common_id: String) -> bool:
+	var def: Dictionary = GameData.get_common_upgrade_def(common_id)
+	if def.is_empty():
+		return false
+	var have: int = int(common_upgrade_log.get(common_id, 0))
+	if have >= int(def.get("max", 0)):
+		return false
+	if have > 0:
+		return true
+	return get_common_upgrade_filled_count() < get_common_upgrade_slot_max()
 
 
 func _weapon_reward_result(weapon_id: String, ur: Dictionary) -> Dictionary:
@@ -2299,6 +2318,10 @@ func apply_common_upgrade(id: String) -> Dictionary:
 			"damage_mult":
 				damage_mult += v
 				_refresh_weapon_stats()
+			"crit_chance":
+				crit_chance = min(0.95, crit_chance + v)
+			"crit_damage_mult":
+				crit_damage_mult += v
 		return {"kind": "common_upgrade", "upgrade_id": id, "current": cur, "max": int(u["max"])}
 	var u0: Dictionary = GameData.get_common_upgrade_def(id)
 	return {"kind": "common_upgrade", "upgrade_id": id, "current": cur, "max": int(u0.get("max", 0))}

@@ -22,7 +22,10 @@ const CREDIT_ENTRY_KEYS: Array[String] = [
 	"CREDITS_ENTRY_VILLAGE",
 	"CREDITS_ENTRY_NPC_PACK",
 	"CREDITS_ENTRY_MONSTERS",
-	"CREDITS_ENTRY_CHARACTERS",
+	"CREDITS_ENTRY_MATTZ_ART",
+	"CREDITS_ENTRY_OTSOGA",
+	"CREDITS_ENTRY_CRAFTPIX",
+	"CREDITS_ENTRY_FINALBOSSBLUES",
 ]
 const GEAR_TEXT := "⚙"
 const Z_LAYER := 100
@@ -1297,11 +1300,12 @@ func _codex_weapons_text() -> String:
 	]
 	for w in GameData.WEAPONS:
 		var wid: String = String(w.get("id", ""))
+		var wdef: Dictionary = GameData.get_weapon_def(wid)
 		var unlocked: bool = GameState.is_weapon_unlocked(wid)
 		var title_color: String = "#7dff9d" if unlocked else "#8f96aa"
 		var status: String = tr("CODEX_STATUS_UNLOCKED") if unlocked else tr("CODEX_STATUS_LOCKED")
-		lines.append("[color=%s][b]%s[/b][/color]  %s" % [
-			title_color, GameData.tr_name(w), status])
+		lines.append("%s [color=%s][b]%s[/b][/color]  %s" % [
+			_codex_weapon_icon_bbcode(wdef), title_color, GameData.tr_name(wdef), status])
 		if unlocked:
 			lines.append(tr("CODEX_WEAPON_STATS_FMT") % [
 				_codex_weapon_kind_name(String(w.get("kind", ""))),
@@ -1329,7 +1333,7 @@ func _codex_abilities_text() -> String:
 	]
 	for upgrade in GameData.COMMON_UPGRADES:
 		lines.append("%s [color=#ffd24d][b]%s[/b][/color]" % [
-			_codex_icon_placeholder(), GameData.tr_name(upgrade)])
+			_codex_common_upgrade_icon_bbcode(upgrade), GameData.tr_name(upgrade)])
 		lines.append(GameData.tr_desc(upgrade))
 		lines.append(tr("CODEX_ABILITY_FIELD_FMT") % _codex_ability_field_name(
 			String(upgrade.get("field", ""))))
@@ -1544,6 +1548,26 @@ func _codex_option_link(id: String, kind: String) -> String:
 	return "[url=%s:%s]%s %s[/url]" % [kind, id, icon_text, label]
 
 
+func _codex_weapon_icon_bbcode(wdef: Dictionary) -> String:
+	var path: String = String(wdef.get("icon", ""))
+	if path == "":
+		path = GameData.weapon_icon_path(String(wdef.get("id", "")))
+	if path == "" or not ResourceLoader.exists(path):
+		return _codex_icon_placeholder()
+	# RichTextLabel 需指定尺寸，否則小圖可能不顯示
+	return "[img=28x28]%s[/img]" % path
+
+
+func _codex_common_upgrade_icon_bbcode(upgrade: Dictionary) -> String:
+	var id: String = String(upgrade.get("id", ""))
+	var path: String = String(GameData.get_common_upgrade_def(id).get("icon", ""))
+	if path == "":
+		path = GameData.common_upgrade_icon_path(id)
+	if path == "" or not ResourceLoader.exists(path):
+		return _codex_icon_placeholder()
+	return "[img=28x28]%s[/img]" % path
+
+
 func _codex_icon_placeholder() -> String:
 	return "[color=#8f96aa][%s][/color]" % tr("CODEX_ICON_PLACEHOLDER")
 
@@ -1574,6 +1598,10 @@ func _codex_ability_field_name(field: String) -> String:
 			return tr("CODEX_ABILITY_FIELD_REGEN")
 		"damage_mult":
 			return tr("CODEX_ABILITY_FIELD_DAMAGE")
+		"crit_chance":
+			return tr("CODEX_ABILITY_FIELD_CRIT_CHANCE")
+		"crit_damage_mult":
+			return tr("CODEX_ABILITY_FIELD_CRIT_DAMAGE")
 		_:
 			return field
 

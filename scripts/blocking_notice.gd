@@ -50,12 +50,15 @@ static func present(tree: SceneTree, title: String, main_text: String, hint_text
 	ttl.add_theme_font_size_override("font_size", 22)
 	vbox.add_child(ttl)
 
-	var body := Label.new()
+	var body := RichTextLabel.new()
+	body.bbcode_enabled = true
 	body.text = "%s\n\n%s" % [main_text, hint_text]
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.fit_content = true
+	body.scroll_active = false
+	body.custom_minimum_size = Vector2(panel_w - 40.0, 120.0)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_theme_font_size_override("font_size", 16)
+	body.add_theme_font_size_override("normal_font_size", 16)
 	vbox.add_child(body)
 
 	var btn := Button.new()

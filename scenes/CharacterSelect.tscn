@@ -206,7 +206,7 @@ expand_mode = 1
 stretch_mode = 5
 texture_filter = 1
 
-[node name="Equipment" type="Label" parent="P1Panel"]
+[node name="Equipment" type="RichTextLabel" parent="P1Panel"]
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
@@ -215,12 +215,13 @@ offset_bottom = 484.0
 offset_left = 56.0
 offset_right = -16.0
 grow_horizontal = 2
+bbcode_enabled = true
 text = "裝備：—"
 autowrap_mode = 3
-horizontal_alignment = 0
-vertical_alignment = 0
-theme_override_font_sizes/font_size = 13
-theme_override_colors/font_color = Color(0.55, 0.62, 0.72, 1)
+scroll_active = false
+fit_content = true
+theme_override_font_sizes/normal_font_size = 13
+theme_override_colors/default_color = Color(0.55, 0.62, 0.72, 1)
 
 [node name="RuneIcon" type="TextureRect" parent="P1Panel"]
 visible = false
@@ -408,7 +409,7 @@ expand_mode = 1
 stretch_mode = 5
 texture_filter = 1
 
-[node name="Equipment" type="Label" parent="P2Panel"]
+[node name="Equipment" type="RichTextLabel" parent="P2Panel"]
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
@@ -417,12 +418,13 @@ offset_bottom = 484.0
 offset_left = 56.0
 offset_right = -16.0
 grow_horizontal = 2
+bbcode_enabled = true
 text = "裝備：—"
 autowrap_mode = 3
-horizontal_alignment = 0
-vertical_alignment = 0
-theme_override_font_sizes/font_size = 13
-theme_override_colors/font_color = Color(0.55, 0.62, 0.72, 1)
+scroll_active = false
+fit_content = true
+theme_override_font_sizes/normal_font_size = 13
+theme_override_colors/default_color = Color(0.55, 0.62, 0.72, 1)
 
 [node name="RuneIcon" type="TextureRect" parent="P2Panel"]
 visible = false
