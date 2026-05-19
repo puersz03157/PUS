@@ -27,7 +27,6 @@ const CREDIT_ENTRY_KEYS: Array[String] = [
 	"CREDITS_ENTRY_CRAFTPIX",
 	"CREDITS_ENTRY_FINALBOSSBLUES",
 ]
-const GEAR_TEXT := "⚙"
 const Z_LAYER := 100
 ## 右上角成就／物品／圖鑑按鈕可出現的場景
 const FLOATING_META_SCENES: Array[String] = [
@@ -78,6 +77,9 @@ var items_panel: Panel
 var items_title_label: Label
 var items_tabs: HBoxContainer
 var items_list: RichTextLabel
+var items_scroll: ScrollContainer
+var items_content: VBoxContainer
+var items_resource_tip: Label
 var items_close_button: Button
 var items_tab_buttons: Dictionary = {}
 var _items_tab: String = GameData.ITEMS_TAB_CURRENCY
@@ -116,10 +118,16 @@ func _process(_delta: float) -> void:
 func _build_ui() -> void:
 	# 右上角齒輪按鈕
 	gear_button = Button.new()
-	gear_button.text = GEAR_TEXT
 	gear_button.custom_minimum_size = Vector2(44, 44)
-	gear_button.add_theme_font_size_override("font_size", 22)
+	gear_button.text = ""
+	gear_button.expand_icon = true
+	GameData.apply_icon_button(gear_button, GameData.UI_ICON_GEAR, tr("SETTINGS_GEAR_FALLBACK"))
+	if gear_button.text != "":
+		gear_button.add_theme_font_size_override("font_size", 16)
 	gear_button.add_theme_color_override("font_color", Color(1, 0.92, 0.55))
+	gear_button.add_theme_color_override("font_hover_color", Color(1, 0.98, 0.7))
+	gear_button.add_theme_color_override("icon_normal_color", Color(1, 0.92, 0.55))
+	gear_button.add_theme_color_override("icon_hover_color", Color(1, 0.98, 0.7))
 	gear_button.process_mode = Node.PROCESS_MODE_ALWAYS
 	gear_button.focus_mode = Control.FOCUS_NONE
 	gear_button.pressed.connect(_toggle)
@@ -597,15 +605,48 @@ func _build_items_panel() -> void:
 		items_tabs.add_child(btn)
 		items_tab_buttons[tab_id] = btn
 
+	items_scroll = ScrollContainer.new()
+	items_scroll.position = Vector2(24, 108)
+	items_scroll.size = Vector2(ITEMS_PANEL_W - 48, ITEMS_PANEL_H - 188)
+	items_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	items_panel.add_child(items_scroll)
+	items_content = VBoxContainer.new()
+	items_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	items_content.add_theme_constant_override("separation", 10)
+	items_scroll.add_child(items_content)
 	items_list = RichTextLabel.new()
-	items_list.position = Vector2(24, 108)
-	items_list.size = Vector2(ITEMS_PANEL_W - 48, ITEMS_PANEL_H - 188)
 	items_list.bbcode_enabled = true
-	items_list.scroll_active = true
-	items_list.fit_content = false
+	items_list.fit_content = true
+	items_list.scroll_active = false
+	items_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	items_list.add_theme_font_size_override("normal_font_size", 16)
 	items_list.add_theme_color_override("default_color", Color(0.86, 0.9, 1.0))
-	items_panel.add_child(items_list)
+	items_resource_tip = Label.new()
+	items_resource_tip.visible = false
+	items_resource_tip.z_index = 20
+	items_resource_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	items_resource_tip.add_theme_font_size_override("font_size", 14)
+	items_resource_tip.add_theme_color_override("font_color", Color(1.0, 0.98, 0.88))
+	items_resource_tip.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+	items_resource_tip.add_theme_constant_override("shadow_offset_x", 1)
+	items_resource_tip.add_theme_constant_override("shadow_offset_y", 1)
+	var tip_sb := StyleBoxFlat.new()
+	tip_sb.bg_color = Color(0.05, 0.07, 0.14, 0.94)
+	tip_sb.border_color = Color(0.95, 0.65, 0.18, 0.9)
+	tip_sb.border_width_left = 1
+	tip_sb.border_width_right = 1
+	tip_sb.border_width_top = 1
+	tip_sb.border_width_bottom = 1
+	tip_sb.content_margin_left = 8
+	tip_sb.content_margin_right = 8
+	tip_sb.content_margin_top = 4
+	tip_sb.content_margin_bottom = 4
+	tip_sb.corner_radius_top_left = 4
+	tip_sb.corner_radius_top_right = 4
+	tip_sb.corner_radius_bottom_left = 4
+	tip_sb.corner_radius_bottom_right = 4
+	items_resource_tip.add_theme_stylebox_override("normal", tip_sb)
+	items_panel.add_child(items_resource_tip)
 
 	items_close_button = Button.new()
 	items_close_button.size = Vector2(180, 44)
@@ -913,6 +954,7 @@ func _open_items() -> void:
 
 
 func _close_items() -> void:
+	_hide_items_resource_tip()
 	_set_items_open(false)
 
 
@@ -1137,63 +1179,133 @@ func _refresh_items_tab_buttons() -> void:
 		btn.modulate = Color(1.15, 1.12, 0.9) if on else Color(0.72, 0.76, 0.88)
 
 
-func _items_lines_for_material_category(category: String, include_zero: bool) -> Array[String]:
-	var lines: Array[String] = []
+func _hide_items_resource_tip() -> void:
+	if items_resource_tip:
+		items_resource_tip.visible = false
+
+
+func _show_items_resource_tip(text: String, global_anchor: Vector2) -> void:
+	if items_resource_tip == null or items_panel == null or text == "":
+		return
+	items_resource_tip.text = text
+	items_resource_tip.visible = true
+	items_resource_tip.reset_size()
+	var local_pos: Vector2 = items_panel.get_global_transform().affine_inverse() * global_anchor
+	items_resource_tip.position = local_pos - Vector2(items_resource_tip.size.x * 0.5, items_resource_tip.size.y + 6.0)
+	items_resource_tip.position.x = clampf(
+		items_resource_tip.position.x, 8.0, items_panel.size.x - items_resource_tip.size.x - 8.0)
+	items_resource_tip.position.y = maxf(8.0, items_resource_tip.position.y)
+
+
+func _wire_resource_chip_tip(chip: ResourceIconChip) -> void:
+	if chip == null:
+		return
+	if not chip.tip_show.is_connected(_show_items_resource_tip):
+		chip.tip_show.connect(_show_items_resource_tip)
+	if not chip.tip_hide.is_connected(_hide_items_resource_tip):
+		chip.tip_hide.connect(_hide_items_resource_tip)
+
+
+func _items_add_hint_label(bbcode: String) -> void:
+	var rtl := RichTextLabel.new()
+	rtl.bbcode_enabled = true
+	rtl.fit_content = true
+	rtl.scroll_active = false
+	rtl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rtl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rtl.text = bbcode
+	rtl.add_theme_font_size_override("normal_font_size", 15)
+	rtl.add_theme_color_override("default_color", Color(0.86, 0.9, 1.0))
+	items_content.add_child(rtl)
+
+
+func _items_add_material_grid(category: String, include_zero: bool) -> bool:
+	var grid := GridContainer.new()
+	grid.columns = 8
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	var any: bool = false
 	for m in GameData.materials_in_category(category):
 		var id: String = String(m.get("id", ""))
+		if id == "" or GameData.material_icon_path(id) == "":
+			continue
 		var amt: int = GameState.get_material_amount(id)
 		if not include_zero and amt <= 0:
 			continue
-		lines.append(tr("ITEMS_MATERIAL_FMT") % [GameData.tr_material_name(id), amt])
-	if lines.is_empty():
-		lines.append(tr("ITEMS_TAB_EMPTY"))
-	return lines
+		var chip: ResourceIconChip = GameData.make_material_icon_chip(id, amt)
+		_wire_resource_chip_tip(chip)
+		grid.add_child(chip)
+		any = true
+	if any:
+		items_content.add_child(grid)
+	return any
 
 
 func _refresh_items_panel() -> void:
-	if items_panel == null or items_list == null:
+	if items_panel == null or items_content == null:
 		return
+	_hide_items_resource_tip()
 	items_title_label.text = tr("ITEMS_TITLE")
 	items_close_button.text = tr("ITEMS_CLOSE")
 	_refresh_items_tab_buttons()
-	var lines: Array[String] = []
+	for c in items_content.get_children():
+		c.queue_free()
+	var has_content: bool = false
 	match _items_tab:
 		GameData.ITEMS_TAB_CURRENCY:
-			lines.append(tr("ITEMS_GOLD_FMT") % GameState.gold)
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 10)
+			if GameData.gold_icon_path() != "":
+				var gold_chip: ResourceIconChip = GameData.make_gold_icon_chip(GameState.gold)
+				_wire_resource_chip_tip(gold_chip)
+				row.add_child(gold_chip)
+				has_content = true
+			else:
+				_items_add_hint_label(tr("ITEMS_GOLD_FMT") % GameState.gold)
+				has_content = true
+			items_content.add_child(row)
 			if GameState.is_village_facility_unlocked("farm") \
 					or GameState.is_village_facility_unlocked("well"):
-				lines.append("")
-				lines.append(tr("ITEMS_WATER_CHARGES_FMT") % [
+				_items_add_hint_label(tr("ITEMS_WATER_CHARGES_FMT") % [
 					GameState.water_charges, GameData.VILLAGE_WATER_MAX_CHARGES])
 		GameData.ITEMS_TAB_CROPS:
-			lines.append("[color=#9ddf7a][b]%s[/b][/color]" % tr("ITEMS_SECTION_HARVEST"))
-			lines.append_array(_items_lines_for_material_category(
-				GameData.MAT_CATEGORY_CROP, false))
-			lines.append("")
-			lines.append("[color=#c9e87a][b]%s[/b][/color]" % tr("ITEMS_SECTION_SEEDS"))
-			lines.append_array(_items_lines_for_material_category(
-				GameData.MAT_CATEGORY_SEED, false))
+			_items_add_hint_label("[color=#9ddf7a][b]%s[/b][/color]" % tr("ITEMS_SECTION_HARVEST"))
+			has_content = _items_add_material_grid(GameData.MAT_CATEGORY_CROP, false) or has_content
+			_items_add_hint_label("[color=#c9e87a][b]%s[/b][/color]" % tr("ITEMS_SECTION_SEEDS"))
+			has_content = _items_add_material_grid(GameData.MAT_CATEGORY_SEED, false) or has_content
 		GameData.ITEMS_TAB_RESOURCES:
-			lines.append("[color=#9ec8ff]%s[/color]" % tr("ITEMS_RESOURCES_SOURCE_HINT"))
-			lines.append("")
-			lines.append_array(_items_lines_for_material_category(
-				GameData.MAT_CATEGORY_RESOURCE, true))
+			_items_add_hint_label("[color=#9ec8ff]%s[/color]" % tr("ITEMS_RESOURCES_SOURCE_HINT"))
+			has_content = _items_add_material_grid(GameData.MAT_CATEGORY_RESOURCE, true) or has_content
 		GameData.ITEMS_TAB_FORGING:
-			lines.append_array(_items_lines_for_material_category(
-				GameData.MAT_CATEGORY_FORGING, true))
+			has_content = _items_add_material_grid(GameData.MAT_CATEGORY_FORGING, true) or has_content
 		GameData.ITEMS_TAB_ARMAMENTS:
+			var lines: Array[String] = []
 			for aid in GameState.unlocked_armaments:
 				var adef: Dictionary = GameData.get_armament_def(String(aid))
 				if adef.is_empty():
 					continue
 				lines.append(tr("ITEMS_ARMAMENT_LINE_FMT") % GameData.tr_name(adef))
 			if lines.is_empty():
-				lines.append(tr("ITEMS_TAB_EMPTY"))
+				_items_add_hint_label(tr("ITEMS_TAB_EMPTY"))
+			else:
+				_items_add_hint_label("\n".join(lines))
+			has_content = not lines.is_empty()
 		GameData.ITEMS_TAB_RUNES:
-			lines.append(tr("ITEMS_RUNE_DUST_FMT") % GameState.rune_dust)
+			var rune_row := HBoxContainer.new()
+			if GameData.rune_dust_icon_path() != "":
+				var dust_chip: ResourceIconChip = GameData.make_rune_dust_icon_chip(GameState.rune_dust)
+				_wire_resource_chip_tip(dust_chip)
+				rune_row.add_child(dust_chip)
+				has_content = true
+			else:
+				_items_add_hint_label(tr("ITEMS_RUNE_DUST_FMT") % GameState.rune_dust)
+				has_content = true
+			items_content.add_child(rune_row)
 		_:
-			lines.append(tr("ITEMS_TAB_EMPTY"))
-	items_list.text = "\n".join(lines)
+			_items_add_hint_label(tr("ITEMS_TAB_EMPTY"))
+	if not has_content and _items_tab != GameData.ITEMS_TAB_CURRENCY \
+			and _items_tab != GameData.ITEMS_TAB_RUNES:
+		_items_add_hint_label(tr("ITEMS_TAB_EMPTY"))
 
 
 func _refresh_codex_panel() -> void:

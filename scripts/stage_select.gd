@@ -121,15 +121,13 @@ func _build_ui() -> void:
 	stage_panel.add_child(stage_reward_label)
 
 	prev_button = Button.new()
-	prev_button.text = "◀"
-	prev_button.add_theme_font_size_override("font_size", 28)
+	GameData.apply_icon_button(prev_button, GameData.UI_ICON_ARROW_LEFT, "<")
 	prev_button.focus_mode = Control.FOCUS_NONE
 	prev_button.pressed.connect(_cycle.bind(-1))
 	add_child(prev_button)
 
 	next_button = Button.new()
-	next_button.text = "▶"
-	next_button.add_theme_font_size_override("font_size", 28)
+	GameData.apply_icon_button(next_button, GameData.UI_ICON_ARROW_RIGHT, ">")
 	next_button.focus_mode = Control.FOCUS_NONE
 	next_button.pressed.connect(_cycle.bind(1))
 	add_child(next_button)

@@ -694,17 +694,15 @@ func _make_panel_touch_bar(prefix: String) -> Control:
 	bar.add_child(op_row)
 
 	var btn_left := Button.new()
-	btn_left.text = "◀"
 	btn_left.custom_minimum_size = Vector2(64, 40)
-	btn_left.add_theme_font_size_override("font_size", 20)
+	GameData.apply_icon_button(btn_left, GameData.UI_ICON_ARROW_LEFT, "<")
 	btn_left.focus_mode = Control.FOCUS_NONE
 	btn_left.pressed.connect(_on_touch_cycle.bind(prefix, -1))
 	op_row.add_child(btn_left)
 
 	var btn_right := Button.new()
-	btn_right.text = "▶"
 	btn_right.custom_minimum_size = Vector2(64, 40)
-	btn_right.add_theme_font_size_override("font_size", 20)
+	GameData.apply_icon_button(btn_right, GameData.UI_ICON_ARROW_RIGHT, ">")
 	btn_right.focus_mode = Control.FOCUS_NONE
 	btn_right.pressed.connect(_on_touch_cycle.bind(prefix, 1))
 	op_row.add_child(btn_right)

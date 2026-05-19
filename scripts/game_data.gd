@@ -21,6 +21,7 @@ const CRIT_DAMAGE_MULT_BASE := 2.0
 
 ## 角色美術依作者分類（資料夾名稱與 assets/characters/ 一致）
 const DREAMIR_CHAR_ROOT := "res://assets/characters/dreamir/"
+## 網頁匯出：角色逐幀圖由 ResourceLoader.list_directory 掃描（勿依賴 DirAccess 讀 res://）
 const CHIERIT_CHAR_ROOT := "res://assets/characters/chierit/"
 const MATTZ_CHAR_ROOT := "res://assets/characters/Mattz Art/"
 const OTSOGA_CHAR_ROOT := "res://assets/characters/Otsoga/"
@@ -90,6 +91,21 @@ const BOW_ARROW_PROJECTILE_TEXTURE := "res://assets/Effects/arrow/arrow_.png"
 const WEAPON_ICON_ROOT := "res://assets/icons/weapons/"
 ## 通用能力升級圖示：res://assets/icons/common/<upgrade_id>.png（id 同 COMMON_UPGRADES）
 const COMMON_ICON_ROOT := "res://assets/icons/common/"
+## 介面圖示（避免 Unicode 箭頭／齒輪在自訂字型下變亂碼，網頁版尤其明顯）
+const UI_ICON_ROOT := "res://assets/Maps/2D/UI/Icons/"
+const UI_ICON_ARROW_LEFT := UI_ICON_ROOT + "Arrow_left.png"
+const UI_ICON_ARROW_RIGHT := UI_ICON_ROOT + "Arrow_right.png"
+const UI_ICON_GEAR := UI_ICON_ROOT + "Gear.png"
+const UI_ICON_PAUSE := UI_ICON_ROOT + "Pause.png"
+## 金幣圖示：將 gold.png 放在此路徑（可替換）；無檔時 fallback 至 UI 包的 Currency.png
+const CURRENCY_ICON_ROOT := "res://assets/icons/currency/"
+const GOLD_ICON_PATH := CURRENCY_ICON_ROOT + "gold.png"
+const GOLD_ICON_FALLBACK_PATH := UI_ICON_ROOT + "Currency.png"
+const RUNE_DUST_ICON_PATH := CURRENCY_ICON_ROOT + "rune_dust.png"
+## 素材圖示：res://assets/icons/materials/<material_id>.png
+const MATERIAL_ICON_ROOT := "res://assets/icons/materials/"
+const RESOURCE_ICON_CHIP_SCRIPT := preload("res://scripts/resource_icon_chip.gd")
+const RESOURCE_ICON_CHIP_SIZE := 36
 ## 局內共通強化「種類」格數：初始 5，符文大師可擴至 7（每種強化佔一格，同種可疊層）
 const COMMON_UPGRADE_SLOT_INITIAL := 5
 const COMMON_UPGRADE_SLOT_MAX := 7
@@ -966,6 +982,127 @@ func _format_favorite_stat_value(value: float, decimals: int = 0) -> String:
 
 const ARMAMENT_STAT_ICON_SIZE := 18
 const PAUSE_LIVE_STAT_ICON_SIZE := 16
+
+
+func gold_icon_path() -> String:
+	if ResourceLoader.exists(GOLD_ICON_PATH, "Texture2D"):
+		return GOLD_ICON_PATH
+	if ResourceLoader.exists(GOLD_ICON_FALLBACK_PATH, "Texture2D"):
+		return GOLD_ICON_FALLBACK_PATH
+	return ""
+
+
+func gold_icon_bbcode(size: int = ARMAMENT_STAT_ICON_SIZE, link_meta: bool = true) -> String:
+	var path: String = gold_icon_path()
+	if path == "":
+		return ""
+	var img: String = "[img=%dx%d]%s[/img]" % [size, size, path]
+	if link_meta:
+		return "[url=gold]%s[/url]" % img
+	return img
+
+
+func rune_dust_icon_path() -> String:
+	if ResourceLoader.exists(RUNE_DUST_ICON_PATH, "Texture2D"):
+		return RUNE_DUST_ICON_PATH
+	return ""
+
+
+func rune_dust_icon_bbcode(size: int = ARMAMENT_STAT_ICON_SIZE, link_meta: bool = true) -> String:
+	var path: String = rune_dust_icon_path()
+	if path == "":
+		return ""
+	var img: String = "[img=%dx%d]%s[/img]" % [size, size, path]
+	if link_meta:
+		return "[url=rune_dust]%s[/url]" % img
+	return img
+
+
+func material_icon_path(material_id: String) -> String:
+	if material_id == "":
+		return ""
+	var path: String = MATERIAL_ICON_ROOT + material_id + ".png"
+	if ResourceLoader.exists(path, "Texture2D"):
+		return path
+	return ""
+
+
+func material_icon_bbcode(
+		material_id: String,
+		size: int = ARMAMENT_STAT_ICON_SIZE,
+		link_meta: bool = true) -> String:
+	var path: String = material_icon_path(material_id)
+	if path == "":
+		return tr_material_name(material_id)
+	var img: String = "[img=%dx%d]%s[/img]" % [size, size, path]
+	if link_meta:
+		return "[url=material:%s]%s[/url]" % [material_id, img]
+	return img
+
+
+func resource_meta_tooltip(meta: Variant) -> String:
+	var key: String = String(meta)
+	if key.begins_with("material:"):
+		return tr_material_name(key.substr(9))
+	if key == "gold":
+		return tr("CURRENCY_GOLD_NAME")
+	if key == "rune_dust":
+		return tr("CURRENCY_RUNE_DUST_NAME")
+	return ""
+
+
+func format_gold_amount_bbcode(amount: int, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	var icon: String = gold_icon_bbcode(size)
+	if icon != "":
+		return "%s %d" % [icon, amount]
+	return str(amount)
+
+
+func format_gold_cost_bbcode(amount: int, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	var icon: String = gold_icon_bbcode(size)
+	if icon != "":
+		return "%s %d" % [icon, amount]
+	return tr("BLACKSMITH_COST_GOLD_FMT") % amount
+
+
+func format_material_cost_bbcode(
+		material_id: String,
+		have: int,
+		need: int,
+		size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	var icon: String = material_icon_bbcode(material_id, size)
+	return "%s %d/%d" % [icon, have, need]
+
+
+func make_material_icon_chip(material_id: String, amount: int = -1, icon_size: int = RESOURCE_ICON_CHIP_SIZE) -> ResourceIconChip:
+	var chip: ResourceIconChip = RESOURCE_ICON_CHIP_SCRIPT.new()
+	var tex: Texture2D = null
+	var path: String = material_icon_path(material_id)
+	if path != "":
+		tex = ResourceLoader.load(path, "Texture2D") as Texture2D
+	chip.configure(tr_material_name(material_id), tex, amount, icon_size)
+	return chip
+
+
+func make_gold_icon_chip(amount: int = -1, icon_size: int = RESOURCE_ICON_CHIP_SIZE) -> ResourceIconChip:
+	var chip: ResourceIconChip = RESOURCE_ICON_CHIP_SCRIPT.new()
+	var tex: Texture2D = null
+	var path: String = gold_icon_path()
+	if path != "":
+		tex = ResourceLoader.load(path, "Texture2D") as Texture2D
+	chip.configure(tr("CURRENCY_GOLD_NAME"), tex, amount, icon_size)
+	return chip
+
+
+func make_rune_dust_icon_chip(amount: int = -1, icon_size: int = RESOURCE_ICON_CHIP_SIZE) -> ResourceIconChip:
+	var chip: ResourceIconChip = RESOURCE_ICON_CHIP_SCRIPT.new()
+	var tex: Texture2D = null
+	var path: String = rune_dust_icon_path()
+	if path != "":
+		tex = ResourceLoader.load(path, "Texture2D") as Texture2D
+	chip.configure(tr("CURRENCY_RUNE_DUST_NAME"), tex, amount, icon_size)
+	return chip
+
 
 ## 暫停選單「即時素質」列 → 通用能力圖示 id
 func live_stat_common_icon_id(stat_key: String) -> String:
@@ -2206,6 +2343,16 @@ func sprite_strip_feet_offset_y(
 	return feet_anchor_y - foot_from_center * sc + fine_offset_y
 
 
+func apply_icon_button(btn: Button, icon_path: String, fallback_text: String = "") -> void:
+	btn.text = ""
+	btn.expand_icon = true
+	if icon_path != "" and ResourceLoader.exists(icon_path, "Texture2D"):
+		btn.icon = ResourceLoader.load(icon_path, "Texture2D") as Texture2D
+	elif fallback_text != "":
+		btn.text = fallback_text
+		btn.icon = null
+
+
 func resolve_frame_texture(entry: Variant) -> Texture2D:
 	if entry is Texture2D:
 		return entry
@@ -2213,6 +2360,8 @@ func resolve_frame_texture(entry: Variant) -> Texture2D:
 		var path: String = String(entry)
 		if path == "":
 			return null
+		if ResourceLoader.exists(path, "Texture2D"):
+			return ResourceLoader.load(path, "Texture2D") as Texture2D
 		return load(path) as Texture2D
 	return null
 
@@ -2348,20 +2497,70 @@ func get_sprite_sheet_anim_frames(sheet_id: String) -> Dictionary:
 	return out
 
 
-func _list_dreamir_png_paths(subdir: String) -> Array:
+func _normalize_res_dir(dir: String) -> String:
+	var p: String = String(dir).strip_edges().replace("\\", "/")
+	if not p.begins_with("res://"):
+		p = "res://" + p.trim_prefix("/")
+	if not p.ends_with("/"):
+		p += "/"
+	return p
+
+
+func _res_path_join(dir_path: String, entry: String) -> String:
+	var name: String = String(entry).strip_edges().replace("\\", "/")
+	if name.begins_with("res://"):
+		return name
+	return dir_path + name.trim_prefix("/")
+
+
+func _list_dreamir_png_paths(subdir: String, recursive: bool = false) -> Array:
+	return _list_png_paths_in_dir(subdir, recursive)
+
+
+## 列出資料夾內 PNG（網頁匯出優先 ResourceLoader；編輯器可 fallback DirAccess）
+func _list_png_paths_in_dir(dir: String, recursive: bool = false) -> Array:
 	var paths: Array = []
-	var dir := DirAccess.open(subdir)
-	if dir == null:
-		return paths
-	dir.list_dir_begin()
-	var fn := dir.get_next()
-	while fn != "":
-		if not fn.begins_with(".") and fn.to_lower().ends_with(".png"):
-			paths.append(subdir.path_join(fn))
-		fn = dir.get_next()
-	dir.list_dir_end()
+	var dir_path: String = _normalize_res_dir(dir)
+	_collect_png_paths_resource_loader(dir_path, recursive, paths)
+	if paths.is_empty():
+		_collect_png_paths_diraccess(dir_path, recursive, paths)
 	paths.sort()
 	return paths
+
+
+func _collect_png_paths_resource_loader(dir_path: String, recursive: bool, paths: Array) -> void:
+	var listed: PackedStringArray = ResourceLoader.list_directory(dir_path)
+	for entry in listed:
+		var name: String = String(entry).strip_edges().replace("\\", "/")
+		if name.is_empty() or name.begins_with("."):
+			continue
+		if name.ends_with("/"):
+			if recursive:
+				_collect_png_paths_resource_loader(dir_path + name, true, paths)
+			continue
+		var full: String = _res_path_join(dir_path, name)
+		if full.to_lower().ends_with(".png"):
+			paths.append(full)
+
+
+func _collect_png_paths_diraccess(dir_path: String, recursive: bool, paths: Array) -> void:
+	var da := DirAccess.open(dir_path)
+	if da == null:
+		return
+	da.list_dir_begin()
+	var fn := da.get_next()
+	while fn != "":
+		if fn == "." or fn == ".." or fn.begins_with("."):
+			fn = da.get_next()
+			continue
+		var full: String = dir_path.path_join(fn)
+		if da.current_is_dir():
+			if recursive:
+				_collect_png_paths_diraccess(_normalize_res_dir(full), true, paths)
+		elif fn.to_lower().ends_with(".png"):
+			paths.append(full)
+		fn = da.get_next()
+	da.list_dir_end()
 
 
 func get_dreamir_sprite_frames(char_id: String) -> Dictionary:
@@ -3834,3 +4033,15 @@ func all_enemy_defs_for_codex() -> Array[Dictionary]:
 			seen[eid] = true
 			out.append(d)
 	return out
+
+
+func _ready() -> void:
+	if OS.has_feature("web"):
+		_prewarm_character_visual_defs()
+
+
+func _prewarm_character_visual_defs() -> void:
+	for c in CHARACTERS:
+		var id: String = String(c.get("id", ""))
+		if id != "":
+			get_character_def(id)

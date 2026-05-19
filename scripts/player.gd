@@ -325,7 +325,7 @@ func setup_from_character(cid: String) -> void:
 			frames_per_row = []
 			has_sprite = true
 	if not has_sprite and char_sprite and visual.has("sprite") and String(visual["sprite"]) != "":
-		var tex: Texture2D = load(visual["sprite"])
+		var tex: Texture2D = GameData.resolve_frame_texture(visual["sprite"])
 		if tex:
 			char_sprite.texture = tex
 			char_sprite.hframes = int(visual.get("hframes", 1))

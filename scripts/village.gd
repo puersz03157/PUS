@@ -79,7 +79,11 @@ var _blacksmith_node = null
 var _merchant_node = null
 var _blacksmith_dialog: CanvasLayer = null
 var _smith_status_label: Label = null
-var _smith_gold_label: Label = null
+var _smith_gold_label: RichTextLabel = null
+var _smith_resource_tip: Label = null
+var _smith_dialog_panel: PanelContainer = null
+var _smith_suppress_craft_press: bool = false
+const _BLACKSMITH_BTN_LABEL := "CraftLabel"
 var _merchant_dialog: CanvasLayer = null
 var _rune_master_node = null
 var _rune_master_dialog: CanvasLayer = null
@@ -1079,7 +1083,7 @@ func _make_village_npc_marker(
 		var anim := Node2D.new()
 		anim.name = "Anim"
 		anim.set_script(VILLAGE_NPC_ANIM_SCRIPT)
-		anim.strip_texture = load(String(strip_def.get("strip", ""))) as Texture2D
+		anim.strip_texture = GameData.resolve_frame_texture(strip_def.get("strip", ""))
 		anim.hframes = maxi(1, int(strip_def.get("hframes", 1)))
 		anim.vframes = maxi(1, int(strip_def.get("vframes", 1)))
 		var row: int = anim_row if anim_row >= 0 else int(strip_def.get("anim_row", 0))
@@ -2314,7 +2318,7 @@ func _build_npc_strip_portrait(parent: Panel, strip_id: String, anim_row: int = 
 	var strip_path: String = String(strip_def.get("strip", ""))
 	if strip_path == "" or not ResourceLoader.exists(strip_path):
 		return
-	var tex: Texture2D = load(strip_path) as Texture2D
+	var tex: Texture2D = GameData.resolve_frame_texture(strip_path)
 	if tex == null:
 		return
 	var hframes: int = int(strip_def.get("hframes", 1))
@@ -2952,8 +2956,8 @@ func _open_house_dialog(player_slot: String) -> void:
 	vbox.add_child(char_row)
 
 	var prev_btn := Button.new()
-	prev_btn.text = tr("P1_HOUSE_CHAR_PREV")
 	prev_btn.custom_minimum_size = Vector2(52, 52)
+	GameData.apply_icon_button(prev_btn, GameData.UI_ICON_ARROW_LEFT, tr("P1_HOUSE_CHAR_PREV_FALLBACK"))
 	prev_btn.pressed.connect(_on_p1_house_char_prev)
 	char_row.add_child(prev_btn)
 
@@ -2971,8 +2975,8 @@ func _open_house_dialog(player_slot: String) -> void:
 	preview_panel.add_child(_house_preview)
 
 	var next_btn := Button.new()
-	next_btn.text = tr("P1_HOUSE_CHAR_NEXT")
 	next_btn.custom_minimum_size = Vector2(52, 52)
+	GameData.apply_icon_button(next_btn, GameData.UI_ICON_ARROW_RIGHT, tr("P1_HOUSE_CHAR_NEXT_FALLBACK"))
 	next_btn.pressed.connect(_on_p1_house_char_next)
 	char_row.add_child(next_btn)
 
@@ -3389,11 +3393,14 @@ func _open_blacksmith_dialog() -> void:
 	root.add_child(dim)
 
 	var panel := PanelContainer.new()
+	_smith_dialog_panel = panel
 	var panel_w: float = min(760.0, vp.x - 40.0)
 	var panel_h: float = min(520.0, vp.y - 40.0)
 	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
 	panel.custom_minimum_size = Vector2(panel_w, panel_h)
 	root.add_child(panel)
+	_smith_resource_tip = _make_resource_tip_label()
+	panel.add_child(_smith_resource_tip)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 20)
@@ -3442,8 +3449,11 @@ func _open_blacksmith_dialog() -> void:
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	line.add_theme_font_size_override("font_size", 15)
 	talk_box.add_child(line)
-	_smith_gold_label = Label.new()
-	_smith_gold_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.35))
+	_smith_gold_label = RichTextLabel.new()
+	_smith_gold_label.bbcode_enabled = true
+	_smith_gold_label.fit_content = true
+	_smith_gold_label.scroll_active = false
+	_smith_gold_label.add_theme_color_override("default_color", Color(1.0, 0.86, 0.35))
 	talk_box.add_child(_smith_gold_label)
 
 	_smith_status_label = Label.new()
@@ -3467,35 +3477,155 @@ func _open_blacksmith_dialog() -> void:
 	close_btn.pressed.connect(_close_blacksmith_dialog)
 	vbox.add_child(close_btn)
 	close_btn.grab_focus()
+	_smith_suppress_craft_press = false
 	_refresh_blacksmith_dialog("")
+
+
+func _make_blacksmith_shop_button() -> Button:
+	var btn := Button.new()
+	btn.custom_minimum_size.y = 44
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var rtl := RichTextLabel.new()
+	rtl.name = _BLACKSMITH_BTN_LABEL
+	rtl.bbcode_enabled = true
+	rtl.fit_content = true
+	rtl.scroll_active = false
+	rtl.mouse_filter = Control.MOUSE_FILTER_STOP
+	rtl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rtl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rtl.offset_left = 10
+	rtl.offset_top = 4
+	rtl.offset_right = -10
+	rtl.offset_bottom = -4
+	if not rtl.meta_hover_started.is_connected(_on_smith_resource_meta_hover):
+		rtl.meta_hover_started.connect(_on_smith_resource_meta_hover)
+		rtl.meta_hover_ended.connect(_on_smith_resource_meta_hide)
+		rtl.meta_clicked.connect(_on_smith_resource_meta_click)
+	rtl.gui_input.connect(_on_smith_craft_label_gui_input.bind(btn))
+	btn.add_child(rtl)
+	return btn
+
+
+func _make_resource_tip_label() -> Label:
+	var lbl := Label.new()
+	lbl.visible = false
+	lbl.z_index = 30
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.98, 0.88))
+	lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+	lbl.add_theme_constant_override("shadow_offset_x", 1)
+	lbl.add_theme_constant_override("shadow_offset_y", 1)
+	var tip_sb := StyleBoxFlat.new()
+	tip_sb.bg_color = Color(0.05, 0.07, 0.14, 0.94)
+	tip_sb.border_color = Color(0.95, 0.65, 0.18, 0.9)
+	tip_sb.border_width_left = 1
+	tip_sb.border_width_right = 1
+	tip_sb.border_width_top = 1
+	tip_sb.border_width_bottom = 1
+	tip_sb.content_margin_left = 8
+	tip_sb.content_margin_right = 8
+	tip_sb.content_margin_top = 4
+	tip_sb.content_margin_bottom = 4
+	tip_sb.corner_radius_top_left = 4
+	tip_sb.corner_radius_top_right = 4
+	tip_sb.corner_radius_bottom_left = 4
+	tip_sb.corner_radius_bottom_right = 4
+	lbl.add_theme_stylebox_override("normal", tip_sb)
+	return lbl
+
+
+func _hide_smith_resource_tip() -> void:
+	if _smith_resource_tip:
+		_smith_resource_tip.visible = false
+
+
+func _show_smith_resource_tip(text: String, at_global: Vector2) -> void:
+	if _smith_resource_tip == null or _smith_dialog_panel == null or text == "":
+		return
+	_smith_resource_tip.text = text
+	_smith_resource_tip.visible = true
+	_smith_resource_tip.reset_size()
+	var local_pos: Vector2 = _smith_dialog_panel.get_global_transform().affine_inverse() * at_global
+	_smith_resource_tip.position = local_pos - Vector2(_smith_resource_tip.size.x * 0.5, _smith_resource_tip.size.y + 8.0)
+	_smith_resource_tip.position.x = clampf(
+		_smith_resource_tip.position.x, 8.0,
+		_smith_dialog_panel.size.x - _smith_resource_tip.size.x - 8.0)
+	_smith_resource_tip.position.y = maxf(8.0, _smith_resource_tip.position.y)
+
+
+func _on_smith_resource_meta_hover(meta: Variant) -> void:
+	var tip: String = GameData.resource_meta_tooltip(meta)
+	if tip == "":
+		return
+	var mp: Vector2 = get_viewport().get_mouse_position()
+	_show_smith_resource_tip(tip, mp)
+
+
+func _on_smith_resource_meta_hide(_meta: Variant) -> void:
+	_hide_smith_resource_tip()
+
+
+func _on_smith_resource_meta_click(meta: Variant) -> void:
+	var tip: String = GameData.resource_meta_tooltip(meta)
+	if tip != "":
+		var mp: Vector2 = get_viewport().get_mouse_position()
+		_show_smith_resource_tip(tip, mp)
+	# 點圖示只顯示名稱，不觸發購買（Godot 4.6 無 get_meta_at_position）
+	_smith_suppress_craft_press = true
+
+
+func _on_smith_craft_label_gui_input(event: InputEvent, btn: Button) -> void:
+	if btn == null or btn.disabled:
+		return
+	var is_press: bool = false
+	if event is InputEventScreenTouch:
+		is_press = (event as InputEventScreenTouch).pressed
+	elif event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event
+		is_press = mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed
+	if not is_press:
+		return
+	if _smith_suppress_craft_press:
+		_smith_suppress_craft_press = false
+		return
+	btn.emit_signal("pressed")
+
+
+func _set_blacksmith_button_bbcode(btn: Button, bbcode: String) -> void:
+	var rtl: RichTextLabel = btn.get_node_or_null(_BLACKSMITH_BTN_LABEL) as RichTextLabel
+	if rtl:
+		rtl.text = bbcode
+	else:
+		btn.text = bbcode
 
 
 func _add_blacksmith_goods(goods: VBoxContainer) -> void:
 	# ── 格數升級 ──
 	goods.add_child(_make_blacksmith_section_label(tr("BLACKSMITH_SECTION_SLOTS")))
-	var slot_btn := Button.new()
+	var slot_btn := _make_blacksmith_shop_button()
 	slot_btn.name = "SlotButton"
 	slot_btn.pressed.connect(_buy_blacksmith_slot)
 	goods.add_child(slot_btn)
-	var fav_slot_btn := Button.new()
+	var fav_slot_btn := _make_blacksmith_shop_button()
 	fav_slot_btn.name = "FavoriteSlotButton"
 	fav_slot_btn.pressed.connect(_buy_blacksmith_favorite_slot)
 	goods.add_child(fav_slot_btn)
-	var weapon_btn := Button.new()
+	var weapon_btn := _make_blacksmith_shop_button()
 	weapon_btn.name = "WeaponKindButton"
 	weapon_btn.pressed.connect(_buy_blacksmith_weapon_kind)
 	goods.add_child(weapon_btn)
 	# ── 武器製作 ──
 	goods.add_child(_make_blacksmith_section_label(tr("BLACKSMITH_SECTION_WEAPONS")))
 	for weapon_id in GameState.BLACKSMITH_CRAFT_WEAPON_IDS:
-		var weapon_craft_btn := Button.new()
+		var weapon_craft_btn := _make_blacksmith_shop_button()
 		weapon_craft_btn.name = "WeaponCraft_" + weapon_id
 		weapon_craft_btn.pressed.connect(_craft_blacksmith_weapon_kind.bind(weapon_id))
 		goods.add_child(weapon_craft_btn)
 	# ── 武裝製作 ──
 	goods.add_child(_make_blacksmith_section_label(tr("BLACKSMITH_SECTION_ARMAMENTS")))
 	for arm_id in GameData.blacksmith_armament_ids():
-		var btn := Button.new()
+		var btn := _make_blacksmith_shop_button()
 		btn.name = "Armament_" + arm_id
 		btn.pressed.connect(_buy_blacksmith_armament.bind(arm_id))
 		goods.add_child(btn)
@@ -3514,7 +3644,7 @@ func _refresh_blacksmith_dialog(status: String) -> void:
 	if _blacksmith_dialog == null:
 		return
 	if _smith_gold_label:
-		_smith_gold_label.text = tr("BLACKSMITH_GOLD_FMT") % GameState.gold
+		_smith_gold_label.text = tr("BLACKSMITH_GOLD_FMT") % GameData.format_gold_amount_bbcode(GameState.gold)
 	if _smith_status_label:
 		_smith_status_label.text = status
 	var goods: Array = _blacksmith_dialog.find_children("*", "Button", true, false)
@@ -3526,33 +3656,40 @@ func _refresh_blacksmith_dialog(status: String) -> void:
 			"SlotButton":
 				if GameState.is_blacksmith_slot_tier2_locked():
 					btn.disabled = true
-					btn.text = tr("BLACKSMITH_TIER2_LOCKED")
+					_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_TIER2_LOCKED"))
 				else:
 					var cost: int = GameState.next_weapon_slot_unlock_cost()
 					btn.disabled = cost < 0 or GameState.gold < cost
-					btn.text = tr("BLACKSMITH_BUY_SLOT_DONE") if cost < 0 \
-						else tr("BLACKSMITH_BUY_SLOT_FMT") % [GameState.get_unlocked_weapon_slot_count() + 1, cost]
+					_set_blacksmith_button_bbcode(btn,
+						tr("BLACKSMITH_BUY_SLOT_DONE") if cost < 0 \
+						else tr("BLACKSMITH_BUY_SLOT_FMT") % [
+							GameState.get_unlocked_weapon_slot_count() + 1,
+							GameData.format_gold_cost_bbcode(cost)])
 			"FavoriteSlotButton":
 				if GameState.is_blacksmith_house_slot_tier2_locked():
 					btn.disabled = true
-					btn.text = tr("BLACKSMITH_TIER2_LOCKED")
+					_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_TIER2_LOCKED"))
 				else:
 					var fc: int = GameState.next_house_favorite_slot_unlock_cost()
 					var nxt: int = GameState.get_house_favorite_unlocked_slot_count() + 1
 					btn.disabled = fc < 0 or GameState.gold < fc
-					btn.text = tr("BLACKSMITH_BUY_FAVORITE_SLOT_DONE") if fc < 0 \
-						else tr("BLACKSMITH_BUY_FAVORITE_SLOT_FMT") % [nxt, fc]
+					_set_blacksmith_button_bbcode(btn,
+						tr("BLACKSMITH_BUY_FAVORITE_SLOT_DONE") if fc < 0 \
+						else tr("BLACKSMITH_BUY_FAVORITE_SLOT_FMT") % [
+							nxt, GameData.format_gold_cost_bbcode(fc)])
 			"WeaponKindButton":
 				var wid: String = GameState.next_locked_weapon_id()
 				var tier2_wid: String = GameState.next_locked_weapon_id_tier2()
 				if wid == "" and tier2_wid != "":
 					btn.disabled = true
-					btn.text = tr("BLACKSMITH_TIER2_LOCKED")
+					_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_TIER2_LOCKED"))
 				else:
 					btn.disabled = wid == "" or GameState.gold < GameState.BLACKSMITH_WEAPON_KIND_COST
-					btn.text = tr("BLACKSMITH_BUY_WEAPON_DONE") if wid == "" \
+					_set_blacksmith_button_bbcode(btn,
+						tr("BLACKSMITH_BUY_WEAPON_DONE") if wid == "" \
 						else tr("BLACKSMITH_BUY_WEAPON_FMT") % [
-							GameData.tr_weapon_name(wid), GameState.BLACKSMITH_WEAPON_KIND_COST]
+							GameData.tr_weapon_name(wid),
+							GameData.format_gold_cost_bbcode(GameState.BLACKSMITH_WEAPON_KIND_COST)])
 			_:
 				if String(btn.name).begins_with("WeaponCraft_"):
 					var craft_weapon_id: String = String(btn.name).replace("WeaponCraft_", "")
@@ -3563,8 +3700,8 @@ func _refresh_blacksmith_dialog(status: String) -> void:
 					if not weapon_owned:
 						var weapon_cost_text: String = _format_weapon_craft_cost(craft_weapon_id)
 						btn.disabled = not GameState.can_craft_weapon_kind(craft_weapon_id)
-						btn.text = tr("BLACKSMITH_CRAFT_WEAPON_FMT") % [
-							GameData.tr_name(wdef), weapon_cost_text]
+						_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_CRAFT_WEAPON_FMT") % [
+							GameData.tr_name(wdef), weapon_cost_text])
 				elif String(btn.name).begins_with("Armament_"):
 					var arm_id: String = String(btn.name).replace("Armament_", "")
 					var adef: Dictionary = GameData.get_armament_def(arm_id)
@@ -3576,22 +3713,21 @@ func _refresh_blacksmith_dialog(status: String) -> void:
 					if btn.visible:
 						var cost_text: String = _format_armament_craft_cost(arm_id)
 						btn.disabled = not GameState.can_craft_armament(arm_id)
-						btn.text = tr("BLACKSMITH_CRAFT_ARMAMENT_FMT") % [
+						_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_CRAFT_ARMAMENT_FMT") % [
 							GameData.tr_name(adef), cost_text,
-							GameData.tr_armament_desc_with_flat_stats(arm_id, false)]
+							GameData.tr_armament_desc_with_flat_stats(arm_id, true)])
 
 
 func _format_weapon_craft_cost(weapon_id: String) -> String:
 	var parts: Array[String] = []
 	var gold_cost: int = GameState.weapon_gold_cost(weapon_id)
 	if gold_cost > 0:
-		parts.append(tr("BLACKSMITH_COST_GOLD_FMT") % gold_cost)
+		parts.append(GameData.format_gold_cost_bbcode(gold_cost))
 	for material_id in GameState.weapon_material_costs(weapon_id).keys():
 		var mid: String = String(material_id)
 		var need: int = int(GameState.weapon_material_costs(weapon_id)[material_id])
 		var have: int = GameState.get_material_amount(mid)
-		parts.append(tr("BLACKSMITH_COST_MATERIAL_FMT") % [
-			GameData.tr_material_name(mid), have, need])
+		parts.append(GameData.format_material_cost_bbcode(mid, have, need))
 	return " + ".join(parts)
 
 
@@ -3599,13 +3735,12 @@ func _format_armament_craft_cost(arm_id: String) -> String:
 	var parts: Array[String] = []
 	var gold_cost: int = GameState.armament_gold_cost(arm_id)
 	if gold_cost > 0:
-		parts.append(tr("BLACKSMITH_COST_GOLD_FMT") % gold_cost)
+		parts.append(GameData.format_gold_cost_bbcode(gold_cost))
 	for material_id in GameState.armament_material_costs(arm_id).keys():
 		var mid: String = String(material_id)
 		var need: int = int(GameState.armament_material_costs(arm_id)[material_id])
 		var have: int = GameState.get_material_amount(mid)
-		parts.append(tr("BLACKSMITH_COST_MATERIAL_FMT") % [
-			GameData.tr_material_name(mid), have, need])
+		parts.append(GameData.format_material_cost_bbcode(mid, have, need))
 	return " + ".join(parts)
 
 
@@ -3654,6 +3789,9 @@ func _close_blacksmith_dialog() -> void:
 	_blacksmith_dialog = null
 	_smith_status_label = null
 	_smith_gold_label = null
+	_smith_resource_tip = null
+	_smith_dialog_panel = null
+	_smith_suppress_craft_press = false
 	get_tree().paused = false
 
 

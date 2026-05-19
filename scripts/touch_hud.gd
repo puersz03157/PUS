@@ -131,9 +131,12 @@ func _build_ui() -> void:
 
 	# 暫停按鈕（左上角；觸發 ui_back 由 PauseMenu 自行開合）
 	pause_button = Button.new()
-	pause_button.text = "❚❚"
-	pause_button.add_theme_font_size_override("font_size", 22)
+	GameData.apply_icon_button(pause_button, GameData.UI_ICON_PAUSE, tr("TOUCH_PAUSE_FALLBACK"))
+	if pause_button.text != "":
+		pause_button.add_theme_font_size_override("font_size", 14)
 	pause_button.add_theme_color_override("font_color", Color(1, 0.95, 0.7))
+	pause_button.add_theme_color_override("icon_normal_color", Color(1, 0.95, 0.7))
+	pause_button.add_theme_color_override("icon_hover_color", Color(1, 1.0, 0.85))
 	pause_button.focus_mode = Control.FOCUS_NONE
 	pause_button.process_mode = Node.PROCESS_MODE_ALWAYS
 	var pause_sb := StyleBoxFlat.new()
