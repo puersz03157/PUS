@@ -555,11 +555,11 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 
 	# 武裝 / 符文（符文仍預留；武裝可由鐵匠製作後選用）
 	var empty_txt: String = tr("CSEL_SLOT_EMPTY")
+	var arm_opts: Array = _armament_options()
+	var arm_id: String = String(arm_opts[armament_idx]) if arm_opts.size() > 0 else "none"
+	var arm_def: Dictionary = GameData.get_armament_def(arm_id)
 	if eq_lbl:
-		var arm_opts: Array = _armament_options()
-		var arm_id: String = String(arm_opts[armament_idx]) if arm_opts.size() > 0 else "none"
-		var arm_def: Dictionary = GameData.get_armament_def(arm_id)
-		var arm_name: String = GameData.tr_name(arm_def) if not arm_def.is_empty() else empty_txt
+		var arm_name: String = GameData.format_armament_name_bbcode(arm_id) if not arm_def.is_empty() else empty_txt
 		eq_lbl.text = "%s\n%s" % [
 			_row_text(tr("CSEL_ARMAMENT_LBL"), arm_name,
 				arm_opts.size() > 1, focus == FOCUS_ARMAMENT and not ready),
@@ -569,7 +569,9 @@ func _apply_panel(idx: int, passive_idx: int, skill_idx: int, armament_idx: int,
 		rune_lbl.text = tr("CSEL_ROW_FMT") % [tr("CSEL_RUNE_LBL"), empty_txt]
 		rune_lbl.modulate = Color(0.55, 0.62, 0.72)
 	if eq_icon:
-		eq_icon.visible = false
+		var arm_tex: Texture2D = GameData.load_armament_icon(arm_id) if not arm_def.is_empty() else null
+		eq_icon.texture = arm_tex
+		eq_icon.visible = arm_tex != null
 	if rune_icon:
 		rune_icon.visible = false
 

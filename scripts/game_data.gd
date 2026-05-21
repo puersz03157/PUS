@@ -89,6 +89,8 @@ const LEAF_RANGER_ANIM_FOLDERS: Dictionary = {
 const BOW_ARROW_PROJECTILE_TEXTURE := "res://assets/Effects/arrow/arrow_.png"
 ## 武器 HUD／圖鑑圖示：res://assets/icons/weapons/<weapon_id>.png（無圖則 fallback）
 const WEAPON_ICON_ROOT := "res://assets/icons/weapons/"
+## 武裝圖示：res://assets/icons/armaments/<armament_id>.png（id 同 ARMAMENTS；none 無圖）
+const ARMAMENT_ICON_ROOT := "res://assets/icons/armaments/"
 ## 通用能力升級圖示：res://assets/icons/common/<upgrade_id>.png（id 同 COMMON_UPGRADES）
 const COMMON_ICON_ROOT := "res://assets/icons/common/"
 ## 介面圖示（避免 Unicode 箭頭／齒輪在自訂字型下變亂碼，網頁版尤其明顯）
@@ -147,7 +149,26 @@ const WEAPONS: Array[Dictionary] = [
 		"crit_chance": 0.06,
 		"crit_damage_mult": 2.2,
 		"range": 230.0,
-		"params": {"angle_deg": 28.0, "color": Color(1.0, 0.95, 0.5)},
+		"params": {
+			"angle_deg": 28.0,
+			"color": Color(1.0, 0.95, 0.5),
+			"attack_effect": {
+				"sheet": "res://assets/Effects/spear.png",
+				"frame_w": 64,
+				"frame_h": 64,
+				"frame_count": 8,
+				"fps": 14.0,
+				"hit_frames": [3, 4],
+				"art_dir": [1.0, -1.0],
+				"art_pivot": [-0.5, 0.5],
+				"art_tip": [0.5, -0.5],
+				"tip_half_width": 22.0,
+				"fit_visual_to_reach": true,
+				"art_extent": 88.0,
+				"visual_scale_mult": 1.0,
+				"z_index": 8,
+			},
+		},
 		"max_effect": "目標越多傷害提升", "max_effect_key": "WEAPON_SPEAR_MAX",
 	},
 	{
@@ -840,7 +861,12 @@ func get_weapon_def(id: String) -> Dictionary:
 func get_armament_def(id: String) -> Dictionary:
 	for a in ARMAMENTS:
 		if a["id"] == id:
-			return a
+			var d: Dictionary = a.duplicate(true)
+			if id != "none" and (not d.has("icon") or String(d.get("icon", "")) == ""):
+				var icon_path: String = ARMAMENT_ICON_ROOT + id + ".png"
+				if ResourceLoader.exists(icon_path, "Texture2D"):
+					d["icon"] = icon_path
+			return d
 	return {}
 
 
@@ -1048,6 +1074,8 @@ func resource_meta_tooltip(meta: Variant) -> String:
 		return tr("CURRENCY_GOLD_NAME")
 	if key == "rune_dust":
 		return tr("CURRENCY_RUNE_DUST_NAME")
+	if key.begins_with("armament:"):
+		return tr_armament_name(key.substr(10))
 	return ""
 
 
@@ -2967,6 +2995,12 @@ func load_weapon_icon(weapon_id: String) -> Texture2D:
 	return _load_icon_safe(String(w.get("icon", "")))
 
 
+func load_armament_icon(armament_id: String) -> Texture2D:
+	if armament_id == "" or armament_id == "none":
+		return null
+	return _load_icon_safe(armament_icon_path(armament_id))
+
+
 ## 彈珠台底部獎勵格圖示（武器／通用強化；金幣等無圖則回 null）
 func pinball_reward_icon(reward: Dictionary) -> Texture2D:
 	var rtype: String = String(reward.get("type", "noop"))
@@ -3024,6 +3058,41 @@ func format_weapon_name_bbcode(weapon_id: String, size: int = ARMAMENT_STAT_ICON
 	if icon != "":
 		return "%s %s" % [icon, wname]
 	return wname
+
+
+func armament_icon_path(armament_id: String) -> String:
+	if armament_id == "" or armament_id == "none":
+		return ""
+	var from_def: String = String(get_armament_def(armament_id).get("icon", ""))
+	if from_def != "":
+		return from_def
+	var path: String = ARMAMENT_ICON_ROOT + armament_id + ".png"
+	if ResourceLoader.exists(path, "Texture2D"):
+		return path
+	return ""
+
+
+func armament_icon_bbcode(
+		armament_id: String,
+		size: int = ARMAMENT_STAT_ICON_SIZE,
+		link_meta: bool = false) -> String:
+	var path: String = armament_icon_path(armament_id)
+	if path == "":
+		return ""
+	var img: String = "[img=%dx%d]%s[/img]" % [size, size, path]
+	if link_meta:
+		return "[url=armament:%s]%s[/url]" % [armament_id, img]
+	return img
+
+
+func format_armament_name_bbcode(armament_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
+	if armament_id == "" or armament_id == "none":
+		return tr("CSEL_NONE")
+	var icon: String = armament_icon_bbcode(armament_id, size)
+	var aname: String = tr_armament_name(armament_id)
+	if icon != "":
+		return "%s %s" % [icon, aname]
+	return aname
 
 
 func format_weapon_upgrade_label_bbcode(upgrade_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:

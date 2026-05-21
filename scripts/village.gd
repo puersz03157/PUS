@@ -3714,7 +3714,7 @@ func _refresh_blacksmith_dialog(status: String) -> void:
 						var cost_text: String = _format_armament_craft_cost(arm_id)
 						btn.disabled = not GameState.can_craft_armament(arm_id)
 						_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_CRAFT_ARMAMENT_FMT") % [
-							GameData.tr_name(adef), cost_text,
+							GameData.format_armament_name_bbcode(arm_id), cost_text,
 							GameData.tr_armament_desc_with_flat_stats(arm_id, true)])
 
 

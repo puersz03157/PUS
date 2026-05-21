@@ -1,5 +1,8 @@
 extends "res://scripts/weapons/weapon_base.gd"
 ## 近戰扇形：根據玩家朝向劃出扇形，掃到的敵人受傷害。
+## 若 params.attack_effect 有設定 spritesheet，改播特效並用三角形（等）命中。
+
+const MELEE_SPRITESHEET_SWING := preload("res://scripts/weapons/melee_spritesheet_swing.gd")
 
 func fire() -> bool:
 	_swing()
@@ -12,6 +15,9 @@ func fire() -> bool:
 
 func _swing() -> void:
 	if owner_player == null or owner_player.hp <= 0:
+		return
+	var effect_cfg: Variant = def["params"].get("attack_effect", null)
+	if effect_cfg is Dictionary and not effect_cfg.is_empty() and _swing_spritesheet_effect(effect_cfg):
 		return
 	var angle_deg: float = float(def["params"].get("angle_deg", 45.0))
 	var col: Color = def["params"].get("color", Color.WHITE)
@@ -44,6 +50,26 @@ func _swing() -> void:
 		var ang: float = abs(wrapf(to_e.angle() - center_angle, -PI, PI))
 		if ang <= rad * 0.5:
 			damage_enemy(e)
+
+
+func _swing_spritesheet_effect(effect_cfg: Dictionary) -> bool:
+	var dir: Vector2 = _aim_dir()
+	if dir == Vector2.ZERO:
+		return false
+	var sheet_path: String = String(effect_cfg.get("sheet", ""))
+	if sheet_path == "" or not ResourceLoader.exists(sheet_path, "Texture2D"):
+		return false
+	var base_range: float = float(def.get("range", eff_range))
+	var scene_root: Node = owner_player.get_tree().current_scene
+	MELEE_SPRITESHEET_SWING.play(
+		scene_root,
+		self,
+		owner_player.global_position,
+		dir,
+		eff_range,
+		base_range,
+		effect_cfg)
+	return true
 
 
 # 近戰自動瞄準：朝最近敵人；若範圍內沒敵人則保留 face_dir

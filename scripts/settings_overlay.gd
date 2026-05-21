@@ -1284,7 +1284,7 @@ func _refresh_items_panel() -> void:
 				var adef: Dictionary = GameData.get_armament_def(String(aid))
 				if adef.is_empty():
 					continue
-				lines.append(tr("ITEMS_ARMAMENT_LINE_FMT") % GameData.tr_name(adef))
+				lines.append(tr("ITEMS_ARMAMENT_LINE_FMT") % GameData.format_armament_name_bbcode(String(aid)))
 			if lines.is_empty():
 				_items_add_hint_label(tr("ITEMS_TAB_EMPTY"))
 			else:
@@ -1478,7 +1478,7 @@ func _codex_armaments_text() -> String:
 		var title_color: String = "#7dff9d" if unlocked else "#8f96aa"
 		var status: String = tr("CODEX_STATUS_UNLOCKED") if unlocked else tr("CODEX_STATUS_LOCKED")
 		lines.append("%s [color=%s][b]%s[/b][/color]  %s" % [
-			_codex_icon_placeholder(), title_color, GameData.tr_name(a), status])
+			_codex_armament_icon_bbcode(aid), title_color, GameData.tr_name(a), status])
 		if unlocked:
 			lines.append(GameData.tr_desc(a))
 			lines.append(_codex_armament_effect_text(a))
@@ -1675,6 +1675,13 @@ func _codex_common_upgrade_icon_bbcode(upgrade: Dictionary) -> String:
 	var path: String = String(GameData.get_common_upgrade_def(id).get("icon", ""))
 	if path == "":
 		path = GameData.common_upgrade_icon_path(id)
+	if path == "" or not ResourceLoader.exists(path):
+		return _codex_icon_placeholder()
+	return "[img=28x28]%s[/img]" % path
+
+
+func _codex_armament_icon_bbcode(armament_id: String) -> String:
+	var path: String = GameData.armament_icon_path(armament_id)
 	if path == "" or not ResourceLoader.exists(path):
 		return _codex_icon_placeholder()
 	return "[img=28x28]%s[/img]" % path
