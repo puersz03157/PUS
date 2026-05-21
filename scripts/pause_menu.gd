@@ -22,6 +22,8 @@ var content_scroll: ScrollContainer
 var content_root: VBoxContainer
 var resume_button: Button
 var menu_button: Button
+var _weapon_tip_wrap: PanelContainer
+var _weapon_tip_label: Label
 
 
 func _ready() -> void:
@@ -61,6 +63,8 @@ func _set_open(v: bool) -> void:
 	open_state = v
 	visible = v
 	get_tree().paused = v
+	if not v:
+		_hide_weapon_tip()
 	if v:
 		_layout_pause_panel(get_viewport().get_visible_rect().size)
 		_refresh_stats()
@@ -126,6 +130,8 @@ func _build_ui() -> void:
 	menu_button.process_mode = Node.PROCESS_MODE_ALWAYS
 	menu_button.pressed.connect(_on_main_menu)
 	panel.add_child(menu_button)
+
+	_build_weapon_tip_popup()
 
 	_layout_pause_panel(vp)
 	if not get_viewport().size_changed.is_connected(_layout_pause_panel):
@@ -289,8 +295,12 @@ func _build_player_section(p: Node) -> void:
 			var name_str: String = (tr("PAUSE_WEAPON_NAME_LV_FMT").replace("\\n", "\n")) % [
 				GameData.tr_name(wdef), int(w["level"])]
 			var w_tex: Texture2D = GameData.load_weapon_icon(wid)
-			w_row.add_child(_make_slot_with_icon(name_str, true,
-				Color(0.55, 0.95, 0.6), 96, 44, 11, w_tex))
+			var w_slot: Panel = _make_slot_with_icon(name_str, true,
+				Color(0.55, 0.95, 0.6), 96, 44, 11, w_tex)
+			var tip_text: String = GameData.format_weapon_upgrades_tooltip(w)
+			if tip_text != "":
+				_wire_weapon_slot_tip(w_slot, tip_text)
+			w_row.add_child(w_slot)
 		else:
 			w_row.add_child(_make_slot(tr("PAUSE_SLOT_EMPTY"), false,
 				Color(0.4, 0.4, 0.5), 96, 44, 12))
@@ -405,6 +415,96 @@ func _build_stack_lines(p: Node) -> Array[String]:
 	if p.regen_per_sec > 0.001:
 		stacks.append(tr("STAT_REGEN_FMT") % p.regen_per_sec)
 	return stacks
+
+
+func _build_weapon_tip_popup() -> void:
+	_weapon_tip_wrap = PanelContainer.new()
+	_weapon_tip_wrap.visible = false
+	_weapon_tip_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_weapon_tip_wrap.z_index = 30
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.07, 0.14, 0.96)
+	sb.border_color = Color(0.55, 0.75, 0.95)
+	sb.border_width_left = 2
+	sb.border_width_right = 2
+	sb.border_width_top = 2
+	sb.border_width_bottom = 2
+	sb.corner_radius_top_left = 6
+	sb.corner_radius_top_right = 6
+	sb.corner_radius_bottom_left = 6
+	sb.corner_radius_bottom_right = 6
+	sb.content_margin_left = 10
+	sb.content_margin_right = 10
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	_weapon_tip_wrap.add_theme_stylebox_override("panel", sb)
+	_weapon_tip_wrap.custom_minimum_size = Vector2(180, 0)
+	panel.add_child(_weapon_tip_wrap)
+	_weapon_tip_label = Label.new()
+	_weapon_tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_weapon_tip_label.add_theme_font_size_override("font_size", 13)
+	_weapon_tip_label.add_theme_color_override("font_color", Color(0.92, 0.96, 1.0))
+	_weapon_tip_wrap.add_child(_weapon_tip_label)
+
+
+func _hide_weapon_tip() -> void:
+	if _weapon_tip_wrap != null:
+		_weapon_tip_wrap.visible = false
+
+
+func _show_weapon_tip(text: String, global_anchor: Vector2) -> void:
+	if _weapon_tip_wrap == null or _weapon_tip_label == null or panel == null or text == "":
+		return
+	_weapon_tip_label.text = text
+	_weapon_tip_wrap.visible = true
+	_weapon_tip_wrap.reset_size()
+	var local_pos: Vector2 = panel.get_global_transform().affine_inverse() * global_anchor
+	_weapon_tip_wrap.position = local_pos - Vector2(
+		_weapon_tip_wrap.size.x * 0.5, _weapon_tip_wrap.size.y + 8.0)
+	_weapon_tip_wrap.position.x = clampf(
+		_weapon_tip_wrap.position.x, 8.0, panel.size.x - _weapon_tip_wrap.size.x - 8.0)
+	_weapon_tip_wrap.position.y = clampf(
+		_weapon_tip_wrap.position.y, 8.0, panel.size.y - _weapon_tip_wrap.size.y - 8.0)
+
+
+func _wire_weapon_slot_tip(slot: Panel, tip_text: String) -> void:
+	if slot == null or tip_text == "":
+		return
+	slot.mouse_filter = Control.MOUSE_FILTER_STOP
+	for child in slot.get_children():
+		child.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not slot.mouse_entered.is_connected(_on_weapon_slot_mouse_entered):
+		slot.mouse_entered.connect(_on_weapon_slot_mouse_entered.bind(slot, tip_text))
+		slot.mouse_exited.connect(_on_weapon_slot_mouse_exited)
+		slot.gui_input.connect(_on_weapon_slot_gui_input.bind(slot, tip_text))
+
+
+func _on_weapon_slot_mouse_entered(slot: Panel, tip_text: String) -> void:
+	if tip_text == "" or not open_state or slot == null:
+		return
+	_show_weapon_tip(tip_text, slot.global_position + Vector2(slot.size.x * 0.5, 0.0))
+
+
+func _on_weapon_slot_mouse_exited() -> void:
+	_hide_weapon_tip()
+
+
+func _on_weapon_slot_gui_input(event: InputEvent, slot: Panel, tip_text: String) -> void:
+	if tip_text == "" or not open_state or slot == null:
+		return
+	if event is InputEventScreenTouch:
+		var st: InputEventScreenTouch = event
+		if st.pressed:
+			_show_weapon_tip(tip_text, slot.global_position + Vector2(slot.size.x * 0.5, 0.0))
+		else:
+			_hide_weapon_tip()
+	elif event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				_show_weapon_tip(tip_text, slot.global_position + Vector2(slot.size.x * 0.5, 0.0))
+			else:
+				_hide_weapon_tip()
 
 
 # 帶圖示的格子（左邊小圖、右邊文字）

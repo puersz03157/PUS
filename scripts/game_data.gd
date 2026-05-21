@@ -137,7 +137,34 @@ const WEAPONS: Array[Dictionary] = [
 		"crit_chance": 0.05,
 		"crit_damage_mult": 2.0,
 		"range": 110.0,
-		"params": {"angle_deg": 75.0, "color": Color(0.85, 0.85, 1.0)},
+		"params": {
+			"angle_deg": 75.0,
+			"color": Color(0.85, 0.85, 1.0),
+			"attack_effect": {
+				"sheet": "res://assets/Effects/sword.png",
+				"frame_w": 64,
+				"frame_h": 64,
+				"frame_count": 1,
+				"fps": 12.0,
+				"hit_mode": "fan",
+				"angle_deg": 75.0,
+				"hit_angle_deg": 62.0,
+				"hit_reach_mult": 0.92,
+				"art_dir": [0.0, -1.0],
+				"art_pivot": [0.0, 0.5],
+				"art_tip": [0.0, -0.5],
+				"swing_start_deg": -30.0,
+				"swing_sweep_deg": 60.0,
+				"swing_duration": 0.2,
+				"fit_visual_to_reach": true,
+				"art_extent": 44.0,
+				"visual_reach_mult": 1.08,
+				"visual_scale_mult": 1.0,
+				"sprite_offset_aim": [-4.0, 5.0],
+				"show_hit_debug": false,
+				"z_index": 8,
+			},
+		},
 		"max_effect": "目標越少傷害提升", "max_effect_key": "WEAPON_SWORD_MAX",
 	},
 	{
@@ -813,6 +840,50 @@ func is_weapon_upgrades_maxed(upgrades: Dictionary) -> bool:
 		if have < int(u["max"]):
 			return false
 	return true
+
+
+func weapon_entry_has_upgrades(weapon_entry: Dictionary) -> bool:
+	var upgrades: Variant = weapon_entry.get("upgrades", {})
+	if upgrades is not Dictionary:
+		return false
+	for u in WEAPON_UPGRADES:
+		if int(upgrades.get(String(u["id"]), 0)) > 0:
+			return true
+	return false
+
+
+func weapon_upgrade_stacked_bonus_text(upgrade_def: Dictionary, level: int) -> String:
+	if level <= 0:
+		return ""
+	var id: String = String(upgrade_def.get("id", ""))
+	var value: float = float(upgrade_def.get("value", 0.0))
+	if id == "w_count":
+		return tr("CODEX_UPGRADE_VALUE_FLAT_FMT") % int(value * float(level))
+	return tr("CODEX_UPGRADE_VALUE_PERCENT_FMT") % int(round(value * float(level) * 100.0))
+
+
+## 暫停選單／懸停提示：已取得的單把武器升級列表（無升級則回空字串）
+func format_weapon_upgrades_tooltip(weapon_entry: Dictionary) -> String:
+	if not weapon_entry_has_upgrades(weapon_entry):
+		return ""
+	var wid: String = String(weapon_entry.get("id", ""))
+	var wdef: Dictionary = get_weapon_def(wid)
+	if wdef.is_empty():
+		return ""
+	var upgrades: Dictionary = weapon_entry.get("upgrades", {})
+	var lines: Array[String] = [tr_name(wdef), tr("PAUSE_WEAPON_UPGRADES_HEADER")]
+	for u in WEAPON_UPGRADES:
+		var lv: int = int(upgrades.get(String(u["id"]), 0))
+		if lv <= 0:
+			continue
+		lines.append(tr("PAUSE_WEAPON_UPGRADE_LINE_FMT") % [
+			tr_name(u), lv, int(u.get("max", 0)),
+			weapon_upgrade_stacked_bonus_text(u, lv)])
+	if is_weapon_upgrades_maxed(upgrades):
+		var max_fx: String = tr_max_effect(wdef)
+		if max_fx != "":
+			lines.append(tr("PAUSE_WEAPON_MAX_EFFECT_FMT") % max_fx)
+	return "\n".join(lines)
 
 
 ## 利劍滿級：周圍敵人數越少傷害越高（enemy_count 為 eff_range 內存活數）

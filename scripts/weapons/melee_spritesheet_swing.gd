@@ -1,8 +1,8 @@
 extends Node2D
 class_name MeleeSpritesheetSwing
-## 近戰 spritesheet 攻擊特效：播完指定幀時以三角形範圍判定命中（每段揮擊每敵只傷一次）。
+## 近戰 spritesheet 攻擊特效：三角形戳刺（長槍）或扇形揮砍（利劍）+ 可選命中除錯。
 
-const DEFAULT_ART_DIR := Vector2(1.0, -1.0)  # 美術預設戳刺方向：右上（+X、-Y）
+const DEFAULT_ART_DIR := Vector2(1.0, -1.0)
 
 static var _sprite_frames_cache: Dictionary = {}
 
@@ -10,10 +10,18 @@ var _weapon: Node = null
 var _dir: Vector2 = Vector2.RIGHT
 var _hit_origin: Vector2 = Vector2.ZERO
 var _reach: float = 100.0
+var _fan_hit_reach: float = 100.0
 var _thrust_length: float = 100.0
 var _base_half_width: float = 42.0
+var _hit_mode: String = "triangle"
+var _fan_half_angle: float = 0.0
+var _swing_start_rad: float = 0.0
+var _swing_sweep_rad: float = 0.0
+var _base_rotation: float = 0.0
+var _use_swing_tween: bool = false
 var _hit_frames: Array[int] = []
 var _hit_enemies: Dictionary = {}
+var _align: Node2D = null
 var _sprite: AnimatedSprite2D = null
 var _debug_nodes: Array[Node] = []
 
@@ -36,21 +44,33 @@ static func play(
 	swing._dir = dir.normalized()
 	swing._hit_origin = origin
 	swing._reach = reach
-	var scale_mul: float = reach / maxf(1.0, base_range)
-	var base_half: float = float(effect_cfg.get("tip_half_width", 42.0))
-	swing._base_half_width = base_half * scale_mul
 	swing._thrust_length = reach
 	swing.global_position = origin
-	var raw_frames: Variant = effect_cfg.get("hit_frames", [3, 4])
+	var scale_mul: float = reach / maxf(1.0, base_range)
+	swing._hit_mode = String(effect_cfg.get("hit_mode", "triangle"))
+	var fan_angle_deg: float = float(effect_cfg.get("angle_deg", 75.0))
+	if effect_cfg.has("hit_angle_deg"):
+		fan_angle_deg = float(effect_cfg.get("hit_angle_deg"))
+	var hit_angle_mult: float = float(effect_cfg.get("hit_angle_mult", 1.0))
+	swing._fan_half_angle = deg_to_rad(fan_angle_deg) * 0.5 * hit_angle_mult
+	var hit_reach_mult: float = float(effect_cfg.get("hit_reach_mult", 1.0))
+	swing._fan_hit_reach = reach * hit_reach_mult
+	if swing._hit_mode == "triangle":
+		var base_half: float = float(effect_cfg.get("tip_half_width", 42.0))
+		swing._base_half_width = base_half * scale_mul
+	swing._swing_start_rad = deg_to_rad(float(effect_cfg.get("swing_start_deg", 0.0)))
+	swing._swing_sweep_rad = deg_to_rad(float(effect_cfg.get("swing_sweep_deg", 0.0)))
+	swing._use_swing_tween = absf(swing._swing_sweep_rad) > 0.001
+	var raw_frames: Variant = effect_cfg.get("hit_frames", [])
 	swing._hit_frames.clear()
-	if raw_frames is Array:
+	if raw_frames is Array and not raw_frames.is_empty():
 		for f in raw_frames:
 			swing._hit_frames.append(int(f))
-	if swing._hit_frames.is_empty():
+	elif swing._hit_mode == "triangle":
 		swing._hit_frames = [3, 4]
 	var fw: int = int(effect_cfg.get("frame_w", 64))
 	var fh: int = int(effect_cfg.get("frame_h", 64))
-	var frame_count: int = int(effect_cfg.get("frame_count", 8))
+	var frame_count: int = maxi(1, int(effect_cfg.get("frame_count", 8)))
 	var fps: float = float(effect_cfg.get("fps", 14.0))
 	var art_dir: Vector2 = DEFAULT_ART_DIR
 	var raw_art: Variant = effect_cfg.get("art_dir", DEFAULT_ART_DIR)
@@ -73,23 +93,102 @@ static func play(
 	swing._sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	swing._sprite.sprite_frames = _sprite_frames_for(sheet_path, tex, fw, fh, frame_count, fps)
 	var visual_mul: float = float(effect_cfg.get("visual_scale_mult", 1.0))
+	var visual_reach_mult: float = float(effect_cfg.get("visual_reach_mult", 1.0))
 	var sprite_scale: float = scale_mul * visual_mul
 	if bool(effect_cfg.get("fit_visual_to_reach", false)):
 		var art_extent: float = maxf(8.0, float(effect_cfg.get("art_extent", default_extent)))
-		sprite_scale = (swing._thrust_length / art_extent) * visual_mul
-	var rot: float = swing._dir.angle() - art_dir.angle()
+		var visual_len: float = swing._thrust_length * visual_reach_mult
+		sprite_scale = (visual_len / art_extent) * visual_mul
+	swing._base_rotation = swing._dir.angle() - art_dir.angle()
 	swing._sprite.scale = Vector2.ONE * sprite_scale
-	swing._sprite.rotation = rot
-	swing._sprite.position = -(pivot_local * sprite_scale).rotated(rot)
+	var align_rot: float = swing._base_rotation
+	var sprite_rot_start: float = 0.0
+	if swing._use_swing_tween:
+		# 軸心對準揮砍弧線中點（非弧起點）；sprite 左右各掃半弧
+		align_rot += swing._swing_start_rad + swing._swing_sweep_rad * 0.5
+		sprite_rot_start = -swing._swing_sweep_rad * 0.5
+	swing._align = Node2D.new()
+	swing._align.rotation = align_rot
+	swing.add_child(swing._align)
+	var plane_nudge: Vector2 = _aim_plane_offset(effect_cfg, swing._dir)
+	var local_nudge: Vector2 = plane_nudge.rotated(-align_rot)
+	swing._sprite.position = -pivot_local + local_nudge
+	swing._sprite.rotation = sprite_rot_start
 	swing._sprite.z_index = int(effect_cfg.get("z_index", 8))
-	swing.add_child(swing._sprite)
+	swing._align.add_child(swing._sprite)
 	if bool(effect_cfg.get("show_hit_debug", false)):
-		swing._spawn_hit_debug(effect_cfg)
-	swing._sprite.animation_finished.connect(swing._on_animation_finished)
-	swing._sprite.frame_changed.connect(swing._on_frame_changed)
+		if swing._hit_mode == "fan":
+			swing._spawn_fan_debug(effect_cfg)
+		else:
+			swing._spawn_hit_debug(effect_cfg)
 	parent_scene.add_child(swing)
 	swing._sprite.play("attack")
+	if swing._use_swing_tween:
+		swing._start_swing_rotation_tween(effect_cfg)
+	else:
+		swing._sprite.animation_finished.connect(swing._on_animation_finished)
+		swing._sprite.frame_changed.connect(swing._on_frame_changed)
 	return true
+
+
+func _start_swing_rotation_tween(cfg: Dictionary) -> void:
+	var dur: float = maxf(0.08, float(cfg.get("swing_duration", 0.2)))
+	var tw := create_tween()
+	tw.tween_property(_sprite, "rotation", _swing_sweep_rad * 0.5, dur) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if _hit_mode == "fan":
+		tw.parallel().tween_callback(_apply_fan_hit).set_delay(dur * 0.48)
+	tw.chain().tween_interval(0.06)
+	tw.tween_callback(_finish_and_free)
+
+
+func _finish_and_free() -> void:
+	if _debug_nodes.is_empty():
+		queue_free()
+		return
+	var tw := create_tween()
+	tw.set_parallel(true)
+	for n in _debug_nodes:
+		if is_instance_valid(n):
+			tw.tween_property(n, "modulate:a", 0.0, 0.18)
+	tw.chain().tween_callback(queue_free)
+
+
+func _spawn_fan_debug(cfg: Dictionary) -> void:
+	var dbg_color: Color = Color(0.35, 0.55, 1.0, 0.35)
+	var raw_col: Variant = cfg.get("hit_debug_color", null)
+	if raw_col is Color:
+		dbg_color = raw_col
+	var pts := _fan_local_points()
+	var fill := Polygon2D.new()
+	fill.polygon = pts
+	fill.color = dbg_color
+	fill.z_index = int(cfg.get("z_index", 8)) - 1
+	add_child(fill)
+	_debug_nodes.append(fill)
+	var outline := Line2D.new()
+	var line_pts := PackedVector2Array(pts)
+	line_pts.append(pts[0])
+	outline.points = line_pts
+	outline.default_color = Color(dbg_color.r, dbg_color.g, dbg_color.b, 0.9)
+	outline.width = 2.0
+	outline.z_index = fill.z_index + 1
+	add_child(outline)
+	_debug_nodes.append(outline)
+	var center_mark := _make_debug_dot(Vector2.ZERO, Color(0.35, 1.0, 0.5, 0.95))
+	add_child(center_mark)
+	_debug_nodes.append(center_mark)
+
+
+func _fan_local_points() -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	pts.append(Vector2.ZERO)
+	var seg: int = 18
+	for i in seg + 1:
+		var t: float = float(i) / float(seg)
+		var a_local: float = -_fan_half_angle + _fan_half_angle * 2.0 * t
+		pts.append(_dir.rotated(a_local) * _fan_hit_reach)
+	return pts
 
 
 func _spawn_hit_debug(cfg: Dictionary) -> void:
@@ -137,6 +236,20 @@ func _make_debug_dot(local_pos: Vector2, col: Color) -> Node2D:
 	return n
 
 
+## 相對瞄準方向的平面微調：[0]=沿瞄準軸（負=往角色收回）、[1]=法向（逆時針為正）
+static func _aim_plane_offset(effect_cfg: Dictionary, aim_dir: Vector2) -> Vector2:
+	var raw_aim: Variant = effect_cfg.get("sprite_offset_aim", null)
+	if raw_aim is Array and raw_aim.size() >= 2:
+		var along: float = float(raw_aim[0])
+		var lateral: float = float(raw_aim[1])
+		var perp := Vector2(-aim_dir.y, aim_dir.x)
+		return aim_dir * along + perp * lateral
+	var raw: Variant = effect_cfg.get("sprite_offset", null)
+	if raw is Array and raw.size() >= 2:
+		return Vector2(float(raw[0]), float(raw[1])).rotated(aim_dir.angle())
+	return Vector2.ZERO
+
+
 static func _frame_norm_point(raw: Variant, fw: int, fh: int) -> Vector2:
 	var n := Vector2.ZERO
 	if raw is Vector2:
@@ -170,29 +283,51 @@ static func _sprite_frames_for(
 
 
 func _on_frame_changed() -> void:
-	if _sprite == null:
+	if _sprite == null or _use_swing_tween:
 		return
 	if _sprite.frame in _hit_frames:
-		_apply_triangle_hit()
+		_apply_hit()
 
 
 func _on_animation_finished() -> void:
-	if _debug_nodes.is_empty():
-		queue_free()
+	_finish_and_free()
+
+
+func _apply_hit() -> void:
+	if _hit_mode == "fan":
+		_apply_fan_hit()
+	else:
+		_apply_triangle_hit()
+
+
+func _apply_fan_hit() -> void:
+	if _weapon == null or not is_instance_valid(_weapon):
 		return
-	var tw := create_tween()
-	tw.set_parallel(true)
-	for n in _debug_nodes:
-		if is_instance_valid(n):
-			tw.tween_property(n, "modulate:a", 0.0, 0.2)
-	tw.chain().tween_callback(queue_free)
+	var center_angle: float = _dir.angle()
+	var origin: Vector2 = _hit_origin
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not is_instance_valid(e):
+			continue
+		if _hit_enemies.has(e.get_instance_id()):
+			continue
+		if e.get("hp") != null and float(e.hp) <= 0.0:
+			continue
+		var to_e: Vector2 = e.global_position - origin
+		var dist: float = to_e.length()
+		if dist > _fan_hit_reach:
+			continue
+		var ang: float = absf(wrapf(to_e.angle() - center_angle, -PI, PI))
+		if ang > _fan_half_angle:
+			continue
+		_hit_enemies[e.get_instance_id()] = true
+		if _weapon.has_method("damage_enemy"):
+			_weapon.damage_enemy(e)
 
 
 func _apply_triangle_hit() -> void:
 	if _weapon == null or not is_instance_valid(_weapon):
 		return
-	var owner_player: Node = _weapon.owner_player
-	if owner_player == null:
+	if _weapon.owner_player == null:
 		return
 	var tip: Vector2 = _hit_origin + _dir * _reach
 	var base_c: Vector2 = global_position
