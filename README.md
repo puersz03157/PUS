@@ -88,6 +88,26 @@ scripts/              ─ 程式
 
 ---
 
+## 本機專用素材（Puersz 造型）
+
+`assets/characters/Puersz/` 內的 PNG **不會進 Git**（見 `.gitignore`），clone 後請自行放入三張圖；說明見該資料夾的 `README.md`。
+
+正式 **匯出** 時請在匯出預設的 **Exclude filter** 加入 `assets/characters/Puersz/*`，或參考根目錄 `export_presets.cfg.example` 合併到你的 `export_presets.cfg`（此檔本來就不提交）。
+
+## 房屋造型 × 武器特效
+
+選用房屋造型且該造型資料夾內有 `<武器id>.png` 時，戰鬥中裝備該武器會覆寫 `attack_effect` 的 spritesheet（其餘揮砍參數沿用 `game_data.gd` 武器表）。
+
+| 造型 id | 資料夾（例） | 利劍特效檔 |
+|---------|--------------|------------|
+| `puersz` | `assets/characters/Puersz/` | `sword.png`（本機專用，不進 Git） |
+| `fire_knight` | `assets/characters/chierit/fire_knight/` | `sword.png` |
+| `leaf_ranger` | `assets/characters/chierit/Leaf_Ranger/` | `bow.png` 等 |
+
+新增造型：在 `game_data.gd` 的 `HOUSE_SKIN_ASSET_ROOTS` 登記根目錄，並在該目錄放對應 png 即可。
+
+---
+
 ## 待擴充（Roadmap）
 
 這是一個可運行的 MVP 雛形，建議下一步補：

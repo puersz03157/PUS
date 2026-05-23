@@ -144,6 +144,7 @@ var _village_time_sec: float = 0.0
 var _village_time_phase: String = "day"
 var _sky_overlay: ColorRect = null
 var _time_label: Label = null
+var _battle_summary_layer: CanvasLayer = null
 # 所有「只在白天出現」的功能性 NPC 節點（傍晚/夜晚隱藏且無法互動）
 var _timed_npc_nodes: Array = []
 
@@ -164,6 +165,22 @@ func _ready() -> void:
 	_draw_background()
 	_setup_hud()
 	_setup_village_clock()
+	call_deferred("_try_show_pending_battle_summary")
+
+
+func _try_show_pending_battle_summary() -> void:
+	if not BattleRunSummaryOverlay.has_pending():
+		return
+	if _battle_summary_layer != null and is_instance_valid(_battle_summary_layer):
+		return
+	_battle_summary_layer = BattleRunSummaryOverlay.present(get_tree(), true)
+
+
+func _dismiss_battle_summary() -> void:
+	if _battle_summary_layer == null:
+		return
+	BattleRunSummaryOverlay.dismiss(_battle_summary_layer)
+	_battle_summary_layer = null
 
 
 func _setup_hud() -> void:
@@ -192,6 +209,10 @@ func _process(_delta: float) -> void:
 	if _transitioning:
 		return
 	if Input.is_action_just_pressed("ui_back"):
+		if _battle_summary_layer != null and is_instance_valid(_battle_summary_layer):
+			AudioManager.play_sfx("ui_back")
+			_dismiss_battle_summary()
+			return
 		if _blacksmith_dialog != null:
 			_close_blacksmith_dialog()
 			return

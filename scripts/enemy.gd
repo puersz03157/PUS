@@ -20,7 +20,9 @@ const ROW_IDLE := 0
 const ROW_WALK := 1
 const ROW_DEATH := 6
 const GOLD_ORB_SCENE: PackedScene = preload("res://scenes/GoldOrb.tscn")
+const MATERIAL_ORB_SCENE: PackedScene = preload("res://scenes/MaterialOrb.tscn")
 const ENEMY_HEALTH_BAR_SCRIPT := preload("res://scripts/enemy_health_bar.gd")
+const STATUS_OVERLAY_SCRIPT := preload("res://scripts/status_effect_overlay.gd")
 const GOLD_DROP_NORMAL_CHANCE := 0.08
 const GOLD_DROP_ELITE_CHANCE := 0.18
 const GOLD_DROP_BOSS_CHANCE := 0.60
@@ -66,6 +68,7 @@ var _poison_source: Node = null
 var _poison_atk_reduce: float = 0.0
 var _dot_tick_carry: float = 0.0
 var _health_bar: Node2D = null
+var _status_overlay: StatusEffectOverlay = null
 
 @onready var sprite: Sprite2D = $Sprite
 @onready var body_shape: CollisionShape2D = $Body
@@ -131,6 +134,7 @@ func setup_with_slime(def: Dictionary, level_factor: float) -> void:
 	if sprite and def.has("sprite_modulate"):
 		sprite.modulate = def["sprite_modulate"]
 	_ensure_health_bar()
+	_ensure_status_overlay()
 
 
 # 舊介面：難度直接 setup（隨機選一隻）
@@ -240,6 +244,17 @@ func _physics_process(delta: float) -> void:
 		_update_ranged_attack(delta, null, 0.0)
 	else:
 		var dir: Vector2 = (_player_target_pos(target) - global_position).normalized()
+		if special_ai_mode == "stationary":
+			velocity = Vector2.ZERO
+			_update_ranged_attack(delta, target, best)
+			if sprite:
+				if dir.x < -0.05:
+					sprite.flip_h = true
+				elif dir.x > 0.05:
+					sprite.flip_h = false
+			_update_hit_cooldowns(delta)
+			move_and_slide()
+			return
 		if _update_ranged_attack(delta, target, best):
 			velocity = Vector2.ZERO
 			_update_hit_cooldowns(delta)
@@ -292,7 +307,9 @@ func _update_hit_cooldowns(delta: float) -> void:
 
 
 func _update_ranged_attack(delta: float, target: Node2D, distance: float) -> bool:
-	if ranged_params.is_empty() or special_ai_mode != "":
+	if ranged_params.is_empty():
+		return false
+	if special_ai_mode != "" and special_ai_mode != "stationary":
 		return false
 	_ranged_cooldown = max(0.0, _ranged_cooldown - delta)
 	if _ranged_warning != null and is_instance_valid(_ranged_warning):
@@ -617,6 +634,59 @@ func _advance_enemy_status(delta: float) -> void:
 	if _poison_time <= 0.0:
 		_poison_dps = 0.0
 		_poison_atk_reduce = 0.0
+	_sync_status_effect_icons()
+
+
+func _enemy_status_icon_head_y() -> float:
+	var head_y: float = -(radius + 4.0)
+	var off_y: float = float(slime_def.get("offset_y", 0))
+	if sprite != null and sprite.texture:
+		var frame_h: float = float(sprite.texture.get_height()) / maxf(1.0, float(sprite.vframes))
+		head_y -= frame_h * absf(sprite.scale.y) * 0.18
+	head_y += off_y * 0.22 + 8.0
+	return head_y
+
+
+func _enemy_status_icon_scale() -> float:
+	return clampf(radius / 17.0, StatusEffectOverlay.ENEMY_ICON_SCALE_MIN,
+		StatusEffectOverlay.ENEMY_ICON_SCALE_MAX)
+
+
+func _ensure_status_overlay() -> void:
+	var head_y: float = _enemy_status_icon_head_y()
+	var off_y: float = float(slime_def.get("offset_y", 0))
+	var body_y: float = off_y * 0.38 - radius * 0.18
+	var icon_scale: float = _enemy_status_icon_scale()
+	if _status_overlay != null and is_instance_valid(_status_overlay):
+		_status_overlay.configure(false, head_y, Vector2(0.0, body_y), icon_scale)
+		return
+	_status_overlay = STATUS_OVERLAY_SCRIPT.new()
+	add_child(_status_overlay)
+	_status_overlay.configure(false, head_y, Vector2(0.0, body_y), icon_scale)
+
+
+func _sync_status_effect_icons() -> void:
+	if _dying or hp <= 0.0:
+		if _status_overlay != null and is_instance_valid(_status_overlay):
+			_status_overlay.sync({})
+		return
+	_ensure_status_overlay()
+	if _status_overlay == null:
+		return
+	var active: Dictionary = {}
+	if _slow_time > 0.0:
+		active[StatusEffectIcons.STATUS_SLOW] = true
+	if _stun_time > 0.0:
+		active[StatusEffectIcons.STATUS_STUN] = true
+	if _bleed_time > 0.0 and _bleed_dps > 0.0:
+		active[StatusEffectIcons.STATUS_BLEED] = true
+	if _burn_time > 0.0 and _burn_dps > 0.0:
+		active[StatusEffectIcons.STATUS_BURN] = true
+	if _poison_time > 0.0 and _poison_dps > 0.0:
+		active[StatusEffectIcons.STATUS_POISON] = true
+	if _vuln_time > 0.0 and _vuln_stacks > 0:
+		active[StatusEffectIcons.STATUS_VULN] = true
+	_status_overlay.sync(active)
 
 
 func _pulse_dot_sources(step: float) -> void:
@@ -643,6 +713,7 @@ func _resolve_player_from_source(source: Node) -> Node:
 func _die(source: Node) -> void:
 	if _dying:
 		return
+	_sync_status_effect_icons()
 	_clear_ranged_warning()
 	if source and source.has_method("on_enemy_killed"):
 		source.on_enemy_killed(self)
@@ -695,9 +766,10 @@ func _try_drop_material() -> void:
 	var amount: int = int(drop.get("amount", 0))
 	if id == "" or amount <= 0:
 		return
-	if is_instance_valid(GameState) and GameState.grant_material(id, amount):
-		if game_ref.has_method("notify_material_drop"):
-			game_ref.notify_material_drop(id, amount)
+	var orb = MATERIAL_ORB_SCENE.instantiate()
+	orb.setup(id, amount)
+	orb.global_position = global_position + Vector2(randf_range(-12.0, 12.0), randf_range(-10.0, 10.0))
+	get_tree().current_scene.add_child(orb)
 
 
 func _roll_gold_drop_amount() -> int:

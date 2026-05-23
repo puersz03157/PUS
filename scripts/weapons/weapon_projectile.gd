@@ -20,16 +20,19 @@ func fire() -> bool:
 		var t: float = 0.0 if n == 1 else float(i) / (n - 1)
 		var ang: float = aim_dir.angle() - total_spread * 0.5 + total_spread * t
 		var p := PROJECTILE_SCENE.instantiate()
-		p.global_position = owner_player.global_position
-		p.setup(self, Vector2(cos(ang), sin(ang)) * speed, col)
+		var dir := Vector2(cos(ang), sin(ang))
+		var spawn_off: float = _spawn_forward_offset(dir)
+		p.global_position = owner_player.global_position + dir * spawn_off
+		p.setup(self, dir * speed, col)
 		owner_player.get_tree().current_scene.add_child(p)
 	return true
 
 
-# 只鎖定 eff_range × 1.2 內的敵人；無敵人回 ZERO 表示不開火
+# 只鎖定 aim_lock_mult 倍 eff_range 內的敵人；無敵人回 ZERO 表示不開火
 func _find_aim_dir() -> Vector2:
 	var origin: Vector2 = owner_player.global_position
-	var max_d_sq: float = eff_range * eff_range * 1.44   # ×1.2 平方
+	var lock_mult: float = _aim_lock_mult()
+	var max_d_sq: float = eff_range * eff_range * lock_mult * lock_mult
 	var best: Node = null
 	var best_d: float = max_d_sq
 	for e in owner_player.get_tree().get_nodes_in_group("enemies"):
@@ -40,3 +43,19 @@ func _find_aim_dir() -> Vector2:
 	if best:
 		return (best.global_position - origin).normalized()
 	return Vector2.ZERO
+
+
+func _aim_lock_mult() -> float:
+	var prm: Dictionary = def.get("params", {})
+	if prm.has("aim_lock_mult"):
+		return float(prm.get("aim_lock_mult"))
+	if String(def.get("id", "")) == "magic_bullet":
+		return 1.0
+	return 1.2
+
+
+func _spawn_forward_offset(_aim_dir: Vector2) -> float:
+	var prm: Dictionary = def.get("params", {})
+	if String(def.get("id", "")) == "magic_bullet":
+		return float(prm.get("spawn_forward_offset", 34.0))
+	return float(prm.get("spawn_forward_offset", 0.0))

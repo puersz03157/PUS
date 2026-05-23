@@ -1,0 +1,33 @@
+; 匯出預設範例（複製為 export_presets.cfg 後依本機路徑調整 export_path）
+; 此檔可提交 Git；實際 export_presets.cfg 已在 .gitignore 中。
+;
+; 重點：exclude_filter 排除 Puersz 本機造型，避免打進正式建置。
+; 在編輯器也可手動設定：專案 → 匯出 → 資源 → Exclude filter
+
+[preset.0]
+
+name="Windows Desktop (example)"
+platform="Windows Desktop"
+runnable=true
+advanced_options=false
+dedicated_server=false
+custom_features=""
+export_filter="all_resources"
+include_filter=""
+exclude_filter="assets/characters/Puersz/*"
+encryption_include_filters=""
+encryption_exclude_filters=""
+seed=0
+encrypt_pck=false
+encrypt_directory=false
+script_export_mode=2
+
+[preset.0.options]
+
+custom_template/debug=""
+custom_template/release=""
+debug/export_console_wrapper=1
+binary_format/embed_pck=false
+texture_format/s3tc_bptc=true
+texture_format/etc2_astc=false
+binary_format/architecture="x86_64"

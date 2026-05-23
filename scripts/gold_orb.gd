@@ -8,6 +8,7 @@ var attract_speed: float = 380.0
 
 func _ready() -> void:
 	add_to_group("gold_orbs")
+	PickupOrbVisual.apply_icon(self, GameData.gold_icon_path(), 22.0)
 
 
 func attract_to(p: Node2D) -> void:

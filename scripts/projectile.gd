@@ -4,6 +4,7 @@ extends Area2D
 const BOW_ARROW_TEX: Texture2D = preload("res://assets/Effects/arrow/arrow_.png")
 const ARROW_DISPLAY_LEN := 48.0
 const ARROW_Z_INDEX := 55
+const MAGIC_BULLET_Z_INDEX := 56
 
 var velocity: Vector2 = Vector2.ZERO
 var weapon: Node = null
@@ -21,8 +22,12 @@ var origin: Vector2 = Vector2.ZERO
 var max_distance: float = 800.0
 
 @onready var sprite: Polygon2D = $Sprite
+@onready var _collision_shape: CollisionShape2D = $Shape
 
 var _arrow_sprite: Sprite2D = null
+var _magic_sprite: AnimatedSprite2D = null
+var _magic_cfg: Dictionary = {}
+var _magic_manual_hit: bool = false
 
 
 func setup(w: Node, vel: Vector2, col: Color) -> void:
@@ -52,6 +57,8 @@ func setup(w: Node, vel: Vector2, col: Color) -> void:
 	lifetime = clamp(max_distance / max(60.0, vel.length()) + 0.4, 0.4, 4.0)
 	if _uses_arrow_sprite():
 		call_deferred("_apply_arrow_visual")
+	elif _is_magic_bullet():
+		call_deferred("_apply_magic_bullet_visual")
 
 
 func _weapon_def() -> Dictionary:
@@ -67,6 +74,16 @@ func _uses_arrow_sprite() -> bool:
 	if bool(prm.get("arrow_sprite", false)):
 		return true
 	return String(def.get("id", "")) == "bow"
+
+
+func _is_magic_bullet() -> bool:
+	return String(_weapon_def().get("id", "")) == "magic_bullet"
+
+
+func _projectile_visual_cfg() -> Dictionary:
+	var prm: Dictionary = _weapon_def().get("params", {})
+	var raw: Variant = prm.get("projectile_visual", null)
+	return raw if raw is Dictionary else {}
 
 
 func _prepare_arrow_display(tex: Texture2D) -> Dictionary:
@@ -127,14 +144,48 @@ func _apply_arrow_visual() -> void:
 	rotation = velocity.angle()
 
 
+func _apply_magic_bullet_visual() -> void:
+	if _magic_sprite != null and is_instance_valid(_magic_sprite):
+		return
+	if not _is_magic_bullet():
+		return
+	_magic_cfg = _projectile_visual_cfg()
+	var cfg: Dictionary = _magic_cfg
+	var spr := MagicBulletVfx.create_projectile_sprite(cfg, color)
+	if spr == null:
+		if sprite:
+			sprite.visible = true
+			sprite.color = color
+		return
+	if sprite:
+		sprite.visible = false
+	_magic_sprite = spr
+	add_child(_magic_sprite)
+	z_index = int(cfg.get("z_index", MAGIC_BULLET_Z_INDEX))
+	rotation = MagicBulletVfx.rotation_for_velocity(velocity, cfg)
+	_magic_sprite.position = MagicBulletVfx.sprite_display_offset(cfg)
+	_configure_magic_collision(cfg)
+	_magic_manual_hit = bool(cfg.get("manual_hit_probe", true))
+	if _magic_manual_hit:
+		monitoring = false
+	if _should_show_projectile_hit_debug():
+		MagicBulletProjectileDebug.attach(self, cfg)
+
+
+func _should_show_projectile_hit_debug() -> bool:
+	var prm: Dictionary = _weapon_def().get("params", {})
+	return bool(prm.get("show_projectile_hit_debug", false))
+
+
 func _ready() -> void:
 	add_to_group("projectiles")
 	origin = global_position
 	_apply_arrow_visual()
-	if _arrow_sprite == null and sprite:
+	_apply_magic_bullet_visual()
+	if _arrow_sprite == null and _magic_sprite == null and sprite:
 		sprite.visible = true
 		sprite.color = color
-	else:
+	elif _magic_sprite == null:
 		rotation = velocity.angle()
 
 
@@ -147,11 +198,29 @@ func _physics_process(delta: float) -> void:
 		global_position += move + bob
 	else:
 		global_position += velocity * delta
+	if _magic_manual_hit:
+		_try_magic_probe_hits()
 	if origin.distance_to(global_position) > max_distance or elapsed > lifetime:
 		_finish()
 
 
+func _try_magic_probe_hits() -> void:
+	if not _is_magic_bullet() or weapon == null:
+		return
+	var probe: Vector2 = MagicBulletVfx.hit_probe_global(self, _magic_cfg)
+	var hit_r: float = MagicBulletVfx.hit_radius(_magic_cfg)
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if hit_set.has(e):
+			continue
+		if not (e is Node2D):
+			continue
+		if MagicBulletVfx.probe_hits_enemy(probe, hit_r, e as Node2D):
+			_try_hit(e)
+
+
 func _on_body_entered(body: Node) -> void:
+	if _magic_manual_hit:
+		return
 	_try_hit(body)
 
 
@@ -182,17 +251,74 @@ func _try_hit(body: Node) -> void:
 		if nxt != null:
 			bounces_left -= 1
 			velocity = (nxt.global_position - global_position).normalized() * bullet_speed
-			rotation = velocity.angle()
+			_update_facing_rotation()
 			max_distance += 260.0
 			lifetime += 0.45
 			return
+	if explode_radius > 0.0 and String(_weapon_def().get("id", "")) == "magic_bullet":
+		_trigger_magic_bullet_explosion(body as Node2D)
+		return
 	if explode_radius > 0.0:
-		for e in get_tree().get_nodes_in_group("enemies"):
-			if e == body:
-				continue
-			if global_position.distance_to(e.global_position) <= explode_radius:
-				weapon.damage_enemy(e, 0.8)
+		MagicBulletExplodeDebug.apply_aoe_damage(
+			get_tree(), weapon, global_position, explode_radius, 0.8)
 	_finish()
+
+
+func _explosion_visual_cfg() -> Dictionary:
+	var prm: Dictionary = _weapon_def().get("params", {})
+	var raw: Variant = prm.get("explosion_visual", null)
+	return raw if raw is Dictionary else {}
+
+
+func _should_show_explode_debug() -> bool:
+	var prm: Dictionary = _weapon_def().get("params", {})
+	return bool(prm.get("show_explode_debug", false))
+
+
+func _configure_magic_collision(cfg: Dictionary) -> void:
+	if _collision_shape == null:
+		return
+	_collision_shape.position = MagicBulletVfx.hit_probe_local_offset(cfg)
+	var cs: CircleShape2D = _collision_shape.shape as CircleShape2D
+	if cs == null:
+		cs = CircleShape2D.new()
+		_collision_shape.shape = cs
+	cs.radius = MagicBulletVfx.hit_radius(cfg)
+	if _magic_manual_hit:
+		_collision_shape.disabled = true
+
+
+func _trigger_magic_bullet_explosion(primary: Node2D) -> void:
+	var probe: Vector2 = MagicBulletVfx.hit_probe_global(self, _magic_cfg)
+	var explode_cfg: Dictionary = _explosion_visual_cfg()
+	var hit_pos: Vector2 = MagicBulletVfx.explosion_center_at_hit(probe, primary, explode_cfg)
+	var w: Node = weapon
+	var rad: float = explode_radius
+	var mult: float = 0.8
+	var tree: SceneTree = get_tree()
+	var parent: Node = tree.current_scene if tree != null else null
+	if parent != null:
+		MagicBulletVfx.spawn_explosion(parent, hit_pos, rad, explode_cfg)
+		MagicBulletExplodeDebug.spawn(
+			parent, hit_pos, rad, explode_cfg, _should_show_explode_debug())
+	var delay: float = MagicBulletExplodeDebug.damage_delay_sec(explode_cfg)
+	if tree != null and w != null:
+		tree.create_timer(delay).timeout.connect(
+			func() -> void:
+				MagicBulletExplodeDebug.apply_aoe_damage(tree, w, hit_pos, rad, mult),
+			CONNECT_ONE_SHOT)
+	_finish()
+
+
+func _update_facing_rotation() -> void:
+	if _is_magic_bullet():
+		var cfg: Dictionary = _projectile_visual_cfg()
+		rotation = MagicBulletVfx.rotation_for_velocity(velocity, cfg)
+		if _magic_sprite != null and is_instance_valid(_magic_sprite):
+			_magic_sprite.position = MagicBulletVfx.sprite_display_offset(cfg)
+		_configure_magic_collision(cfg)
+	else:
+		rotation = velocity.angle()
 
 
 func _find_ricochet_target(last_hit: Node) -> Node:

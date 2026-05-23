@@ -1,5 +1,5 @@
 extends CanvasLayer
-## 暫停選單：ESC 開關，顯示遊戲狀態，可繼續或回主選單。
+## 暫停選單：ESC 開關，顯示遊戲狀態，可繼續或中途回村莊（帶當前進度結算）。
 ## 在 Game.tscn 中作為 Game 的子節點。
 
 const RESPONSE_KEYS := ["ui_back"]
@@ -41,14 +41,6 @@ func _process(_delta: float) -> void:
 		if Input.is_action_just_pressed(k):
 			# 彈珠台進行中時不處理（彈珠台自己會在升級流程結束時關閉）
 			if game_ref and game_ref.get("pinball_active"):
-				return
-			# 遊戲結束（勝利／陣亡）時，ESC 直接回主選單
-			if game_ref and bool(game_ref.get("stage_completed")):
-				_transitioning = true
-				get_tree().paused = false
-				AudioManager.play_sfx("ui_back")
-				if is_inside_tree():
-					get_tree().change_scene_to_file("res://scenes/Main.tscn")
 				return
 			toggle()
 			return
@@ -124,11 +116,11 @@ func _build_ui() -> void:
 	panel.add_child(resume_button)
 
 	menu_button = Button.new()
-	menu_button.text = tr("PAUSE_BTN_MENU")
+	menu_button.text = tr("PAUSE_BTN_VILLAGE")
 	menu_button.size = Vector2(240, 48)
 	menu_button.add_theme_font_size_override("font_size", 18)
 	menu_button.process_mode = Node.PROCESS_MODE_ALWAYS
-	menu_button.pressed.connect(_on_main_menu)
+	menu_button.pressed.connect(_on_retreat_village)
 	panel.add_child(menu_button)
 
 	_build_weapon_tip_popup()
@@ -171,11 +163,20 @@ func _on_resume() -> void:
 	_set_open(false)
 
 
-func _on_main_menu() -> void:
+func _on_retreat_village() -> void:
+	if game_ref == null:
+		return
+	if bool(game_ref.get("pinball_active")):
+		return
+	if game_ref.has_method("_is_test_arena_stage") and game_ref._is_test_arena_stage():
+		return
+	_transitioning = true
 	get_tree().paused = false
 	AudioManager.play_sfx("ui_back")
-	if is_inside_tree():
-		get_tree().change_scene_to_file("res://scenes/Main.tscn")
+	if is_inside_tree() and game_ref.has_method("retreat_to_village_with_summary"):
+		game_ref.retreat_to_village_with_summary()
+	elif is_inside_tree():
+		get_tree().change_scene_to_file("res://scenes/Village.tscn")
 
 
 # ---------------- 重新整理顯示 ----------------
@@ -204,6 +205,11 @@ func _refresh_stats() -> void:
 		if p == null:
 			continue
 		_build_player_section(p)
+	var hide_village: bool = false
+	if game_ref.has_method("_is_test_arena_stage"):
+		hide_village = game_ref._is_test_arena_stage()
+	menu_button.visible = not hide_village
+	menu_button.disabled = bool(game_ref.get("pinball_active"))
 	_layout_pause_panel()
 
 

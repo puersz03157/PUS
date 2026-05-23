@@ -118,7 +118,7 @@ const WEAPON_SLOT_MAX := 5
 # 武器：[{id, level, upgrades:{w_damage:n, ...}, node}]
 var weapons: Array = []
 
-const PICKUP_BASE_RADIUS := 210.0
+const PICKUP_BASE_RADIUS := 128.0
 
 # 村莊（橫向）模式參數
 const VILLAGE_GRAVITY := 1800.0
@@ -161,15 +161,22 @@ var _start_transform_pending: bool = false
 var _start_transform_done: bool = false
 # 逐幀 PNG（每個動作一組獨立 PNG，例：NightLord / SalamanderWitch）
 var _use_sprite_frames: bool = false
-var _sprite_frame_anims: Dictionary = {}  # state(idle/walk/attack/hurt/death) -> Array[Texture2D]
+var _use_sprite_frames_4dir: bool = false
+var _sprite_frame_anims: Dictionary = {}  # state -> Array[Texture2D] 或四方向時不用
+var _sprite_frame_anims_4dir: Dictionary = {}  # state -> { down/left/right/up -> Array[Texture2D] }
 # 動畫播放速率：sprite_frames 通常張數較多，可在角色表用 anim_fps 覆寫（預設 ANIM_FPS）
 var _anim_fps: float = ANIM_FPS
 ## 方向鍵按住時走路動畫覆蓋攻擊演出（條狀精靈 + 角色表 walk_anim_over_attack）
 var _walk_anim_over_attack: bool = false
+## 攻擊動畫播滿一輪才結束；播放中再觸發攻擊不會從第 1 格重播（Puersz 等）
+var _attack_anim_play_once: bool = false
 var _sprite_feet_fine_offset_y: float = 0.0
 var _village_feet_extra_y: float = 0.0
 ## 戰鬥 HUD 血條／名牌基準 Y（愈小愈高；原 -28）
 const BATTLE_HUD_TOP_Y := -40.0
+const STATUS_OVERLAY_SCRIPT := preload("res://scripts/status_effect_overlay.gd")
+
+var _status_overlay: StatusEffectOverlay = null
 
 
 func setup_from_character(cid: String) -> void:
@@ -195,11 +202,14 @@ func setup_from_character(cid: String) -> void:
 	var has_sprite: bool = false
 	_use_sprite_strips = false
 	_use_sprite_frames = false
+	_use_sprite_frames_4dir = false
 	_walk_anim_over_attack = false
+	_attack_anim_play_once = false
 	_sprite_strip_tex.clear()
 	_strip_hframes_by_strip.clear()
 	_strip_fps.clear()
 	_sprite_frame_anims.clear()
+	_sprite_frame_anims_4dir.clear()
 	_sprite_feet_fine_offset_y = 0.0
 	_village_feet_extra_y = 0.0
 	_start_transform_pending = false
@@ -215,41 +225,57 @@ func setup_from_character(cid: String) -> void:
 	if village_mode:
 		_village_feet_extra_y = float(visual.get("village_sprite_feet_fine", 0))
 	_anim_fps = float(visual.get("anim_fps", ANIM_FPS))
-	# 1) 逐幀 PNG（每動作一組獨立檔，可用 Array 或 {pattern, count, start} 兩種格式）
+	# 1) 逐幀 PNG（每動作一組獨立檔；Puersz 等為四方向 { down/left/right/up -> 幀陣列 }）
 	if char_sprite and visual.has("sprite_frames") and visual["sprite_frames"] is Dictionary:
 		var fdict: Dictionary = visual["sprite_frames"]
 		var need_f: Array[String] = ["idle", "walk", "attack"]
 		var f_ok: bool = true
-		for fkey in need_f:
-			var arr_paths: Array = _resolve_frame_paths(fdict.get(fkey, null))
-			if arr_paths.is_empty():
-				f_ok = false
-				break
-			var tex_arr: Array = []
-			for p in arr_paths:
-				var t: Texture2D = GameData.resolve_frame_texture(p)
-				if t == null:
+		var use_4dir: bool = bool(visual.get("sprite_frames_4dir", false))
+		if use_4dir:
+			for fkey in need_f:
+				var dir_map: Dictionary = _load_sprite_frame_dirs(fdict.get(fkey, null))
+				if dir_map.is_empty():
 					f_ok = false
 					break
-				tex_arr.append(t)
-			if not f_ok:
-				break
-			_sprite_frame_anims[fkey] = tex_arr
+				_sprite_frame_anims_4dir[fkey] = dir_map
+		else:
+			for fkey in need_f:
+				var arr_paths: Array = _resolve_frame_paths(fdict.get(fkey, null))
+				if arr_paths.is_empty():
+					f_ok = false
+					break
+				var tex_arr: Array = []
+				for p in arr_paths:
+					var t: Texture2D = GameData.resolve_frame_texture(p)
+					if t == null:
+						f_ok = false
+						break
+					tex_arr.append(t)
+				if not f_ok:
+					break
+				_sprite_frame_anims[fkey] = tex_arr
 		if f_ok:
 			for opt_f in ["hurt", "death", "skill"]:
-				var arr_opt: Array = _resolve_frame_paths(fdict.get(opt_f, null))
-				if arr_opt.is_empty():
-					continue
-				var tex_arr2: Array = []
-				for p2 in arr_opt:
-					var t2: Texture2D = GameData.resolve_frame_texture(p2)
-					if t2:
-						tex_arr2.append(t2)
-				if not tex_arr2.is_empty():
-					_sprite_frame_anims[opt_f] = tex_arr2
-		if f_ok and _sprite_frame_anims.size() >= 3:
+				if use_4dir:
+					var opt_dirs: Dictionary = _load_sprite_frame_dirs(fdict.get(opt_f, null))
+					if not opt_dirs.is_empty():
+						_sprite_frame_anims_4dir[opt_f] = opt_dirs
+				else:
+					var arr_opt: Array = _resolve_frame_paths(fdict.get(opt_f, null))
+					if arr_opt.is_empty():
+						continue
+					var tex_arr2: Array = []
+					for p2 in arr_opt:
+						var t2: Texture2D = GameData.resolve_frame_texture(p2)
+						if t2:
+							tex_arr2.append(t2)
+					if not tex_arr2.is_empty():
+						_sprite_frame_anims[opt_f] = tex_arr2
+		if f_ok and (use_4dir and _sprite_frame_anims_4dir.size() >= 3 or _sprite_frame_anims.size() >= 3):
 			_use_sprite_frames = true
-			char_sprite.texture = (_sprite_frame_anims["idle"] as Array)[0]
+			_use_sprite_frames_4dir = use_4dir
+			var first_tex: Texture2D = _sprite_frame_anim_texture("idle", 0)
+			char_sprite.texture = first_tex
 			char_sprite.hframes = 1
 			char_sprite.vframes = 1
 			char_sprite.frame = 0
@@ -259,6 +285,7 @@ func setup_from_character(cid: String) -> void:
 			char_sprite.visible = true
 			_sprite_faces_left = bool(visual.get("sprite_faces_left", false))
 			_walk_anim_over_attack = bool(visual.get("walk_anim_over_attack", false))
+			_attack_anim_play_once = bool(visual.get("attack_anim_play_once", false))
 			if visual.has("strip_fps") and visual["strip_fps"] is Dictionary:
 				for k in visual["strip_fps"]:
 					_strip_fps[String(k)] = float(visual["strip_fps"][k])
@@ -311,6 +338,7 @@ func setup_from_character(cid: String) -> void:
 				for k in visual["strip_fps"]:
 					_strip_fps[String(k)] = float(visual["strip_fps"][k])
 			_walk_anim_over_attack = bool(visual.get("walk_anim_over_attack", false))
+			_attack_anim_play_once = bool(visual.get("attack_anim_play_once", false))
 			_start_transform_pending = bool(visual.get("start_transform", false)) \
 				and not village_mode and _sprite_strip_tex.has("transform")
 			if _start_transform_pending:
@@ -617,6 +645,57 @@ func _tick_enemy_status(delta: float) -> void:
 		_enemy_slow_factor = 1.0
 	_enemy_stun_time = maxf(0.0, _enemy_stun_time - delta)
 	_tick_player_bleed(delta)
+	_sync_status_effect_icons()
+
+
+func _player_status_icon_head_y() -> float:
+	var head_y: float = -body_radius - 6.0
+	if char_sprite != null and char_sprite.visible and char_sprite.texture:
+		var tex_h: float = float(char_sprite.texture.get_height())
+		if char_sprite.hframes > 0:
+			tex_h /= float(char_sprite.hframes)
+		head_y -= tex_h * absf(char_sprite.scale.y) * 0.20
+	elif sprite != null and sprite.visible:
+		head_y -= 8.0
+	head_y += 10.0
+	return head_y
+
+
+func _ensure_status_overlay() -> void:
+	if village_mode:
+		if _status_overlay != null and is_instance_valid(_status_overlay):
+			_status_overlay.queue_free()
+			_status_overlay = null
+		return
+	var head_y: float = _player_status_icon_head_y()
+	var body_y: float = -body_radius * 0.30
+	var icon_scale: float = StatusEffectOverlay.PLAYER_ICON_SCALE_MUL
+	if _status_overlay != null and is_instance_valid(_status_overlay):
+		_status_overlay.configure(true, head_y, Vector2(2.0, body_y), icon_scale)
+		return
+	_status_overlay = STATUS_OVERLAY_SCRIPT.new()
+	add_child(_status_overlay)
+	_status_overlay.configure(true, head_y, Vector2(2.0, body_y), icon_scale)
+
+
+func _sync_status_effect_icons() -> void:
+	if village_mode or hp <= 0.0:
+		if _status_overlay != null and is_instance_valid(_status_overlay):
+			_status_overlay.sync({})
+		return
+	_ensure_status_overlay()
+	if _status_overlay == null:
+		return
+	var active: Dictionary = {}
+	if _enemy_slow_time > 0.0:
+		active[StatusEffectIcons.STATUS_SLOW] = true
+	if _enemy_stun_time > 0.0:
+		active[StatusEffectIcons.STATUS_STUN] = true
+	if _player_bleed_time > 0.0 and _player_bleed_dps > 0.0:
+		active[StatusEffectIcons.STATUS_BLEED] = true
+	if mushin_active:
+		active[StatusEffectIcons.STATUS_RAGE_BUFF] = true
+	_status_overlay.sync(active)
 
 
 func _tick_player_bleed(delta: float) -> void:
@@ -906,33 +985,100 @@ func _update_char_anim_frames(delta: float) -> void:
 		"death":
 			key = "death" if _sprite_frame_anims.has("death") else "idle"
 
-	var arr: Array = _sprite_frame_anims.get(key, _sprite_frame_anims["idle"])
-	var fc: int = maxi(1, arr.size())
+	var fc: int = maxi(1, _sprite_frame_anim_count(key))
 	var anim_fps_use: float = _strip_fps_for_anim(key) if key == "skill" or key == "attack" else _anim_fps
 	var f_idx: int = int(anim_time * anim_fps_use) % fc
-	if anim_state == "death" or anim_state == "skill":
+	if anim_state == "death" or anim_state == "skill" \
+			or (anim_state == "attack" and _attack_anim_play_once):
 		var f: int = int(anim_time * anim_fps_use)
 		f_idx = mini(f, fc - 1)
-	char_sprite.texture = arr[f_idx]
+	var frame_tex: Texture2D = _sprite_frame_anim_texture(key, f_idx)
+	if frame_tex != char_sprite.texture:
+		char_sprite.texture = frame_tex
+		if village_mode:
+			_sync_char_sprite_feet_offset()
+	else:
+		char_sprite.texture = frame_tex
 	char_sprite.hframes = 1
 	char_sprite.vframes = 1
 	char_sprite.frame = 0
 
-	if _sprite_faces_left:
-		if face_dir.x < -0.05:
-			char_sprite.flip_h = false
-		elif face_dir.x > 0.05:
-			char_sprite.flip_h = true
+	if not _use_sprite_frames_4dir:
+		if _sprite_faces_left:
+			if face_dir.x < -0.05:
+				char_sprite.flip_h = false
+			elif face_dir.x > 0.05:
+				char_sprite.flip_h = true
+		else:
+			if face_dir.x < -0.05:
+				char_sprite.flip_h = true
+			elif face_dir.x > 0.05:
+				char_sprite.flip_h = false
 	else:
-		if face_dir.x < -0.05:
-			char_sprite.flip_h = true
-		elif face_dir.x > 0.05:
-			char_sprite.flip_h = false
+		char_sprite.flip_h = false
 
 
 # 將 sprite_frames 內 entry 解析成檔案路徑 Array：
 #   - Array：直接視為路徑清單
 #   - Dictionary：用 {pattern, count, start=1} 展開（pattern 內 {i} 替換成數字）
+func _load_sprite_frame_dirs(entry: Variant) -> Dictionary:
+	if entry == null or not entry is Dictionary:
+		return {}
+	var raw: Dictionary = entry
+	var out: Dictionary = {}
+	for dk in GameData.PUERSZ_DIR_ROWS:
+		if not raw.has(dk):
+			continue
+		var row_raw: Variant = raw[dk]
+		if not row_raw is Array:
+			continue
+		var tex_arr: Array = []
+		for item in row_raw:
+			var t: Texture2D = GameData.resolve_frame_texture(item)
+			if t:
+				tex_arr.append(t)
+		if not tex_arr.is_empty():
+			out[dk] = tex_arr
+	return out
+
+
+func _sprite_frames_facing_key() -> String:
+	var d: Vector2 = face_dir
+	if d.length_squared() < 0.001:
+		return "down"
+	if absf(d.x) > absf(d.y):
+		return "left" if d.x < 0.0 else "right"
+	return "down" if d.y > 0.0 else "up"
+
+
+func _sprite_frame_anim_array(anim_key: String) -> Array:
+	if _use_sprite_frames_4dir:
+		var idle_dirs: Dictionary = _sprite_frame_anims_4dir.get("idle", {})
+		var dir_map: Dictionary = _sprite_frame_anims_4dir.get(
+			anim_key, idle_dirs if idle_dirs is Dictionary else {})
+		if dir_map is Dictionary and not dir_map.is_empty():
+			var fk: String = _sprite_frames_facing_key()
+			if dir_map.has(fk):
+				return dir_map[fk] as Array
+			if dir_map.has("down"):
+				return dir_map["down"] as Array
+		return []
+	var flat: Array = _sprite_frame_anims.get(anim_key, _sprite_frame_anims.get("idle", []))
+	return flat if flat is Array else []
+
+
+func _sprite_frame_anim_count(anim_key: String) -> int:
+	return maxi(1, _sprite_frame_anim_array(anim_key).size())
+
+
+func _sprite_frame_anim_texture(anim_key: String, frame_idx: int) -> Texture2D:
+	var arr: Array = _sprite_frame_anim_array(anim_key)
+	if arr.is_empty():
+		return null
+	var i: int = clampi(frame_idx, 0, arr.size() - 1)
+	return arr[i] as Texture2D
+
+
 func _resolve_frame_paths(entry: Variant) -> Array:
 	if entry == null:
 		return []
@@ -975,6 +1121,16 @@ func _is_transform_anim_active() -> bool:
 	return _start_transform_pending and not _start_transform_done and anim_state == "transform"
 
 
+func _attack_anim_duration() -> float:
+	if _use_sprite_frames:
+		var fc: int = _sprite_frame_anim_count("attack")
+		return float(maxi(1, fc)) / _strip_fps_for_anim("attack")
+	if _use_sprite_strips:
+		var ac: int = maxi(1, int(_strip_frames.get("attack", _hframes_for_strip_key("attack"))))
+		return float(ac) / _strip_fps_for_anim("attack")
+	return _row_frame_count(row_attack) / _anim_fps
+
+
 func play_attack_anim() -> void:
 	if hp <= 0:
 		return
@@ -983,18 +1139,12 @@ func play_attack_anim() -> void:
 	AudioManager.play_sfx("player_attack", 0.03)
 	if char_sprite == null or not char_sprite.visible:
 		return
+	var dur: float = _attack_anim_duration()
+	if _attack_anim_play_once and anim_state == "attack" and anim_locked_for > 0.0:
+		return
 	anim_state = "attack"
 	anim_time = 0.0
-	# 播完一輪攻擊動畫所需時間
-	if _use_sprite_frames:
-		var ac_arr: Array = _sprite_frame_anims.get("attack", _sprite_frame_anims.get("idle", []))
-		var ac_f: int = maxi(1, ac_arr.size())
-		anim_locked_for = max(anim_locked_for, float(ac_f) / _anim_fps)
-	elif _use_sprite_strips:
-		var ac: int = maxi(1, int(_strip_frames.get("attack", _hframes_for_strip_key("attack"))))
-		anim_locked_for = max(anim_locked_for, float(ac) / _strip_fps_for_anim("attack"))
-	else:
-		anim_locked_for = max(anim_locked_for, _row_frame_count(row_attack) / _anim_fps)
+	anim_locked_for = maxf(anim_locked_for, dur)
 
 
 func play_skill_cast_anim() -> void:
@@ -2332,8 +2482,10 @@ func _on_pickup_area_body_entered(_body: Node) -> void:
 
 
 func _on_pickup_area_area_entered(area: Area2D) -> void:
-	if area.is_in_group("xp_orbs") or area.is_in_group("gold_orbs"):
-		area.attract_to(self)
+	if area.is_in_group("xp_orbs") or area.is_in_group("gold_orbs") \
+			or area.is_in_group("material_orbs"):
+		if area.has_method("attract_to"):
+			area.attract_to(self)
 
 
 class _MirrorMoonClone:

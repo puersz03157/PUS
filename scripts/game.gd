@@ -40,11 +40,12 @@ const REPEAT_EVENT_CAMERA_VIEW_MARGIN_RELAXED := 36.0
 @onready var camera: Camera2D = $Camera
 @onready var spawn_timer: Timer = $SpawnTimer
 @onready var hud: CanvasLayer = $HUD
+@onready var hud_p1_panel: Panel = $HUD/P1Panel
+@onready var hud_p2_panel: Panel = $HUD/P2Panel
 @onready var hud_p1_lv: Label = $HUD/P1Panel/Lv
 @onready var hud_p1_hp: ProgressBar = $HUD/P1Panel/HP
 @onready var hud_p1_skill: ProgressBar = $HUD/P1Panel/Skill
 @onready var hud_p1_kills: Label = $HUD/P1Panel/Kills
-@onready var hud_p2_panel: Control = $HUD/P2Panel
 @onready var hud_p2_lv: Label = $HUD/P2Panel/Lv
 @onready var hud_p2_hp: ProgressBar = $HUD/P2Panel/HP
 @onready var hud_p2_skill: ProgressBar = $HUD/P2Panel/Skill
@@ -135,16 +136,35 @@ func _ready() -> void:
 	hud_p2_panel.visible = GameState.two_players
 	_setup_hud_bar_styles()
 	_show_stage_banner()
-	if not _present_start_weapon_notice():
+	if _is_test_arena_stage():
+		_spawn_test_arena_dummies()
+	elif not _present_start_weapon_notice():
 		spawn_timer.start()
+
+
+func _is_test_arena_stage() -> bool:
+	return bool(stage_def.get("test_arena", false))
 
 
 func _spawn_map() -> void:
 	var path: String = String(stage_def.get("map_path", DEFAULT_MAP_PATH))
+	if _is_test_arena_stage():
+		path = ""
 	if not ResourceLoader.exists(path):
 		push_warning("[Game] 找不到地圖：%s，使用空白世界。" % path)
-		spawn_origin = Vector2.ZERO
-		map_bounds = Rect2(-2000, -2000, 4000, 4000)
+		if _is_test_arena_stage():
+			# 與一般關卡相同座標：玩家在 MAP_CENTER，相機 clamp 才對得上
+			spawn_origin = MAP_CENTER
+			map_bounds = Rect2(Vector2.ZERO, MAP_SIZE)
+			tile_size = int(round(16.0 * MAP_SCALE))
+			camera.zoom = CAMERA_ZOOM
+			camera.limit_left = 0
+			camera.limit_top = 0
+			camera.limit_right = int(MAP_SIZE.x)
+			camera.limit_bottom = int(MAP_SIZE.y)
+		else:
+			spawn_origin = Vector2.ZERO
+			map_bounds = Rect2(-2000, -2000, 4000, 4000)
 		return
 	var packed: PackedScene = load(path)
 	if packed == null:
@@ -313,7 +333,7 @@ func _present_start_weapon_notice() -> bool:
 
 func _start_weapon_notice_dismissed() -> void:
 	get_tree().paused = false
-	if not stage_completed:
+	if not stage_completed and not _is_test_arena_stage():
 		spawn_timer.start()
 
 
@@ -858,7 +878,7 @@ func _grant_event_material_pack() -> void:
 	var picked: Dictionary = valid_drops.pick_random()
 	var material_id: String = String(picked.get("id", ""))
 	var amount: int = randi_range(3, 6)
-	if GameState.grant_material(material_id, amount):
+	if GameState.grant_run_material(material_id, amount):
 		_show_center_notice(tr("EVENT_MATERIAL_PACK_NOTICE_FMT") % [
 			GameData.tr_material_name(material_id), amount])
 
@@ -947,7 +967,7 @@ func _draw_incident_event_marker(node: Node2D) -> void:
 
 
 func _update_stage_progress() -> void:
-	if stage_def.is_empty() or stage_completed:
+	if stage_def.is_empty() or stage_completed or _is_test_arena_stage():
 		return
 	var boss_time: float = float(stage_def.get("boss_time", 600.0))
 	var warn_time: float = max(0.0, boss_time - float(stage_def.get("boss_warning_time", 30.0)))
@@ -1051,7 +1071,8 @@ func _position_camera() -> void:
 			camera.zoom = CAMERA_ZOOM
 	else:
 		camera.zoom = CAMERA_ZOOM
-	Coop.clamp_camera_position(camera, MAP_SIZE, vp_size)
+	var map_sz: Vector2 = map_bounds.size if map_bounds.size.length_squared() > 1.0 else MAP_SIZE
+	Coop.clamp_camera_position(camera, map_sz, vp_size)
 
 
 func _setup_hud_bar_styles() -> void:
@@ -1114,8 +1135,44 @@ func _update_hud() -> void:
 
 
 # ---------------- 敵人生成 ----------------
+func _spawn_test_arena_dummies() -> void:
+	var dummies: Variant = stage_def.get("test_dummies", [])
+	if dummies is not Array:
+		return
+	var lf: float = float(stage_def.get("test_dummy_level_factor", 1.0))
+	var hp_override: float = float(stage_def.get("test_dummy_hp", 80000.0))
+	var dmg_mult: float = float(stage_def.get("test_dummy_damage_mult", 0.4))
+	for entry in dummies:
+		if entry is not Dictionary:
+			continue
+		var eid: String = String(entry.get("enemy_id", ""))
+		var def: Dictionary = GameData.get_enemy_def(eid)
+		if def.is_empty():
+			push_warning("[Game] 測試靶場找不到敵人：%s" % eid)
+			continue
+		var pos_raw: Variant = entry.get("pos", Vector2.ZERO)
+		var pos: Vector2 = Vector2.ZERO
+		if pos_raw is Vector2:
+			pos = pos_raw
+		elif pos_raw is Array and pos_raw.size() >= 2:
+			pos = Vector2(float(pos_raw[0]), float(pos_raw[1]))
+		pos += spawn_origin
+		var e: Node = spawn_enemy_from_def(def, pos, lf)
+		if e == null:
+			continue
+		e.special_ai_mode = "stationary"
+		e.move_speed = 0.0
+		e._base_move_speed = 0.0
+		e.max_hp = hp_override
+		e.hp = hp_override
+		e.xp_value = 0.0
+		e.damage = maxf(1.0, float(e.damage) * dmg_mult)
+		if e.has_method("_update_health_bar"):
+			e._update_health_bar()
+
+
 func _on_spawn_tick() -> void:
-	if stage_completed:
+	if stage_completed or _is_test_arena_stage():
 		return
 	if blacksmith_rescue_event_active:
 		spawn_timer.wait_time = max(spawn_timer.wait_time, 1.4)
@@ -1337,6 +1394,7 @@ func _game_over(won: bool) -> void:
 		_clear_remaining_enemies()
 		AudioManager.play_sfx("reward", 0.02)
 	reward = int(GameState.last_result.get("gold_reward", reward))
+	_set_battle_hud_visible(false)
 	gameover_panel.visible = true
 	_populate_summary(won, reward)
 
@@ -1364,10 +1422,30 @@ func _clear_remaining_enemies() -> void:
 			e.queue_free()
 
 
+func _set_battle_hud_visible(visible_hud: bool) -> void:
+	hud_p1_panel.visible = visible_hud
+	hud_p2_panel.visible = visible_hud
+	time_label.visible = visible_hud
+	hud_team_xp.visible = visible_hud
+	if not visible_hud:
+		stage_banner.visible = false
+	if p1_skill_icon != null and is_instance_valid(p1_skill_icon):
+		p1_skill_icon.visible = visible_hud
+	if p2_skill_icon != null and is_instance_valid(p2_skill_icon):
+		p2_skill_icon.visible = visible_hud
+	if touch_hud != null and is_instance_valid(touch_hud):
+		touch_hud.visible = visible_hud
+	if _coop_pointer_overlay != null and is_instance_valid(_coop_pointer_overlay):
+		_coop_pointer_overlay.visible = visible_hud
+
+
 # ---------------- 戰鬥結算畫面 ----------------
-func _populate_summary(won: bool, reward: int) -> void:
+func _populate_summary(won: bool, reward: int, early_exit: bool = false) -> void:
 	# 標題 / 副標
-	if won:
+	if early_exit:
+		gameover_title.text = tr("GAME_RETREAT_TITLE")
+		gameover_title.add_theme_color_override("font_color", Color(0.75, 0.88, 1.0))
+	elif won:
 		gameover_title.text = tr("GAME_VICTORY")
 		gameover_title.add_theme_color_override("font_color", Color(1, 0.95, 0.55))
 	else:
@@ -1378,8 +1456,24 @@ func _populate_summary(won: bool, reward: int) -> void:
 		stage_name, int(run_time / 60), int(run_time) % 60]
 
 	var lines: Array[String] = []
-	# 隊伍 / 局外總結
-	lines.append(tr("GAME_TEAM_LINE_FMT") % [team_level, reward, GameState.gold])
+	var ico: int = GameData.SUMMARY_ICON_SIZE
+	# 隊伍 / 局外總結（金幣圖示）
+	var gold_ico: String = GameData.gold_icon_bbcode(ico)
+	var gold_part: String = "+%d" % reward
+	if gold_ico != "":
+		gold_part = "%s %s" % [gold_ico, gold_part]
+	lines.append(
+		"[color=#ffd24d]%s[/color] Lv [b]%d[/b]    [color=#ffd24d]%s[/color] %s  （%d）" % [
+			tr("GAME_SUMMARY_TEAM_LV_LABEL"),
+			team_level,
+			tr("GAME_SUMMARY_GOLD_LABEL"),
+			gold_part,
+			GameState.gold,
+		])
+	var resource_lines: Array[String] = _build_run_resource_summary_lines(ico)
+	if not resource_lines.is_empty():
+		lines.append(tr("GAME_RUN_RESOURCES_TITLE"))
+		lines.append_array(resource_lines)
 	var achievement_unlocks: Array = GameState.last_result.get("achievement_unlocks", [])
 	if not achievement_unlocks.is_empty():
 		var names: Array[String] = []
@@ -1407,68 +1501,165 @@ func _populate_summary(won: bool, reward: int) -> void:
 			c_color, p.slot_index + 1,
 			GameData.tr_name(c_def),
 			status,
-			GameData.tr_name(passive_def),
-			GameData.tr_name(skill_def)])
-		lines.append(tr("GAME_PLAYER_STATS_FMT") % [
-			p.kills,
-			int(round(p.damage_dealt)),
-			int(round(p.damage_taken)),
-			int(p.pinball_score)])
+			GameData.format_passive_summary_bbcode(String(p.passive_id), ico),
+			GameData.format_skill_summary_bbcode(String(p.skill_id), ico),
+		])
+		lines.append(_build_player_combat_stats_line(p, ico))
 		# 武器
 		if p.weapons.size() > 0:
 			var wparts: Array[String] = []
 			for w in p.weapons:
-				wparts.append(tr("GAME_WEAPON_ITEM_FMT") % [
-					GameData.tr_weapon_name(String(w["id"])), w["level"]])
+				var wid: String = String(w["id"])
+				var wico: String = GameData.weapon_icon_bbcode(wid, ico)
+				var wlvl: String = "Lv%d" % int(w["level"])
+				if wico != "":
+					wparts.append("%s %s" % [wico, wlvl])
+				else:
+					wparts.append(tr("GAME_WEAPON_ITEM_FMT") % [
+						GameData.tr_weapon_name(wid), int(w["level"])])
 			lines.append(tr("GAME_WEAPONS_PREFIX") + "  ".join(wparts))
-		# 加成（局內取得的 common upgrade）— 顯示名稱與層數
+		# 加成（局內取得的 common upgrade）
 		var upgrade_log: Dictionary = p.common_upgrade_log
 		if upgrade_log.size() > 0:
 			var uparts: Array[String] = []
 			for uid in upgrade_log.keys():
-				var uname: String = String(uid)
-				for u in GameData.COMMON_UPGRADES:
-					if u["id"] == uid:
-						uname = GameData.tr_name(u)
-						break
-				uparts.append(tr("GAME_ABILITY_ITEM_FMT") % [uname, int(upgrade_log[uid])])
+				var uico: String = GameData.common_upgrade_icon_bbcode(String(uid), ico)
+				var cnt: int = int(upgrade_log[uid])
+				if uico != "":
+					uparts.append("%s x%d" % [uico, cnt])
+				else:
+					var uname: String = String(uid)
+					for u in GameData.COMMON_UPGRADES:
+						if u["id"] == uid:
+							uname = GameData.tr_name(u)
+							break
+					uparts.append(tr("GAME_ABILITY_ITEM_FMT") % [uname, cnt])
 			lines.append(tr("GAME_ABILITIES_PREFIX") + "  ".join(uparts))
 		else:
 			lines.append(tr("GAME_ABILITIES_PREFIX") + tr("GAME_ABILITIES_NONE"))
 		# 屬性堆疊
-		var stacks: Array[String] = _build_stat_stacks(p)
+		var stacks: Array[String] = _build_stat_stacks(p, ico)
 		if not stacks.is_empty():
-			lines.append(tr("GAME_STACKS_PREFIX") + "  ".join(stacks) + "[/color]")
+			lines.append(tr("GAME_STACKS_PREFIX") + "  ".join(stacks))
 		lines.append("")
 
 	gameover_stats.text = "\n".join(lines)
 	gameover_hint.text = tr("GAME_HINT_BACK")
+	_cache_battle_summary_overlay()
 
 
-# 將玩家當前 buff 堆疊轉成顯示文字（HP +20% 等），給結算與暫停選單共用
-func _build_stat_stacks(p: Node) -> Array[String]:
+func _cache_battle_summary_overlay() -> void:
+	BattleRunSummaryOverlay.store_pending(
+		gameover_title.text,
+		gameover_title.get_theme_color("font_color"),
+		gameover_subtitle.text,
+		gameover_stats.text,
+		tr("GAME_HINT_BACK"),
+		tr("GAME_HINT_SUMMARY_DISMISS"),
+	)
+
+
+func _finalize_early_retreat() -> void:
+	spawn_timer.stop()
+	boss_hp_panel.visible = false
+	GameState.last_result["won"] = false
+	GameState.last_result["time"] = run_time
+	GameState.last_result["kills_p1"] = players[0].kills if players.size() > 0 else 0
+	GameState.last_result["kills_p2"] = players[1].kills if players.size() > 1 else 0
+	GameState.last_result["achievement_unlocks"] = _record_achievement_progress()
+	GameState.last_result["facility_unlocks"] = []
+	_clear_remaining_enemies()
+
+
+func retreat_to_village_with_summary() -> void:
+	if _is_test_arena_stage():
+		return
+	if not stage_completed:
+		_finalize_early_retreat()
+		var reward: int = int(GameState.last_result.get("gold_reward", 0))
+		_populate_summary(false, reward, true)
+	elif not BattleRunSummaryOverlay.has_pending():
+		_cache_battle_summary_overlay()
+	get_tree().paused = false
+	GameState.next_scene = "village"
+	get_tree().change_scene_to_file("res://scenes/Village.tscn")
+
+
+func _build_run_resource_summary_lines(icon_size: int = GameData.SUMMARY_ICON_SIZE) -> Array[String]:
+	var out: Array[String] = []
+	var mat_gains: Variant = GameState.last_result.get("run_material_gains", {})
+	if mat_gains is Dictionary:
+		for mdef in GameData.MATERIALS:
+			var mid: String = String(mdef.get("id", ""))
+			var qty: int = int((mat_gains as Dictionary).get(mid, 0))
+			if qty > 0:
+				var mico: String = GameData.material_icon_bbcode(mid, icon_size)
+				if mico != "":
+					out.append("%s +%d" % [mico, qty])
+				else:
+					out.append(tr("GAME_RUN_MATERIAL_LINE_FMT") % [
+						GameData.tr_material_name(mid), qty])
+	return out
+
+
+func _summary_stat_chip(icon_id: String, value_text: String, icon_size: int) -> String:
+	var icon: String = GameData.common_upgrade_icon_bbcode(icon_id, icon_size)
+	if icon != "":
+		return "%s %s" % [icon, value_text]
+	return value_text
+
+
+func _build_player_combat_stats_line(p: Node, icon_size: int) -> String:
+	var parts: Array[String] = []
+	parts.append(_summary_stat_chip(
+		"c_atk", str(p.kills), icon_size))
+	parts.append(_summary_stat_chip(
+		"c_atk", str(int(round(p.damage_dealt))), icon_size))
+	parts.append(_summary_stat_chip(
+		"c_armor", str(int(round(p.damage_taken))), icon_size))
+	parts.append(_summary_stat_chip(
+		"c_pickup", str(int(p.pinball_score)), icon_size))
+	return "  ".join(parts)
+
+
+# 將玩家當前 buff 堆疊轉成顯示（圖示 + 數值）
+func _build_stat_stacks(p: Node, icon_size: int = GameData.SUMMARY_ICON_SIZE) -> Array[String]:
 	var stacks: Array[String] = []
 	if p.hp_mult > 1.001:
-		stacks.append(tr("STAT_HP_FMT") % int((p.hp_mult - 1.0) * 100))
+		stacks.append(_summary_stat_chip(
+			"c_hp", tr("STAT_HP_FMT") % int((p.hp_mult - 1.0) * 100), icon_size))
 	if p.speed_mult > 1.001:
-		stacks.append(tr("STAT_SPD_FMT") % int((p.speed_mult - 1.0) * 100))
+		stacks.append(_summary_stat_chip(
+			"c_speed", tr("STAT_SPD_FMT") % int((p.speed_mult - 1.0) * 100), icon_size))
 	if p.damage_mult > 1.001:
-		stacks.append(tr("STAT_ATK_FMT") % int((p.damage_mult - 1.0) * 100))
+		stacks.append(_summary_stat_chip(
+			"c_atk", tr("STAT_ATK_FMT") % int((p.damage_mult - 1.0) * 100), icon_size))
 	if p.rate_mult > 1.001:
-		stacks.append(tr("STAT_RATE_FMT") % int((p.rate_mult - 1.0) * 100))
+		stacks.append(_summary_stat_chip(
+			"c_cooldown", tr("STAT_RATE_FMT") % int((p.rate_mult - 1.0) * 100), icon_size))
 	if p.get("crit_chance") != null and float(p.crit_chance) > 0.001:
-		stacks.append(tr("STAT_CRIT_RATE_FMT") % int(float(p.crit_chance) * 100))
+		stacks.append(_summary_stat_chip(
+			"c_crit_chance",
+			tr("STAT_CRIT_RATE_FMT") % int(float(p.crit_chance) * 100),
+			icon_size))
 	if p.get("crit_damage_mult") != null \
 			and float(p.crit_damage_mult) > GameData.CRIT_DAMAGE_MULT_BASE + 0.001:
-		stacks.append(tr("STAT_CRIT_DMG_FMT") % int((float(p.crit_damage_mult) - 1.0) * 100))
+		stacks.append(_summary_stat_chip(
+			"c_crit_damage",
+			tr("STAT_CRIT_DMG_FMT") % int((float(p.crit_damage_mult) - 1.0) * 100),
+			icon_size))
 	if p.pickup_mult > 1.001:
-		stacks.append(tr("STAT_PICKUP_FMT") % int((p.pickup_mult - 1.0) * 100))
+		stacks.append(_summary_stat_chip(
+			"c_pickup", tr("STAT_PICKUP_FMT") % int((p.pickup_mult - 1.0) * 100), icon_size))
 	if p.xp_mult > 1.001:
-		stacks.append(tr("STAT_XP_FMT") % int((p.xp_mult - 1.0) * 100))
+		stacks.append(_summary_stat_chip(
+			"c_xp", tr("STAT_XP_FMT") % int((p.xp_mult - 1.0) * 100), icon_size))
 	if p.dmg_reduce > 0.001:
-		stacks.append(tr("STAT_DR_FMT") % int(p.dmg_reduce * 100))
+		stacks.append(_summary_stat_chip(
+			"c_armor", tr("STAT_DR_FMT") % int(p.dmg_reduce * 100), icon_size))
 	if p.regen_per_sec > 0.001:
-		stacks.append(tr("STAT_REGEN_FMT") % p.regen_per_sec)
+		stacks.append(_summary_stat_chip(
+			"c_regen", tr("STAT_REGEN_FMT") % p.regen_per_sec, icon_size))
 	return stacks
 
 

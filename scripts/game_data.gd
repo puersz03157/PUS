@@ -53,6 +53,7 @@ const DREAMIR_CHARACTER_ANIMS: Dictionary = {
 }
 var _dreamir_sprite_frames_cache: Dictionary = {}
 var _chierit_sprite_frames_cache: Dictionary = {}
+var _puersz_sprite_frames_cache: Dictionary = {}
 var _sprite_sheet_row_bands_cache: Dictionary = {}
 var _sprite_sheet_anim_frames_cache: Dictionary = {}
 
@@ -67,6 +68,34 @@ const CHIERIT_VILLAGE_FEET_FINE_Y := 10.0
 const CHIERIT_PREVIEW_FEET_FINE_Y := 8.0
 ## 使用 chierit 資產的房屋造型 id（新增造型時加入此表）
 const CHIERIT_HOUSE_SKIN_IDS: Array[String] = ["fire_knight", "leaf_ranger"]
+const PUERSZ_CHAR_ROOT := "res://assets/characters/Puersz/"
+## Puersz 特殊造型：橫向／網格 sprite sheet，單格 128×128
+const PUERSZ_HOUSE_SKIN_IDS: Array[String] = ["puersz"]
+const PUERSZ_FRAME_W := 128
+const PUERSZ_FRAME_H := 128
+const PUERSZ_CHARACTER_SCALE := 0.92
+const PUERSZ_PREVIEW_SCALE := 0.78
+const PUERSZ_VILLAGE_FEET_FINE_Y := 0.0
+const PUERSZ_PREVIEW_FEET_FINE_Y := 4.0
+## Puersz 列序（俯視四方向）：0=正面向下、1=向左、2=向右、3=背面向上
+const PUERSZ_DIR_ROWS: Array[String] = ["down", "left", "right", "up"]
+const PUERSZ_ANIM_SHEETS: Dictionary = {
+	"idle": {
+		"sheet": PUERSZ_CHAR_ROOT + "Puersz_Idle.png",
+		"cols": 4,
+		"rows": 4,
+	},
+	"walk": {
+		"sheet": PUERSZ_CHAR_ROOT + "Puersz_Move.png",
+		"cols": 6,
+		"rows": 4,
+	},
+	"attack": {
+		"sheet": PUERSZ_CHAR_ROOT + "Puersz_Attack.png",
+		"cols": 6,
+		"rows": 4,
+	},
+}
 ## 劍士專屬造型 fire_knight（chierit）— 08_sp_atk 為技能施放
 const FIRE_KNIGHT_ANIM_FOLDERS: Dictionary = {
 	"idle": "01_idle",
@@ -85,6 +114,12 @@ const LEAF_RANGER_ANIM_FOLDERS: Dictionary = {
 	"skill": "sp_atk",
 	"hurt": "take_hit",
 	"death": "death",
+}
+## 房屋造型素材根目錄；武器專用特效：於該目錄放 <weapon_id>.png（例：sword.png）
+const HOUSE_SKIN_ASSET_ROOTS: Dictionary = {
+	"puersz": PUERSZ_CHAR_ROOT,
+	"fire_knight": FIRE_KNIGHT_ROOT,
+	"leaf_ranger": LEAF_RANGER_ROOT,
 }
 const BOW_ARROW_PROJECTILE_TEXTURE := "res://assets/Effects/arrow/arrow_.png"
 ## 武器 HUD／圖鑑圖示：res://assets/icons/weapons/<weapon_id>.png（無圖則 fallback）
@@ -229,7 +264,44 @@ const WEAPONS: Array[Dictionary] = [
 		"crit_chance": 0.07,
 		"crit_damage_mult": 1.9,
 		"range": 500.0,       # 20 米
-		"params": {"speed": 520.0, "count": 1, "explode_radius": 50.0, "color": Color(0.9, 0.4, 1.0)},
+		"params": {
+			"speed": 520.0,
+			"count": 1,
+			"aim_lock_mult": 1.0,
+			"explode_radius": 50.0,
+			"color": Color(0.9, 0.4, 1.0),
+			"show_explode_debug": false,
+			"show_projectile_hit_debug": false,
+			"spawn_forward_offset": 34.0,
+			"projectile_visual": {
+				"sheet": "res://assets/Effects/magic_bullet/Projectile.png",
+				"frame_w": 64,
+				"frame_h": 64,
+				"frame_count": 4,
+				"fps": 14.0,
+				"hold_frame": 3,
+				"art_tilt_deg": 25.0,
+				"hit_forward_offset": 46.0,
+				"hit_radius": 5.0,
+				"align_sprite_to_hit_probe": true,
+				"visual_trail_back_offset": 10.0,
+				"manual_hit_probe": true,
+				"z_index": 56,
+			},
+			"explosion_visual": {
+				"sheet": "res://assets/Effects/magic_bullet/Explosion.png",
+				"frame_w": 64,
+				"frame_h": 64,
+				"frame_count": 8,
+				"fps": 16.0,
+				"damage_frames": [3, 4],
+				"explosion_center_blend": 0.72,
+				"scale_to_radius": true,
+				"visual_peak_radius": 18.0,
+				"visual_scale_mult": 1.05,
+				"z_index": 58,
+			},
+		},
 		"max_effect": "爆炸範圍受到攻擊範圍影響", "max_effect_key": "WEAPON_MAGIC_BULLET_MAX",
 		"craft_gold": 120,
 		"craft_materials": {"copper": 4, "stone": 3},
@@ -782,6 +854,7 @@ const WEAPON_UPGRADES: Array[Dictionary] = [
 ]
 
 ## 敵人異常狀態（流血 / 燃燒 / 中毒 DOT、易傷、緩速）— 集中於此方便調平衡
+## 頭頂圖示對照見 StatusEffectIcons：減速→Wet；玩家中毒→Poisoned 2；敵人中毒→Poisoned 1
 const ENEMY_STATUS_TICK_SEC := 0.25
 const ENEMY_STATUS_MELODY_VULN_DURATION := 4.0
 const ENEMY_STATUS_MELODY_VULN_STACK_CAP_BASE := 3
@@ -929,6 +1002,76 @@ func get_weapon_def(id: String) -> Dictionary:
 	return {}
 
 
+func get_player_house_skin_id(player: Node) -> String:
+	if player == null:
+		return "default"
+	var cid: String = String(player.get("character_id"))
+	var prefix: String = String(player.get("input_prefix"))
+	if prefix == "p1":
+		return GameState.get_p1_house_character_skin(cid)
+	if prefix == "p2":
+		return GameState.get_p2_house_character_skin(cid)
+	return "default"
+
+
+func get_house_skin_asset_root(skin_id: String) -> String:
+	if skin_id == "" or skin_id == "default" or skin_id == "human" or skin_id.begins_with("look_"):
+		return ""
+	if not HOUSE_SKIN_ASSET_ROOTS.has(skin_id):
+		return ""
+	if skin_id == "puersz" and not is_puersz_assets_available():
+		return ""
+	var root: String = String(HOUSE_SKIN_ASSET_ROOTS[skin_id])
+	if root == "":
+		return ""
+	return root if root.ends_with("/") else root + "/"
+
+
+## 造型資料夾內 <weapon_id>.png 覆寫該武器的 attack_effect（其餘參數沿用武器表）
+func build_skin_weapon_attack_effect(weapon_id: String, skin_root: String) -> Dictionary:
+	if weapon_id == "" or skin_root == "":
+		return {}
+	var weapon_def: Dictionary = get_weapon_def(weapon_id)
+	if weapon_def.is_empty():
+		return {}
+	var params: Variant = weapon_def.get("params", {})
+	if not params is Dictionary:
+		return {}
+	var base_fx: Variant = (params as Dictionary).get("attack_effect", null)
+	if not base_fx is Dictionary or (base_fx as Dictionary).is_empty():
+		return {}
+	var sheet_path: String = skin_root + "%s.png" % weapon_id
+	if not ResourceLoader.exists(sheet_path, "Texture2D"):
+		return {}
+	var fx: Dictionary = (base_fx as Dictionary).duplicate(true)
+	fx["sheet"] = sheet_path
+	var tex: Texture2D = load(sheet_path) as Texture2D
+	if tex != null and int(fx.get("frame_count", 1)) <= 1:
+		fx["frame_w"] = tex.get_width()
+		fx["frame_h"] = tex.get_height()
+	return fx
+
+
+func resolve_skin_weapon_attack_effect(player: Node, weapon_id: String) -> Dictionary:
+	var skin_id: String = get_player_house_skin_id(player)
+	var skin_root: String = get_house_skin_asset_root(skin_id)
+	return build_skin_weapon_attack_effect(weapon_id, skin_root)
+
+
+func get_weapon_def_for_player(weapon_id: String, player: Node) -> Dictionary:
+	var d: Dictionary = get_weapon_def(weapon_id)
+	if d.is_empty():
+		return d
+	var skin_fx: Dictionary = resolve_skin_weapon_attack_effect(player, weapon_id)
+	if skin_fx.is_empty():
+		return d
+	d = d.duplicate(true)
+	var params: Dictionary = (d.get("params", {}) as Dictionary).duplicate(true)
+	params["attack_effect"] = skin_fx
+	d["params"] = params
+	return d
+
+
 func get_armament_def(id: String) -> Dictionary:
 	for a in ARMAMENTS:
 		if a["id"] == id:
@@ -961,6 +1104,8 @@ func character_house_skin_options(char_id: String, unlocked_character_ids: Array
 		out.append({"id": "fire_knight", "label": tr("HOUSE_SKIN_FIRE_KNIGHT")})
 	if char_id == "ranger":
 		out.append({"id": "leaf_ranger", "label": tr("HOUSE_SKIN_LEAF_RANGER")})
+	if is_puersz_assets_available():
+		out.append({"id": "puersz", "label": tr("HOUSE_SKIN_PUERSZ")})
 	for raw in unlocked_character_ids:
 		var uid: String = String(raw)
 		if uid == "" or uid == char_id:
@@ -976,6 +1121,113 @@ func character_house_skin_options(char_id: String, unlocked_character_ids: Array
 
 func is_chierit_house_skin(skin_id: String) -> bool:
 	return skin_id in CHIERIT_HOUSE_SKIN_IDS
+
+
+func is_puersz_house_skin(skin_id: String) -> bool:
+	return skin_id in PUERSZ_HOUSE_SKIN_IDS
+
+
+## 三張 Puersz 圖皆存在且尺寸足以切出設定格數時才提供造型選項
+func is_puersz_assets_available() -> bool:
+	const REQUIRED_ANIMS: Array[String] = ["idle", "walk", "attack"]
+	for anim_key in REQUIRED_ANIMS:
+		if not PUERSZ_ANIM_SHEETS.has(anim_key):
+			return false
+		var spec: Dictionary = PUERSZ_ANIM_SHEETS[anim_key]
+		var sheet_path: String = String(spec.get("sheet", ""))
+		if sheet_path == "" or not ResourceLoader.exists(sheet_path):
+			return false
+		var tex: Texture2D = load(sheet_path) as Texture2D
+		if tex == null:
+			return false
+		var cols: int = maxi(1, int(spec.get("cols", 1)))
+		var rows: int = maxi(1, int(spec.get("rows", 1)))
+		if tex.get_width() < cols * PUERSZ_FRAME_W or tex.get_height() < rows * PUERSZ_FRAME_H:
+			return false
+	return true
+
+
+func get_puersz_sprite_frames() -> Dictionary:
+	if _puersz_sprite_frames_cache.has("puersz"):
+		return _puersz_sprite_frames_cache["puersz"]
+	var out: Dictionary = {}
+	for anim_key in PUERSZ_ANIM_SHEETS:
+		var spec: Dictionary = PUERSZ_ANIM_SHEETS[anim_key]
+		var by_dir: Dictionary = _build_puersz_sheet_frames_4dir(spec)
+		if not by_dir.is_empty():
+			out[anim_key] = by_dir
+	if not out.is_empty():
+		if not out.has("hurt") and out.has("idle"):
+			out["hurt"] = (out["idle"] as Dictionary).duplicate(true)
+		if not out.has("death") and out.has("idle"):
+			out["death"] = (out["idle"] as Dictionary).duplicate(true)
+	_puersz_sprite_frames_cache["puersz"] = out
+	return out
+
+
+func _build_puersz_sheet_frames_4dir(spec: Dictionary) -> Dictionary:
+	var row_arrays: Array = _build_puersz_sheet_row_arrays(spec)
+	if row_arrays.is_empty():
+		return {}
+	var out: Dictionary = {}
+	for i in range(mini(PUERSZ_DIR_ROWS.size(), row_arrays.size())):
+		var row_frames: Array = row_arrays[i]
+		if not row_frames.is_empty():
+			out[PUERSZ_DIR_ROWS[i]] = row_frames
+	return out
+
+
+func _build_puersz_sheet_row_arrays(spec: Dictionary) -> Array:
+	var sheet_path: String = String(spec.get("sheet", ""))
+	var tex: Texture2D = load(sheet_path) as Texture2D
+	if tex == null:
+		return []
+	var cols: int = maxi(1, int(spec.get("cols", 1)))
+	var rows: int = maxi(1, int(spec.get("rows", 1)))
+	var fw: int = PUERSZ_FRAME_W
+	var fh: int = PUERSZ_FRAME_H
+	var max_cols: int = maxi(1, tex.get_width() / fw)
+	var max_rows: int = maxi(1, tex.get_height() / fh)
+	cols = mini(cols, max_cols)
+	rows = mini(rows, max_rows)
+	var out: Array = []
+	for row in range(rows):
+		var row_frames: Array = []
+		for col in range(cols):
+			var at := AtlasTexture.new()
+			at.atlas = tex
+			at.region = Rect2(float(col * fw), float(row * fh), float(fw), float(fh))
+			row_frames.append(at)
+		out.append(row_frames)
+	return out
+
+
+func _build_puersz_house_skin_visual(base: Dictionary) -> Dictionary:
+	var frames: Dictionary = get_puersz_sprite_frames()
+	if frames.is_empty():
+		return {}
+	var vis: Dictionary = base.duplicate(true)
+	vis["sprite_frames"] = frames
+	vis["sprite_frames_4dir"] = true
+	vis.erase("sprite_sheet")
+	vis.erase("sprite_strips")
+	apply_puersz_visual_scale(vis, base)
+	vis["sprite_feet_fine"] = 0.0
+	vis["walk_anim_over_attack"] = false
+	vis["attack_anim_play_once"] = true
+	vis["anim_fps"] = 12.0
+	vis["strip_fps"] = {"attack": 14.0, "walk": 14.0}
+	return vis
+
+
+func apply_puersz_visual_scale(visual: Dictionary, base: Dictionary) -> void:
+	var base_scale: float = float(base.get("scale", 1.0))
+	visual["scale"] = base_scale * PUERSZ_CHARACTER_SCALE
+	visual["visual_pack"] = "puersz"
+	visual["preview_scale"] = PUERSZ_PREVIEW_SCALE
+	visual["village_sprite_feet_fine"] = float(base.get("village_sprite_feet_fine", 0)) \
+		+ PUERSZ_VILLAGE_FEET_FINE_Y
+	visual["preview_feet_fine_y"] = PUERSZ_PREVIEW_FEET_FINE_Y
 
 
 func get_chierit_sprite_frames(root: String, folder_map: Dictionary, cache_key: String) -> Dictionary:
@@ -1046,6 +1298,10 @@ func resolve_character_visual_def(char_id: String, skin_id: String) -> Dictionar
 		var chierit_vis: Dictionary = _resolve_chierit_house_skin(char_id, skin_id, base)
 		if not chierit_vis.is_empty():
 			return chierit_vis
+	if is_puersz_house_skin(skin_id):
+		var puerz_vis: Dictionary = _build_puersz_house_skin_visual(base)
+		if not puerz_vis.is_empty():
+			return puerz_vis
 	if skin_id.begins_with("look_"):
 		var look_id: String = skin_id.substr(5)
 		var look_def: Dictionary = get_character_def(look_id)
@@ -1079,6 +1335,7 @@ func _format_favorite_stat_value(value: float, decimals: int = 0) -> String:
 
 const ARMAMENT_STAT_ICON_SIZE := 18
 const PAUSE_LIVE_STAT_ICON_SIZE := 16
+const SUMMARY_ICON_SIZE := 22
 
 
 func gold_icon_path() -> String:
@@ -2409,9 +2666,19 @@ func apply_character_preview_to_rect(prev: TextureRect, cdef: Dictionary) -> voi
 func sprite_feet_offset_y(tex: Texture2D, body_radius: float, sprite_scale: float, fine_offset_y: float = 0.0) -> float:
 	if tex == null:
 		return fine_offset_y
-	var vis: Rect2 = visible_texture_region(tex)
-	var tex_h: float = float(maxi(1, tex.get_height()))
-	var foot_from_center: float = (vis.position.y + vis.size.y) - tex_h * 0.5
+	var foot_from_center: float = 0.0
+	if tex is AtlasTexture:
+		var at := tex as AtlasTexture
+		var reg: Rect2 = at.region
+		if at.atlas == null:
+			return fine_offset_y
+		var vis: Rect2 = visible_texture_region(at.atlas, reg)
+		var region_center_y: float = reg.position.y + reg.size.y * 0.5
+		foot_from_center = (vis.position.y + vis.size.y) - region_center_y
+	else:
+		var vis: Rect2 = visible_texture_region(tex)
+		var tex_h: float = float(maxi(1, tex.get_height()))
+		foot_from_center = (vis.position.y + vis.size.y) - tex_h * 0.5
 	return body_radius - foot_from_center * sprite_scale + fine_offset_y
 
 
@@ -2472,10 +2739,14 @@ func sprite_frames_first_texture(entry: Variant) -> Texture2D:
 			return null
 		return resolve_frame_texture(arr[0])
 	if entry is Dictionary:
+		var dir_map: Dictionary = entry
+		if dir_map.has("down") and dir_map["down"] is Array:
+			var down_row: Array = dir_map["down"]
+			if not down_row.is_empty():
+				return resolve_frame_texture(down_row[0])
 		var paths: Array = _resolve_frame_paths_dict(entry)
-		if paths.is_empty():
-			return null
-		return resolve_frame_texture(paths[0])
+		if not paths.is_empty():
+			return resolve_frame_texture(paths[0])
 	return null
 
 
@@ -3114,6 +3385,40 @@ func weapon_upgrade_common_icon_id(upgrade_id: String) -> String:
 			return "c_w_count"
 		_:
 			return ""
+
+
+func skill_icon_bbcode(skill_id: String, size: int = SUMMARY_ICON_SIZE) -> String:
+	if skill_id == "" or skill_id == "none":
+		return ""
+	var path: String = String(get_skill_def(skill_id).get("icon", ""))
+	if path == "" or not ResourceLoader.exists(path, "Texture2D"):
+		return ""
+	return "[img=%dx%d]%s[/img]" % [size, size, path]
+
+
+func passive_icon_bbcode(passive_id: String, size: int = SUMMARY_ICON_SIZE) -> String:
+	if passive_id == "" or passive_id == "none":
+		return ""
+	var path: String = String(get_passive_def(passive_id).get("icon", ""))
+	if path == "" or not ResourceLoader.exists(path, "Texture2D"):
+		return ""
+	return "[img=%dx%d]%s[/img]" % [size, size, path]
+
+
+func format_skill_summary_bbcode(skill_id: String, size: int = SUMMARY_ICON_SIZE) -> String:
+	var icon: String = skill_icon_bbcode(skill_id, size)
+	var nm: String = tr_skill_name(skill_id) if skill_id != "" and skill_id != "none" else tr("CSEL_NONE")
+	if icon != "":
+		return "%s %s" % [icon, nm]
+	return nm
+
+
+func format_passive_summary_bbcode(passive_id: String, size: int = SUMMARY_ICON_SIZE) -> String:
+	var icon: String = passive_icon_bbcode(passive_id, size)
+	var nm: String = tr_passive_name(passive_id) if passive_id != "" and passive_id != "none" else tr("CSEL_NONE")
+	if icon != "":
+		return "%s %s" % [icon, nm]
+	return nm
 
 
 func weapon_icon_bbcode(weapon_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
@@ -4071,6 +4376,27 @@ const STAGES: Array[Dictionary] = [
 		"victory_gold": 1550,
 		"victory_blacksmith_tier2": true,
 		"random_event": true,
+	},
+	{
+		"id": "test_debuff_arena",
+		"name": "測試 — 狀態效果靶場",
+		"name_key": "STAGE_TEST_DEBUFF_ARENA_NAME",
+		"map_path": "",
+		"test_arena": true,
+		"boss_id": "",
+		"boss_time": 999999.0,
+		"difficulty_base": 0.0,
+		"difficulty_scale": 0.0,
+		"test_dummy_hp": 80000.0,
+		"test_dummy_damage_mult": 0.4,
+		"test_dummy_level_factor": 1.0,
+		"test_dummies": [
+			{"enemy_id": "lizard_archer", "pos": [-1100.0, -1100.0]},
+			{"enemy_id": "lizard_priest", "pos": [1100.0, -1100.0]},
+			{"enemy_id": "fae_pink_wing", "pos": [-1100.0, 1100.0]},
+			{"enemy_id": "boss_ancient_treant", "pos": [1100.0, 1100.0]},
+		],
+		"victory_gold": 0,
 	},
 ]
 

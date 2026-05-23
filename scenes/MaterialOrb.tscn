@@ -1,0 +1,16 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/material_orb.gd" id="1_mat"]
+
+[sub_resource type="CircleShape2D" id="cs_mat"]
+radius = 7.0
+
+[node name="MaterialOrb" type="Area2D"]
+collision_layer = 64
+collision_mask = 0
+monitorable = true
+monitoring = false
+script = ExtResource("1_mat")
+
+[node name="Shape" type="CollisionShape2D" parent="."]
+shape = SubResource("cs_mat")

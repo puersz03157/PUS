@@ -19,7 +19,7 @@ var _attack_serial: int = 0
 func setup(p: Node, e: Dictionary) -> void:
 	owner_player = p
 	entry = e
-	def = GameData.get_weapon_def(entry["id"])
+	def = GameData.get_weapon_def_for_player(String(entry["id"]), p)
 	refresh()
 	_on_setup()
 

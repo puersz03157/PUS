@@ -26,6 +26,8 @@ const CREDIT_ENTRY_KEYS: Array[String] = [
 	"CREDITS_ENTRY_OTSOGA",
 	"CREDITS_ENTRY_CRAFTPIX",
 	"CREDITS_ENTRY_FINALBOSSBLUES",
+	"CREDITS_ENTRY_ELTHEN_STATUS",
+	"CREDITS_ENTRY_FX_EXPRESS_ATTACK",
 ]
 const Z_LAYER := 100
 ## 右上角成就／物品／圖鑑按鈕可出現的場景
@@ -1420,7 +1422,7 @@ func _codex_weapons_text() -> String:
 			_codex_weapon_icon_bbcode(wdef), title_color, GameData.tr_name(wdef), status])
 		if unlocked:
 			lines.append(tr("CODEX_WEAPON_STATS_FMT") % [
-				_codex_weapon_kind_name(String(w.get("kind", ""))),
+				_codex_weapon_kind_name(String(w.get("kind", "")), wid),
 				float(w.get("damage", 0.0)), float(w.get("rate", 0.0)),
 				float(w.get("range", 0.0))])
 			var crit_text: String = GameData.format_weapon_crit_text(w)
@@ -1800,7 +1802,9 @@ func _character_skin_summary(c: Dictionary) -> String:
 	return tr("CODEX_SKIN_DEFAULT")
 
 
-func _codex_weapon_kind_name(kind: String) -> String:
+func _codex_weapon_kind_name(kind: String, weapon_id: String = "") -> String:
+	if weapon_id == "spear":
+		return tr("CODEX_WEAPON_KIND_SPEAR")
 	match kind:
 		"melee_fan":
 			return tr("CODEX_WEAPON_KIND_MELEE")
@@ -1827,8 +1831,7 @@ func _codex_weapon_detail_text(w: Dictionary) -> String:
 			return tr("CODEX_WEAPON_DETAIL_SWORD_FMT") % [
 				float(params.get("angle_deg", 0.0)), float(w.get("range", 0.0))]
 		"spear":
-			return tr("CODEX_WEAPON_DETAIL_SPEAR_FMT") % [
-				float(params.get("angle_deg", 0.0)), float(w.get("range", 0.0))]
+			return tr("CODEX_WEAPON_DETAIL_SPEAR_FMT") % float(w.get("range", 0.0))
 		"axe":
 			return tr("CODEX_WEAPON_DETAIL_AXE_FMT") % [
 				float(params.get("hit_radius", 0.0)), float(params.get("throw_distance", 0.0))]

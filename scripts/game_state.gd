@@ -160,6 +160,9 @@ var language: String = ""
 # 觸控介面開關（給手機 / 網頁版用；桌機平台仍可手動開啟測試）
 var touch_controls_enabled: bool = false
 
+# 戰鬥結算：ESC 進村莊時帶過去的 UI 資料（由 BattleRunSummaryOverlay 讀寫）
+var pending_battle_summary: Dictionary = {}
+
 # 結束畫面用
 var last_result: Dictionary = {
 	"won": false,
@@ -1176,9 +1179,11 @@ func reset_run() -> void:
 		"kills_p1": 0,
 		"kills_p2": 0,
 		"gold_reward": 0,
+		"run_material_gains": {},
 		"stage_id": "",
 		"stage_name": "",
 		"achievement_unlocks": [],
+		"facility_unlocks": [],
 	}
 
 
@@ -1213,6 +1218,17 @@ func grant_material(id: String, amount: int) -> bool:
 		return false
 	materials[id] = get_material_amount(id) + amount
 	save_to_disk()
+	return true
+
+
+## 戰鬥內拾取／事件發放：入庫並累計至本場結算（不含經驗）
+func grant_run_material(id: String, amount: int) -> bool:
+	if not grant_material(id, amount):
+		return false
+	var gains: Variant = last_result.get("run_material_gains", {})
+	var bag: Dictionary = gains if gains is Dictionary else {}
+	bag[id] = int(bag.get(id, 0)) + amount
+	last_result["run_material_gains"] = bag
 	return true
 
 
