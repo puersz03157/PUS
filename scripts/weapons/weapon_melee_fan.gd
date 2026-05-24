@@ -1,21 +1,45 @@
 extends "res://scripts/weapons/weapon_base.gd"
 ## 近戰扇形：根據玩家朝向劃出扇形，掃到的敵人受傷害。
 ## 若 params.attack_effect 有設定 spritesheet，改播特效並用三角形（等）命中。
+## eff_count（含 w_count 升級）決定一次開火連續揮砍／戳刺次數。
 
 const MELEE_SPRITESHEET_SWING := preload("res://scripts/weapons/melee_spritesheet_swing.gd")
+const DEFAULT_MULTI_SWING_DELAY := 0.12
+
 
 func fire() -> bool:
-	_swing()
-	# 第二刀延遲 0.12 秒（爪擊的 double_hit），用 Timer 避免 await
-	if def["params"].get("double_hit", false):
-		var t: SceneTreeTimer = get_tree().create_timer(0.12)
-		t.timeout.connect(_swing)
+	_queue_swings(_swing_count())
 	return true
 
 
-func _swing() -> void:
-	if owner_player == null or owner_player.hp <= 0:
+func _swing_count() -> int:
+	var n: int = maxi(1, eff_count)
+	if bool(def["params"].get("double_hit", false)):
+		n = maxi(n, 2)
+	return n
+
+
+func _multi_swing_delay() -> float:
+	return maxf(0.04, float(def["params"].get("multi_swing_delay", DEFAULT_MULTI_SWING_DELAY)))
+
+
+func _queue_swings(n: int) -> void:
+	if owner_player == null or not is_instance_valid(owner_player):
 		return
+	for i in n:
+		if i == 0:
+			_swing(false)
+			continue
+		var delay: float = _multi_swing_delay() * float(i)
+		var t: SceneTreeTimer = owner_player.get_tree().create_timer(delay)
+		t.timeout.connect(_swing.bind(true))
+
+
+func _swing(play_anim: bool = false) -> void:
+	if owner_player == null or owner_player.hp <= 0 or not is_instance_valid(self):
+		return
+	if play_anim and owner_player.has_method("play_attack_anim"):
+		owner_player.play_attack_anim()
 	var effect_cfg: Variant = def["params"].get("attack_effect", null)
 	if effect_cfg is Dictionary and not effect_cfg.is_empty() and _swing_spritesheet_effect(effect_cfg):
 		return

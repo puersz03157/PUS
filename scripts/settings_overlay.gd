@@ -23,12 +23,34 @@ const CREDIT_ENTRY_KEYS: Array[String] = [
 	"CREDITS_ENTRY_NPC_PACK",
 	"CREDITS_ENTRY_MONSTERS",
 	"CREDITS_ENTRY_MATTZ_ART",
+	"CREDITS_ENTRY_ANSIMUZ",
+	"CREDITS_ENTRY_CLEMBOD",
 	"CREDITS_ENTRY_OTSOGA",
 	"CREDITS_ENTRY_CRAFTPIX",
 	"CREDITS_ENTRY_FINALBOSSBLUES",
+	"CREDITS_ENTRY_SAGAK_HITFX",
 	"CREDITS_ENTRY_ELTHEN_STATUS",
-	"CREDITS_ENTRY_FX_EXPRESS_ATTACK",
+	"CREDITS_ENTRY_UNTIEDGAMES",
 ]
+## 各感謝條目作者名稱對應的 itch.io 商店／素材頁（點擊金色作者名開啟）
+const CREDIT_ENTRY_URLS: Dictionary = {
+	"CREDITS_ENTRY_ELEMENTALS": "https://chierit.itch.io/",
+	"CREDITS_ENTRY_ELVES_PACK": "https://dreamir.itch.io/",
+	"CREDITS_ENTRY_VILLAGE": "https://szadiart.itch.io/sidescroll-worlds-village-pack1",
+	"CREDITS_ENTRY_NPC_PACK": "https://gandalfhardcore.itch.io/pixel-art-characters-npc-pack",
+	"CREDITS_ENTRY_MONSTERS": "https://lyaseek.itch.io/",
+	"CREDITS_ENTRY_MATTZ_ART": "https://itch.io/profile/xzany",
+	"CREDITS_ENTRY_ANSIMUZ": "https://ansimuz.itch.io/",
+	"CREDITS_ENTRY_CLEMBOD": "https://clembod.itch.io/bounty-h",
+	"CREDITS_ENTRY_OTSOGA": "https://otsoga.itch.io/",
+	"CREDITS_ENTRY_CRAFTPIX": "https://free-game-assets.itch.io/",
+	"CREDITS_ENTRY_FINALBOSSBLUES": "https://finalbossblues.itch.io/icons",
+	"CREDITS_ENTRY_SAGAK_HITFX": "https://sagak-art-pururu.itch.io/hitfx",
+	"CREDITS_ENTRY_ELTHEN_STATUS": "https://elthen.itch.io/",
+	"CREDITS_ENTRY_UNTIEDGAMES": "https://untiedgames.itch.io/super-pixel-projectiles-pack-1",
+}
+const CREDITS_AUTHOR_COLOR_OPEN := "[color=#ffd978]"
+const CREDITS_AUTHOR_COLOR_CLOSE := "[/color]"
 const Z_LAYER := 100
 ## 右上角成就／物品／圖鑑按鈕可出現的場景
 const FLOATING_META_SCENES: Array[String] = [
@@ -462,6 +484,8 @@ func _build_credits_panel() -> void:
 	credits_list.fit_content = false
 	credits_list.add_theme_font_size_override("normal_font_size", 15)
 	credits_list.add_theme_color_override("default_color", Color(0.86, 0.9, 1.0))
+	credits_list.meta_underlined = true
+	credits_list.meta_clicked.connect(_on_credits_meta_clicked)
 	credits_panel.add_child(credits_list)
 
 	credits_close_button = Button.new()
@@ -914,8 +938,40 @@ func _refresh_credits_panel() -> void:
 		"",
 	]
 	for key in CREDIT_ENTRY_KEYS:
-		lines.append("• %s" % tr(key))
+		lines.append("• %s" % _format_credit_entry_line(key))
 	credits_list.text = "\n".join(lines)
+
+
+func _format_credit_entry_line(entry_key: String) -> String:
+	var line: String = tr(entry_key)
+	var url: String = String(CREDIT_ENTRY_URLS.get(entry_key, ""))
+	if url.is_empty():
+		return line
+	return _linkify_credits_author(line, url)
+
+
+func _linkify_credits_author(text: String, url: String) -> String:
+	var open_i: int = text.find(CREDITS_AUTHOR_COLOR_OPEN)
+	if open_i < 0:
+		return text
+	var close_i: int = text.find(CREDITS_AUTHOR_COLOR_CLOSE, open_i)
+	if close_i < 0:
+		return text
+	var end_i: int = close_i + CREDITS_AUTHOR_COLOR_CLOSE.length()
+	var author_bb: String = text.substr(open_i, end_i - open_i)
+	var linked: String = "[url=%s]%s[/url]" % [url, author_bb]
+	return text.substr(0, open_i) + linked + text.substr(end_i)
+
+
+func _on_credits_meta_clicked(meta: Variant) -> void:
+	var url: String = String(meta).strip_edges()
+	if url.is_empty() or not (url.begins_with("http://") or url.begins_with("https://")):
+		return
+	if OS.has_feature("web"):
+		var esc: String = url.replace("\\", "\\\\").replace("'", "\\'")
+		JavaScriptBridge.eval("window.open('%s', '_blank');" % esc, true)
+	else:
+		OS.shell_open(url)
 
 
 func _open_achievements() -> void:
@@ -1317,6 +1373,9 @@ func _refresh_codex_panel() -> void:
 	codex_close_button.text = tr("CODEX_CLOSE")
 	codex_detail_dialog.ok_button_text = tr("CODEX_DETAIL_CLOSE")
 	_refresh_codex_tab_buttons()
+	if _codex_tab == "weapons":
+		GameData.reload_all_weapon_icons_for_codex()
+	codex_list.clear()
 	match _codex_tab:
 		"characters":
 			if codex_monsters_host:
@@ -1663,13 +1722,11 @@ func _codex_option_link(id: String, kind: String) -> String:
 
 
 func _codex_weapon_icon_bbcode(wdef: Dictionary) -> String:
-	var path: String = String(wdef.get("icon", ""))
-	if path == "":
-		path = GameData.weapon_icon_path(String(wdef.get("id", "")))
-	if path == "" or not ResourceLoader.exists(path):
+	var wid: String = String(wdef.get("id", ""))
+	var bb: String = GameData.weapon_icon_bbcode_codex(wid, 28)
+	if bb == "":
 		return _codex_icon_placeholder()
-	# RichTextLabel 需指定尺寸，否則小圖可能不顯示
-	return "[img=28x28]%s[/img]" % path
+	return bb
 
 
 func _codex_common_upgrade_icon_bbcode(upgrade: Dictionary) -> String:
@@ -1818,6 +1875,10 @@ func _codex_weapon_kind_name(kind: String, weapon_id: String = "") -> String:
 			return tr("CODEX_WEAPON_KIND_PUDDLE")
 		"axe":
 			return tr("CODEX_WEAPON_KIND_AXE")
+		"firearm":
+			return tr("CODEX_WEAPON_KIND_FIREARM")
+		"boxing":
+			return tr("CODEX_WEAPON_KIND_BOXING")
 		_:
 			return kind
 
@@ -1841,10 +1902,17 @@ func _codex_weapon_detail_text(w: Dictionary) -> String:
 		"bow":
 			return tr("CODEX_WEAPON_DETAIL_BOW_FMT") % [
 				int(params.get("count", 1)), float(params.get("spread_deg", 0.0))]
+		"firearm":
+			return tr("CODEX_WEAPON_DETAIL_FIREARM_FMT") % [
+				float(w.get("range", 0.0)), GameData.FIREARM_SAME_HIT_NEED,
+				GameData.FIREARM_VOLLEY_DIRS, GameData.FIREARM_VOLLEY_RANGE]
 		"melody":
 			return tr("CODEX_WEAPON_DETAIL_MELODY_FMT") % int(params.get("count", 1))
 		"claw":
 			return tr("CODEX_WEAPON_DETAIL_CLAW_FMT") % float(params.get("angle_deg", 0.0))
+		"boxing":
+			return tr("CODEX_WEAPON_DETAIL_BOXING_FMT") % [
+				float(w.get("range", 0.0)), GameData.BOXING_COMBO_MAX, GameData.BOXING_COMBO_WINDOW]
 		"shard":
 			return tr("CODEX_WEAPON_DETAIL_SHARD_FMT") % [
 				int(params.get("count", 1)), float(params.get("spin_speed", 0.0))]

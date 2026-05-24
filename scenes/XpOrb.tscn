@@ -14,7 +14,3 @@ script = ExtResource("1_orb")
 
 [node name="Shape" type="CollisionShape2D" parent="."]
 shape = SubResource("cs_orb")
-
-[node name="Sprite" type="Polygon2D" parent="."]
-polygon = PackedVector2Array(0, -7, 5, -2, 5, 4, 0, 7, -5, 4, -5, -2)
-color = Color(0.4, 0.95, 1, 1)

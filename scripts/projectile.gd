@@ -20,6 +20,7 @@ var wave: bool = false
 var wave_seed: float = 0.0
 var origin: Vector2 = Vector2.ZERO
 var max_distance: float = 800.0
+var damage_mult: float = 1.0
 
 @onready var sprite: Polygon2D = $Sprite
 @onready var _collision_shape: CollisionShape2D = $Shape
@@ -28,6 +29,7 @@ var _arrow_sprite: Sprite2D = null
 var _magic_sprite: AnimatedSprite2D = null
 var _magic_cfg: Dictionary = {}
 var _magic_manual_hit: bool = false
+var _hit_variant: String = ""
 
 
 func setup(w: Node, vel: Vector2, col: Color) -> void:
@@ -51,14 +53,25 @@ func setup(w: Node, vel: Vector2, col: Color) -> void:
 			var base_range: float = float(brng.get("range", 500.0))
 			if base_range > 1.0:
 				explode_radius *= wb.eff_range / base_range
+	if w.has_method("get_extra_pierce"):
+		pierce_left += int(w.get_extra_pierce())
+	if w.has_method("get_shot_damage_mult"):
+		damage_mult = maxf(0.05, float(w.get_shot_damage_mult()))
+	if w.has_method("get_spawn_range"):
+		max_distance = maxf(40.0, float(w.get_spawn_range()))
 	wave = bool(def["params"].get("wave", false))
 	wave_seed = randf() * TAU
-	max_distance = float(w.eff_range)
+	if not w.has_method("get_spawn_range"):
+		max_distance = float(w.eff_range)
 	lifetime = clamp(max_distance / max(60.0, vel.length()) + 0.4, 0.4, 4.0)
 	if _uses_arrow_sprite():
 		call_deferred("_apply_arrow_visual")
-	elif _is_magic_bullet():
-		call_deferred("_apply_magic_bullet_visual")
+	elif _uses_sheet_projectile():
+		call_deferred("_apply_sheet_projectile_visual")
+
+
+func set_hit_variant(variant: String) -> void:
+	_hit_variant = variant
 
 
 func _weapon_def() -> Dictionary:
@@ -78,6 +91,10 @@ func _uses_arrow_sprite() -> bool:
 
 func _is_magic_bullet() -> bool:
 	return String(_weapon_def().get("id", "")) == "magic_bullet"
+
+
+func _uses_sheet_projectile() -> bool:
+	return not _projectile_visual_cfg().is_empty()
 
 
 func _projectile_visual_cfg() -> Dictionary:
@@ -144,10 +161,10 @@ func _apply_arrow_visual() -> void:
 	rotation = velocity.angle()
 
 
-func _apply_magic_bullet_visual() -> void:
+func _apply_sheet_projectile_visual() -> void:
 	if _magic_sprite != null and is_instance_valid(_magic_sprite):
 		return
-	if not _is_magic_bullet():
+	if not _uses_sheet_projectile():
 		return
 	_magic_cfg = _projectile_visual_cfg()
 	var cfg: Dictionary = _magic_cfg
@@ -164,8 +181,9 @@ func _apply_magic_bullet_visual() -> void:
 	z_index = int(cfg.get("z_index", MAGIC_BULLET_Z_INDEX))
 	rotation = MagicBulletVfx.rotation_for_velocity(velocity, cfg)
 	_magic_sprite.position = MagicBulletVfx.sprite_display_offset(cfg)
-	_configure_magic_collision(cfg)
-	_magic_manual_hit = bool(cfg.get("manual_hit_probe", true))
+	if bool(cfg.get("manual_hit_probe", false)):
+		_configure_magic_collision(cfg)
+	_magic_manual_hit = bool(cfg.get("manual_hit_probe", false))
 	if _magic_manual_hit:
 		monitoring = false
 	if _should_show_projectile_hit_debug():
@@ -181,7 +199,7 @@ func _ready() -> void:
 	add_to_group("projectiles")
 	origin = global_position
 	_apply_arrow_visual()
-	_apply_magic_bullet_visual()
+	_apply_sheet_projectile_visual()
 	if _arrow_sprite == null and _magic_sprite == null and sprite:
 		sprite.visible = true
 		sprite.color = color
@@ -205,7 +223,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _try_magic_probe_hits() -> void:
-	if not _is_magic_bullet() or weapon == null:
+	if not _magic_manual_hit or weapon == null:
 		return
 	var probe: Vector2 = MagicBulletVfx.hit_probe_global(self, _magic_cfg)
 	var hit_r: float = MagicBulletVfx.hit_radius(_magic_cfg)
@@ -235,7 +253,7 @@ func _try_hit(body: Node) -> void:
 		return
 	hit_set[body] = true
 	if weapon:
-		weapon.damage_enemy(body)
+		weapon.damage_enemy(body, damage_mult, {"variant": _hit_variant})
 	if weapon and weapon.def["params"].get("slow", false) \
 			and body.has_method("apply_status_slow"):
 		body.apply_status_slow(
@@ -311,12 +329,12 @@ func _trigger_magic_bullet_explosion(primary: Node2D) -> void:
 
 
 func _update_facing_rotation() -> void:
-	if _is_magic_bullet():
-		var cfg: Dictionary = _projectile_visual_cfg()
+	if _magic_sprite != null and is_instance_valid(_magic_sprite):
+		var cfg: Dictionary = _magic_cfg if not _magic_cfg.is_empty() else _projectile_visual_cfg()
 		rotation = MagicBulletVfx.rotation_for_velocity(velocity, cfg)
-		if _magic_sprite != null and is_instance_valid(_magic_sprite):
-			_magic_sprite.position = MagicBulletVfx.sprite_display_offset(cfg)
-		_configure_magic_collision(cfg)
+		_magic_sprite.position = MagicBulletVfx.sprite_display_offset(cfg)
+		if _magic_manual_hit:
+			_configure_magic_collision(cfg)
 	else:
 		rotation = velocity.angle()
 

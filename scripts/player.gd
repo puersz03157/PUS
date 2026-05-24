@@ -75,6 +75,12 @@ var passive_hit_counter: int = 0
 var passive_blade_aura_counter: int = 0
 var breakthrough_same_enemy_hits: Dictionary = {}
 var breakthrough_attack_hits: Dictionary = {}
+var firearm_enemy_hits: Dictionary = {}
+var firearm_mode_prompt: String = ""
+var firearm_mode_kind: String = ""
+var firearm_mode_prompt_timer: float = 0.0
+var boxing_combo_display: int = 0
+const AMMO_PACK_SCENE: PackedScene = preload("res://scenes/AmmoPackOrb.tscn")
 ## 野性衝動：付費施放後 5 秒內可再免費衝刺的剩餘次數
 var wild_impulse_window: float = 0.0
 var wild_impulse_charges_left: int = 0
@@ -479,6 +485,7 @@ func _physics_process(delta: float) -> void:
 
 	passive_meter_fill_cd = max(0.0, passive_meter_fill_cd - delta)
 	_update_breakthrough_trackers(delta)
+	_update_firearm_trackers(delta)
 	_try_fighting_spirit_meter()
 	_try_quick_step_meter()
 	if wild_impulse_window > 0.0:
@@ -1272,6 +1279,24 @@ func _draw() -> void:
 			draw_string(fnt_fc, Vector2(-5, sy - 6.0), "★",
 				HORIZONTAL_ALIGNMENT_CENTER, 12, 11, Color(1.0, 0.9, 0.2))
 
+	if firearm_mode_prompt_timer > 0.0 and firearm_mode_prompt != "":
+		var fnt_fm := ThemeDB.fallback_font
+		var pulse_fm: float = 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.012)
+		var fm_col: Color = Color(1.0, 0.72, 0.28, pulse_fm)
+		if firearm_mode_kind == "pierce":
+			fm_col = Color(0.55, 0.92, 1.0, pulse_fm)
+		draw_string(fnt_fm, Vector2(-28, -86), firearm_mode_prompt,
+			HORIZONTAL_ALIGNMENT_CENTER, 56, 13, fm_col)
+
+	if boxing_combo_display > 0:
+		var fnt_bx := ThemeDB.fallback_font
+		var bx_col: Color = Color(1.0, 0.86, 0.45)
+		if boxing_combo_display >= GameData.BOXING_COMBO_MAX:
+			bx_col = Color(1.0, 0.45, 0.35)
+		draw_string(fnt_bx, Vector2(-34, -74),
+			tr("BOXING_COMBO_FMT") % boxing_combo_display,
+			HORIZONTAL_ALIGNMENT_CENTER, 68, 12, bx_col)
+
 
 func _village_overhead_label_y() -> float:
 	var y_off: float = -body_radius - 18.0
@@ -1414,10 +1439,12 @@ func _refresh_weapon_stats() -> void:
 			ww["node"].refresh()
 
 
-func on_enemy_killed(_e: Node) -> void:
+func on_enemy_killed(e: Node) -> void:
 	kills += 1
-	if _e != null and _e.get("slime_def") is Dictionary:
-		var eid: String = String(_e.slime_def.get("id", ""))
+	if e != null and is_instance_valid(e):
+		_firearm_on_enemy_killed(e)
+	if e != null and e.get("slime_def") is Dictionary:
+		var eid: String = String(e.slime_def.get("id", ""))
 		if eid != "":
 			GameState.unlock_codex_monster_on_defeat(eid)
 	if passive_id == "fighting_spirit" and skill_id != "none":
@@ -1441,6 +1468,11 @@ func _apply_passive() -> void:
 	_ignition_explosion_counter = 0
 	breakthrough_same_enemy_hits.clear()
 	breakthrough_attack_hits.clear()
+	firearm_enemy_hits.clear()
+	firearm_mode_prompt = ""
+	firearm_mode_kind = ""
+	firearm_mode_prompt_timer = 0.0
+	boxing_combo_display = 0
 	wild_impulse_window = 0.0
 	wild_impulse_charges_left = 0
 	skill_meter = 0.0
@@ -1565,6 +1597,7 @@ func on_weapon_hit(_e: Node, _weapon: Node) -> void:
 		_try_quick_step_meter()
 	if passive_id == "breakthrough" and skill_id != "none":
 		_breakthrough_on_weapon_hit(_e, _weapon)
+	_firearm_on_weapon_hit(_e, _weapon)
 	if passive_id == "bloodlust" and skill_id != "none" and _e != null \
 			and is_instance_valid(_e) and _e.has_method("is_status_bleeding"):
 		if _e.is_status_bleeding():
@@ -1667,6 +1700,103 @@ func _update_breakthrough_trackers(delta: float) -> void:
 		data2["time"] = float(data2.get("time", 0.0)) - delta
 		if float(data2["time"]) <= 0.0:
 			breakthrough_attack_hits.erase(key)
+
+
+func _update_firearm_trackers(delta: float) -> void:
+	firearm_mode_prompt_timer = maxf(0.0, firearm_mode_prompt_timer - delta)
+	if firearm_mode_prompt_timer <= 0.0:
+		firearm_mode_prompt = ""
+		firearm_mode_kind = ""
+	for key in firearm_enemy_hits.keys():
+		var data: Dictionary = firearm_enemy_hits[key]
+		data["time"] = float(data.get("time", 0.0)) - delta
+		if float(data["time"]) <= 0.0:
+			firearm_enemy_hits.erase(key)
+	if firearm_mode_prompt_timer > 0.0:
+		queue_redraw()
+
+
+func _has_firearm_weapon() -> bool:
+	for ww in weapons:
+		if String(ww.get("id", "")) == "firearm":
+			return true
+	return false
+
+
+func _get_firearm_weapon_node() -> Node:
+	for ww in weapons:
+		if String(ww.get("id", "")) == "firearm":
+			return ww.get("node")
+	return null
+
+
+func _firearm_on_weapon_hit(e: Node, weapon: Node) -> void:
+	if e == null or not is_instance_valid(e) or weapon == null:
+		return
+	if String(weapon.def.get("id", "")) != "firearm":
+		return
+	var eid: String = str(e.get_instance_id())
+	var window: float = GameData.FIREARM_SAME_HIT_WINDOW
+	var same_data: Dictionary = firearm_enemy_hits.get(eid, {"count": 0, "time": 0.0})
+	if float(same_data.get("time", 0.0)) <= 0.0:
+		same_data["count"] = 0
+	same_data["count"] = int(same_data.get("count", 0)) + 1
+	same_data["time"] = window
+	firearm_enemy_hits[eid] = same_data
+	if int(same_data["count"]) >= GameData.FIREARM_SAME_HIT_NEED:
+		firearm_enemy_hits.erase(eid)
+		if randf() < GameData.FIREARM_AMMO_DROP_CHANCE_SAME:
+			_spawn_firearm_ammo_pack(e.global_position)
+
+
+func _firearm_on_enemy_killed(e: Node) -> void:
+	if not _has_firearm_weapon():
+		return
+	firearm_enemy_hits.erase(str(e.get_instance_id()))
+	if randf() < GameData.FIREARM_AMMO_DROP_CHANCE_KILL:
+		_spawn_firearm_ammo_pack(e.global_position)
+
+
+func _spawn_firearm_ammo_pack(at: Vector2) -> void:
+	if not _has_firearm_weapon() or AMMO_PACK_SCENE == null:
+		return
+	var orb := AMMO_PACK_SCENE.instantiate()
+	if orb == null:
+		return
+	if orb.has_method("setup"):
+		orb.setup(self)
+	orb.global_position = at + Vector2(randf_range(-14.0, 14.0), randf_range(-14.0, 14.0))
+	var parent: Node = get_tree().current_scene
+	if parent != null:
+		parent.add_child(orb)
+
+
+func collect_firearm_ammo_pack() -> void:
+	var wb: Node = _get_firearm_weapon_node()
+	if wb != null and wb.has_method("fire_radial_volley"):
+		wb.fire_radial_volley()
+	AudioManager.play_sfx("player_attack", 0.04)
+
+
+func set_boxing_combo_display(combo: int) -> void:
+	var c: int = maxi(0, combo)
+	if c == boxing_combo_display:
+		return
+	boxing_combo_display = c
+	queue_redraw()
+
+
+func show_firearm_mode_indicator(mode: String) -> void:
+	firearm_mode_kind = mode
+	if mode == "scatter":
+		firearm_mode_prompt = tr("FIREARM_MODE_SCATTER")
+	elif mode == "pierce":
+		firearm_mode_prompt = tr("FIREARM_MODE_PIERCE")
+	else:
+		firearm_mode_prompt = ""
+		firearm_mode_kind = ""
+	firearm_mode_prompt_timer = GameData.FIREARM_MODE_PROMPT_SEC
+	queue_redraw()
 
 
 func _breakthrough_on_weapon_hit(e: Node, weapon: Node) -> void:
@@ -2436,6 +2566,10 @@ func _spawn_weapon_node(weapon_id: String) -> Node:
 			return preload("res://scripts/weapons/weapon_aura.gd").new()
 		"puddle":
 			return preload("res://scripts/weapons/weapon_puddle.gd").new()
+		"firearm":
+			return preload("res://scripts/weapons/weapon_firearm.gd").new()
+		"boxing":
+			return preload("res://scripts/weapons/weapon_boxing.gd").new()
 	return null
 
 

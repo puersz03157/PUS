@@ -77,7 +77,8 @@ func fire() -> bool:
 
 
 # 子類別呼叫：對單一敵人造成傷害
-func damage_enemy(e: Node, mult: float = 1.0) -> void:
+# hit_ctx.variant — 槍械 scatter/pierce 等命中特效變體
+func damage_enemy(e: Node, mult: float = 1.0, hit_ctx: Dictionary = {}) -> void:
 	if not is_instance_valid(e):
 		return
 	var was_bleeding: bool = e.has_method("is_status_bleeding") and e.is_status_bleeding()
@@ -102,6 +103,7 @@ func damage_enemy(e: Node, mult: float = 1.0) -> void:
 		dealt *= maxf(owner_player.crit_damage_mult, weapon_crit_mult)
 	if e.has_method("take_damage"):
 		e.take_damage(dealt, self, {"is_crit": is_crit})
+		_spawn_hit_vfx(e, hit_ctx)
 		# 通知玩家：武器命中事件（給「快射節奏」等被動使用）
 		if owner_player and owner_player.has_method("on_weapon_hit"):
 			owner_player.on_weapon_hit(e, self)
@@ -109,6 +111,19 @@ func damage_enemy(e: Node, mult: float = 1.0) -> void:
 			and owner_player and owner_player.has_method("_heal"):
 		owner_player._heal(dealt * GameData.ENEMY_STATUS_CLAW_BLEED_LIFESTEAL_RATIO)
 	_apply_on_hit_status_effects(e, hit_mult)
+
+
+func _spawn_hit_vfx(e: Node, hit_ctx: Dictionary) -> void:
+	if bool(hit_ctx.get("suppress_hit_vfx", false)):
+		return
+	if not (e is Node2D):
+		return
+	var wid: String = String(def.get("id", ""))
+	if not WeaponHitVfx.has_effect(wid):
+		return
+	var kind: String = String(def.get("kind", ""))
+	var variant: String = String(hit_ctx.get("variant", ""))
+	WeaponHitVfx.spawn_on_enemy(e as Node2D, wid, variant, kind)
 
 
 func _count_alive_enemies_near(origin: Vector2, radius: float) -> int:

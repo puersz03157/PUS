@@ -25,18 +25,32 @@ func _rebuild() -> void:
 		o.queue_free()
 	orbiters.clear()
 	var col: Color = def["params"].get("color", Color.WHITE)
+	var vis_cfg: Variant = def["params"].get("projectile_visual", null)
+	var use_sheet: bool = vis_cfg is Dictionary and not (vis_cfg as Dictionary).is_empty()
 	for i in _target_count():
 		var n := Node2D.new()
-		var spr := Polygon2D.new()
-		var pts := PackedVector2Array()
-		for k in 8:
-			var a: float = TAU * k / 8.0
-			pts.append(Vector2(cos(a), sin(a)) * 8.0)
-		spr.polygon = pts
-		spr.color = col
-		n.add_child(spr)
+		if use_sheet:
+			var spr := MagicBulletVfx.create_projectile_sprite(vis_cfg as Dictionary, col)
+			if spr != null:
+				n.add_child(spr)
+				n.set_meta("orbit_sheet", true)
+			else:
+				_add_orbit_fallback_polygon(n, col)
+		else:
+			_add_orbit_fallback_polygon(n, col)
 		add_child(n)
 		orbiters.append(n)
+
+
+func _add_orbit_fallback_polygon(n: Node2D, col: Color) -> void:
+	var spr := Polygon2D.new()
+	var pts := PackedVector2Array()
+	for k in 8:
+		var a: float = TAU * k / 8.0
+		pts.append(Vector2(cos(a), sin(a)) * 8.0)
+	spr.polygon = pts
+	spr.color = col
+	n.add_child(spr)
 
 
 func fire() -> bool:
@@ -62,9 +76,13 @@ func _process(delta: float) -> void:
 	var radius: float = eff_range
 	for i in n:
 		var a: float = spin + TAU * i / n
-		orbiters[i].position = Vector2(cos(a), sin(a)) * radius
+		var orbiter: Node2D = orbiters[i]
+		orbiter.position = Vector2(cos(a), sin(a)) * radius
+		if orbiter.get_meta("orbit_sheet", false):
+			var tangent: Vector2 = Vector2(-sin(a), cos(a))
+			orbiter.rotation = tangent.angle()
 		# 命中判定（簡易）
-		var p: Vector2 = owner_player.global_position + orbiters[i].position
+		var p: Vector2 = owner_player.global_position + orbiter.position
 		for e in owner_player.get_tree().get_nodes_in_group("enemies"):
 			if p.distance_to(e.global_position) < 14.0:
 				damage_enemy(e, delta * 6.0)

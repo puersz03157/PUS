@@ -25,6 +25,8 @@ const DREAMIR_CHAR_ROOT := "res://assets/characters/dreamir/"
 const CHIERIT_CHAR_ROOT := "res://assets/characters/chierit/"
 const MATTZ_CHAR_ROOT := "res://assets/characters/Mattz Art/"
 const OTSOGA_CHAR_ROOT := "res://assets/characters/Otsoga/"
+const ANSIMUZ_CHAR_ROOT := "res://assets/characters/ansimuz/"
+const CLEMBOD_CHAR_ROOT := "res://assets/characters/clembod/"
 const GANDALF_CHAR_ROOT := "res://assets/characters/GandalfHardcore/"
 const GANDALF_NPC_ROOT := GANDALF_CHAR_ROOT + "NPC/"
 const SAVE_NPC_TEXTURE := GANDALF_CHAR_ROOT + "Save NPC.png"
@@ -122,6 +124,10 @@ const HOUSE_SKIN_ASSET_ROOTS: Dictionary = {
 	"leaf_ranger": LEAF_RANGER_ROOT,
 }
 const BOW_ARROW_PROJECTILE_TEXTURE := "res://assets/Effects/arrow/arrow_.png"
+const SPELL_PROJECTILES_SHEET := "res://assets/Effects/Spell Projectiles Sprite Sheet.png"
+const SPELL_PROJECTILE_FRAME_W := 32
+const SPELL_PROJECTILE_FRAME_H := 32
+const SPELL_PROJECTILE_FRAME_COUNT := 8
 ## 武器 HUD／圖鑑圖示：res://assets/icons/weapons/<weapon_id>.png（無圖則 fallback）
 const WEAPON_ICON_ROOT := "res://assets/icons/weapons/"
 ## 武裝圖示：res://assets/icons/armaments/<armament_id>.png（id 同 ARMAMENTS；none 無圖）
@@ -139,6 +145,8 @@ const CURRENCY_ICON_ROOT := "res://assets/icons/currency/"
 const GOLD_ICON_PATH := CURRENCY_ICON_ROOT + "gold.png"
 const GOLD_ICON_FALLBACK_PATH := UI_ICON_ROOT + "Currency.png"
 const RUNE_DUST_ICON_PATH := CURRENCY_ICON_ROOT + "rune_dust.png"
+const XP_ICON_PATH := CURRENCY_ICON_ROOT + "xp.png"
+const AMMO_PACK_ICON_PATH := CURRENCY_ICON_ROOT + "ammo_pack.png"
 ## 素材圖示：res://assets/icons/materials/<material_id>.png
 const MATERIAL_ICON_ROOT := "res://assets/icons/materials/"
 const RESOURCE_ICON_CHIP_SCRIPT := preload("res://scripts/resource_icon_chip.gd")
@@ -162,6 +170,20 @@ const WARRIOR_SPRITE_SHEET: Dictionary = {
 	},
 }
 
+## 獵人 clembod / Bounty Hunter 大圖（每格 73×54 px）
+const HUNTER_SPRITE_SHEET: Dictionary = {
+	"sheet": CLEMBOD_CHAR_ROOT + "Hunter.png",
+	"frame_w": 73,
+	"frame_h": 54,
+	"anims": {
+		"idle":   {"rows": [1],  "frames": [8]},
+		"walk":   {"rows": [4],  "frames": [8]},
+		"hurt":   {"rows": [9],  "frames": [3]},
+		"death":  {"rows": [10], "frames": [7]},
+		"attack": {"rows": [15], "frames": [3]},
+	},
+}
+
 const WEAPONS: Array[Dictionary] = [
 	{
 		"id": "sword",
@@ -174,6 +196,7 @@ const WEAPONS: Array[Dictionary] = [
 		"range": 110.0,
 		"params": {
 			"angle_deg": 75.0,
+			"multi_swing_delay": 0.14,
 			"color": Color(0.85, 0.85, 1.0),
 			"attack_effect": {
 				"sheet": "res://assets/Effects/sword.png",
@@ -213,21 +236,25 @@ const WEAPONS: Array[Dictionary] = [
 		"range": 230.0,
 		"params": {
 			"angle_deg": 28.0,
+			"multi_swing_delay": 0.16,
 			"color": Color(1.0, 0.95, 0.5),
 			"attack_effect": {
 				"sheet": "res://assets/Effects/spear.png",
 				"frame_w": 64,
 				"frame_h": 64,
-				"frame_count": 8,
+				"frame_count": 4,
 				"fps": 14.0,
-				"hit_frames": [3, 4],
+				"hit_frames": [3],
 				"art_dir": [1.0, -1.0],
 				"art_pivot": [-0.5, 0.5],
 				"art_tip": [0.5, -0.5],
 				"tip_half_width": 22.0,
 				"fit_visual_to_reach": true,
 				"art_extent": 88.0,
+				"visual_reach_mult": 1.18,
 				"visual_scale_mult": 1.0,
+				"sprite_offset_aim": [60.0, -3.0],
+				"show_hit_debug": true,
 				"z_index": 8,
 			},
 		},
@@ -274,17 +301,18 @@ const WEAPONS: Array[Dictionary] = [
 			"show_projectile_hit_debug": false,
 			"spawn_forward_offset": 34.0,
 			"projectile_visual": {
-				"sheet": "res://assets/Effects/magic_bullet/Projectile.png",
-				"frame_w": 64,
-				"frame_h": 64,
-				"frame_count": 4,
+				"sheet": SPELL_PROJECTILES_SHEET,
+				"sheet_row": 6,
+				"frame_w": SPELL_PROJECTILE_FRAME_W,
+				"frame_h": SPELL_PROJECTILE_FRAME_H,
+				"frame_count": SPELL_PROJECTILE_FRAME_COUNT,
 				"fps": 14.0,
-				"hold_frame": 3,
+				"hold_frame": 7,
 				"art_tilt_deg": 25.0,
-				"hit_forward_offset": 46.0,
+				"hit_forward_offset": 22.0,
 				"hit_radius": 5.0,
 				"align_sprite_to_hit_probe": true,
-				"visual_trail_back_offset": 10.0,
+				"visual_trail_back_offset": 5.0,
 				"manual_hit_probe": true,
 				"z_index": 56,
 			},
@@ -292,9 +320,9 @@ const WEAPONS: Array[Dictionary] = [
 				"sheet": "res://assets/Effects/magic_bullet/Explosion.png",
 				"frame_w": 64,
 				"frame_h": 64,
-				"frame_count": 8,
+				"frame_count": 5,
 				"fps": 16.0,
-				"damage_frames": [3, 4],
+				"damage_frames": [2, 3],
 				"explosion_center_blend": 0.72,
 				"scale_to_radius": true,
 				"visual_peak_radius": 18.0,
@@ -322,6 +350,26 @@ const WEAPONS: Array[Dictionary] = [
 		"max_effect": "投射物附加貫穿", "max_effect_key": "WEAPON_BOW_MAX",
 	},
 	{
+		"id": "firearm",
+		"name": "槍械", "name_key": "WEAPON_FIREARM_NAME",
+		"kind": "firearm",
+		"damage": 9.0,
+		"rate": 2.6,
+		"crit_chance": 0.07,
+		"crit_damage_mult": 1.8,
+		"range": 300.0,
+		"params": {
+			"speed": 720.0,
+			"count": 1,
+			"spread_deg": 5.0,
+			"pierce": 0,
+			"spawn_forward_offset": 18.0,
+			"volley_damage_mult": 0.92,
+			"color": Color(0.82, 0.86, 0.95),
+		},
+		"max_effect": "機率散射或貫穿；彈藥包八向齊射", "max_effect_key": "WEAPON_FIREARM_MAX",
+	},
+	{
 		"id": "melody",
 		"name": "匕首", "name_key": "WEAPON_MELODY_NAME",
 		"kind": "projectile",
@@ -346,6 +394,23 @@ const WEAPONS: Array[Dictionary] = [
 		"max_effect": "擊中敵人附加流血", "max_effect_key": "WEAPON_CLAW_MAX",
 	},
 	{
+		"id": "boxing",
+		"name": "拳擊", "name_key": "WEAPON_BOXING_NAME",
+		"kind": "boxing",
+		"damage": 10.0,
+		"rate": 2.5,
+		"crit_chance": 0.09,
+		"crit_damage_mult": 1.65,
+		"range": 84.0,
+		"params": {
+			"angle_deg": 108.0,
+			"inner_radius_mult": 0.54,
+			"count": 3,
+			"color": Color(1.0, 0.78, 0.52),
+		},
+		"max_effect": "機率暈眩；Combo 增傷與中斷回血提升", "max_effect_key": "WEAPON_BOXING_MAX",
+	},
+	{
 		"id": "shard",
 		"name": "碎刃", "name_key": "WEAPON_SHARD_NAME",
 		"kind": "orbit",
@@ -354,7 +419,23 @@ const WEAPONS: Array[Dictionary] = [
 		"crit_chance": 0.06,
 		"crit_damage_mult": 1.8,
 		"range": 50.0,        # 半徑 2 米
-		"params": {"count": 3, "spin_speed": 3.0, "color": Color(0.7, 0.95, 1.0)},
+		"params": {
+			"count": 3,
+			"spin_speed": 3.0,
+			"color": Color(0.7, 0.95, 1.0),
+			"projectile_visual": {
+				"sheet": "res://assets/Effects/shard.png",
+				"frame_w": 16,
+				"frame_h": 16,
+				"frame_count": 8,
+				"fps": 12.0,
+				"loop": true,
+				"art_tilt_deg": 0.0,
+				"align_sprite_to_hit_probe": false,
+				"manual_hit_probe": false,
+				"z_index": 55,
+			},
+		},
 		"max_effect": "環繞速度增加", "max_effect_key": "WEAPON_SHARD_MAX",
 	},
 	{
@@ -378,7 +459,25 @@ const WEAPONS: Array[Dictionary] = [
 		"crit_chance": 0.07,
 		"crit_damage_mult": 2.1,
 		"range": 190.0,
-		"params": {"speed": 900.0, "count": 1, "chain": 1, "color": Color(0.6, 0.9, 1.0)},
+		"params": {
+			"speed": 900.0,
+			"count": 1,
+			"chain": 1,
+			"color": Color(0.6, 0.9, 1.0),
+			"projectile_visual": {
+				"sheet": SPELL_PROJECTILES_SHEET,
+				"sheet_row": 14,
+				"frame_w": SPELL_PROJECTILE_FRAME_W,
+				"frame_h": SPELL_PROJECTILE_FRAME_H,
+				"frame_count": SPELL_PROJECTILE_FRAME_COUNT,
+				"fps": 14.0,
+				"loop": true,
+				"art_tilt_deg": 0.0,
+				"align_sprite_to_hit_probe": false,
+				"manual_hit_probe": false,
+				"z_index": 56,
+			},
+		},
 		"max_effect": "反彈次數+2", "max_effect_key": "WEAPON_LIGHTNING_MAX",
 	},
 	{
@@ -390,7 +489,25 @@ const WEAPONS: Array[Dictionary] = [
 		"crit_chance": 0.06,
 		"crit_damage_mult": 2.0,
 		"range": 380.0,
-		"params": {"speed": 560.0, "count": 1, "slow": true, "color": Color(0.6, 0.95, 1.0)},
+		"params": {
+			"speed": 560.0,
+			"count": 1,
+			"slow": true,
+			"color": Color(0.6, 0.95, 1.0),
+			"projectile_visual": {
+				"sheet": SPELL_PROJECTILES_SHEET,
+				"sheet_row": 2,
+				"frame_w": SPELL_PROJECTILE_FRAME_W,
+				"frame_h": SPELL_PROJECTILE_FRAME_H,
+				"frame_count": SPELL_PROJECTILE_FRAME_COUNT,
+				"fps": 12.0,
+				"loop": true,
+				"art_tilt_deg": 0.0,
+				"align_sprite_to_hit_probe": false,
+				"manual_hit_probe": false,
+				"z_index": 56,
+			},
+		},
 		"max_effect": "對緩速敵人增傷", "max_effect_key": "WEAPON_ICE_MAX",
 	},
 	{
@@ -795,6 +912,51 @@ const CHARACTERS: Array[Dictionary] = [
 		"passive_options": ["none", "blade_aura"],
 	},
 	{
+		"id": "monk",
+		"name": "武僧", "name_key": "CHAR_MONK_NAME",
+		"rarity": "epic",
+		"weapon": "boxing", "hp": 115.0, "atk": 18.0, "def": 9.0, "spd": 7.0,
+		"desc": "拳勁連打：以拳擊累積 Combo 越打越強，中斷時以氣血回復自身。",
+		"desc_key": "CHAR_MONK_DESC",
+		"color": Color(0.95, 0.68, 0.38),
+		"sprite": "",
+		"sprite_faces_left": false,
+		"sprite_frames": {
+			"idle":   {"pattern": ANSIMUZ_CHAR_ROOT + "Monk/idle{i}.png",      "count": 4},
+			"walk":   {"pattern": ANSIMUZ_CHAR_ROOT + "Monk/run{i}.png",       "count": 6},
+			"attack": {"pattern": ANSIMUZ_CHAR_ROOT + "Monk/punch{i}.png",     "count": 6},
+			"hurt":   {"pattern": ANSIMUZ_CHAR_ROOT + "Monk/hurt{i}.png",      "count": 2},
+			"death":  {"pattern": ANSIMUZ_CHAR_ROOT + "Monk/Defeated{i}.png",  "count": 6},
+		},
+		"anim_fps": 14.0,
+		"walk_anim_over_attack": true,
+		"scale": 1.0,
+		"body_radius": 18,
+		"offset_y": -7,
+		"skill_options": ["none"],
+		"passive_options": ["none"],
+	},
+	{
+		"id": "hunter",
+		"name": "獵人", "name_key": "CHAR_HUNTER_NAME",
+		"rarity": "epic",
+		"weapon": "firearm", "hp": 105.0, "atk": 17.0, "def": 8.0, "spd": 6.6,
+		"desc": "遠距獵殺：以槍械高速射擊，機動走位持續輸出。",
+		"desc_key": "CHAR_HUNTER_DESC",
+		"color": Color(0.58, 0.82, 0.48),
+		"sprite": "",
+		"sprite_faces_left": false,
+		"sprite_sheet": "hunter",
+		"anim_fps": 14.0,
+		"strip_fps": {"attack": 16.0},
+		"walk_anim_over_attack": true,
+		"scale": 1.0,
+		"body_radius": 18,
+		"offset_y": -7,
+		"skill_options": ["none"],
+		"passive_options": ["none"],
+	},
+	{
 		"id": "vampire_lord",
 		"name": "吸血鬼領主", "name_key": "CHAR_VAMPIRE_LORD_NAME",
 		"rarity": "legend",
@@ -975,9 +1137,89 @@ func weapon_max_spear_damage_mult(enemy_count: int) -> float:
 	return min(1.38, 1.0 + 0.072 * float(maxi(0, n - 2)))
 
 
+## 槍械：彈藥包與滿級模式
+const FIREARM_SAME_HIT_NEED := 5
+const FIREARM_SAME_HIT_WINDOW := 5.0
+const FIREARM_AMMO_DROP_CHANCE_KILL := 0.30
+const FIREARM_AMMO_DROP_CHANCE_SAME := 0.55
+const FIREARM_MAX_MODE_CHANCE := 0.24
+const FIREARM_MAX_MODE_CD := 5.0
+const FIREARM_PIERCE_BONUS := 3
+const FIREARM_SCATTER_SPREAD_DEG := 42.0
+const FIREARM_VOLLEY_DIRS := 8
+const FIREARM_VOLLEY_RANGE := 440.0
+const FIREARM_AMMO_PACK_SCENE := "res://scenes/AmmoPackOrb.tscn"
+const FIREARM_AMMO_PACK_ICON := AMMO_PACK_ICON_PATH
+const FIREARM_AMMO_PACK_MAX_ON_FIELD := 10
+const FIREARM_AMMO_PACK_EXPIRE_SEC := 2.2
+const FIREARM_MODE_PROMPT_SEC := 1.6
+
+var _firearm_ammo_pack_spawn_seq: int = 0
+
+
+func register_firearm_ammo_pack(orb: Node) -> void:
+	if orb == null:
+		return
+	_firearm_ammo_pack_spawn_seq += 1
+	orb.set_meta("ammo_pack_spawn_seq", _firearm_ammo_pack_spawn_seq)
+	var tree: SceneTree = orb.get_tree()
+	if tree != null:
+		_enforce_firearm_ammo_pack_limit(tree)
+
+
+func reset_firearm_ammo_pack_spawn_seq() -> void:
+	_firearm_ammo_pack_spawn_seq = 0
+
+
+func _enforce_firearm_ammo_pack_limit(tree: SceneTree) -> void:
+	var orbs: Array = []
+	for n in tree.get_nodes_in_group("ammo_pack_orbs"):
+		if n != null and is_instance_valid(n):
+			orbs.append(n)
+	if orbs.size() <= FIREARM_AMMO_PACK_MAX_ON_FIELD:
+		return
+	orbs.sort_custom(func(a, b) -> bool:
+		return int(a.get_meta("ammo_pack_spawn_seq", 0)) < int(b.get_meta("ammo_pack_spawn_seq", 0))
+	)
+	var excess: int = orbs.size() - FIREARM_AMMO_PACK_MAX_ON_FIELD
+	for i in range(excess):
+		var old: Node = orbs[i]
+		if old.has_method("begin_expire"):
+			old.begin_expire()
+
+
+## 拳擊：Combo 與滿級暈眩
+const BOXING_COMBO_MAX := 99
+const BOXING_COMBO_WINDOW := 5.0
+const BOXING_COMBO_DMG_PER_STACK := 0.015
+const BOXING_COMBO_MAX_DMG_EFF_MULT := 1.40
+const BOXING_COMBO_HEAL_MAX_HP_RATIO := 0.28
+const BOXING_COMBO_MAX_HEAL_EFF_MULT := 1.45
+const BOXING_STUN_CHANCE := 0.12
+const BOXING_STUN_CD := 5.0
+const BOXING_STUN_DURATION := 0.85
+
+
+func boxing_combo_damage_mult(combo: int, maxed: bool) -> float:
+	var per: float = BOXING_COMBO_DMG_PER_STACK
+	if maxed:
+		per *= BOXING_COMBO_MAX_DMG_EFF_MULT
+	return 1.0 + float(maxi(0, combo)) * per
+
+
+func boxing_combo_break_heal(max_hp: float, combo: int, maxed: bool) -> float:
+	if combo <= 0 or max_hp <= 0.0:
+		return 0.0
+	var ratio: float = float(combo) / float(BOXING_COMBO_MAX)
+	var heal: float = max_hp * BOXING_COMBO_HEAL_MAX_HP_RATIO * ratio
+	if maxed:
+		heal *= BOXING_COMBO_MAX_HEAL_EFF_MULT
+	return heal
+
+
 ## 已實裝「滿級額外效果」的武器 id（其餘武器全滿時不彈解鎖視窗，直到實裝為止）
 const WEAPON_MAX_BONUS_IMPLEMENTED: Array[String] = [
-	"sword", "spear", "axe", "magic_bullet", "bow", "melody", "claw", "shard", "flame",
+	"sword", "spear", "axe", "magic_bullet", "bow", "firearm", "melody", "claw", "boxing", "shard", "flame",
 	"lightning", "ice", "poison", "holy",
 ]
 
@@ -1344,6 +1586,18 @@ func gold_icon_path() -> String:
 	if ResourceLoader.exists(GOLD_ICON_FALLBACK_PATH, "Texture2D"):
 		return GOLD_ICON_FALLBACK_PATH
 	return ""
+
+
+func xp_icon_path() -> String:
+	if ResourceLoader.exists(XP_ICON_PATH, "Texture2D"):
+		return XP_ICON_PATH
+	return ""
+
+
+func ammo_pack_icon_path() -> String:
+	if ResourceLoader.exists(AMMO_PACK_ICON_PATH, "Texture2D"):
+		return AMMO_PACK_ICON_PATH
+	return weapon_icon_path("firearm")
 
 
 func gold_icon_bbcode(size: int = ARMAMENT_STAT_ICON_SIZE, link_meta: bool = true) -> String:
@@ -2833,8 +3087,11 @@ func _build_sprite_sheet_row_frames(
 
 func get_sprite_sheet_anim_frames(sheet_id: String) -> Dictionary:
 	var spec: Dictionary = {}
-	if sheet_id == "warrior":
-		spec = WARRIOR_SPRITE_SHEET
+	match sheet_id:
+		"warrior":
+			spec = WARRIOR_SPRITE_SHEET
+		"hunter":
+			spec = HUNTER_SPRITE_SHEET
 	if spec.is_empty():
 		return {}
 	var cache_key: String = "%s|%d|%d" % [
@@ -3330,11 +3587,21 @@ func load_passive_icon(passive_id: String) -> Texture2D:
 	return _load_icon_safe(String(p.get("icon", "")))
 
 
-func load_weapon_icon(weapon_id: String) -> Texture2D:
+func load_weapon_icon(weapon_id: String, reload: bool = false) -> Texture2D:
 	if weapon_id == "":
 		return null
 	var w: Dictionary = get_weapon_def(weapon_id)
-	return _load_icon_safe(String(w.get("icon", "")))
+	return _load_icon_safe(String(w.get("icon", "")), reload)
+
+
+func reload_all_weapon_icons_for_codex() -> void:
+	for w in WEAPONS:
+		var wid: String = String(w.get("id", ""))
+		if wid == "":
+			continue
+		var path: String = weapon_icon_path(wid)
+		if path != "" and ResourceLoader.exists(path, "Texture2D"):
+			ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_REPLACE)
 
 
 func load_armament_icon(armament_id: String) -> Texture2D:
@@ -3423,8 +3690,16 @@ func format_passive_summary_bbcode(passive_id: String, size: int = SUMMARY_ICON_
 
 func weapon_icon_bbcode(weapon_id: String, size: int = ARMAMENT_STAT_ICON_SIZE) -> String:
 	var path: String = weapon_icon_path(weapon_id)
-	if path == "" or not ResourceLoader.exists(path):
+	if path == "" or not ResourceLoader.exists(path, "Texture2D"):
 		return ""
+	return "[img=%dx%d]%s[/img]" % [size, size, path]
+
+
+func weapon_icon_bbcode_codex(weapon_id: String, size: int = 28) -> String:
+	var path: String = weapon_icon_path(weapon_id)
+	if path == "" or not ResourceLoader.exists(path, "Texture2D"):
+		return ""
+	ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_REPLACE)
 	return "[img=%dx%d]%s[/img]" % [size, size, path]
 
 
@@ -3499,11 +3774,13 @@ func weapon_icon_path(weapon_id: String) -> String:
 	return ""
 
 
-func _load_icon_safe(path: String) -> Texture2D:
+func _load_icon_safe(path: String, reload: bool = false) -> Texture2D:
 	if path == "":
 		return null
 	if not ResourceLoader.exists(path, "Texture2D"):
 		return null
+	if reload:
+		return ResourceLoader.load(path, "Texture2D", ResourceLoader.CACHE_MODE_REPLACE) as Texture2D
 	return load(path) as Texture2D
 
 

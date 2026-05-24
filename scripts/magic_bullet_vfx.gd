@@ -111,7 +111,10 @@ static func create_projectile_sprite(cfg: Dictionary, tint: Color) -> AnimatedSp
 	var spr := AnimatedSprite2D.new()
 	spr.centered = true
 	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	spr.sprite_frames = _sprite_frames_for(sheet_path, tex, fw, fh, frame_count, fps, &"fly")
+	var sheet_row: int = maxi(1, int(cfg.get("sheet_row", 1)))
+	var loop_anim: bool = bool(cfg.get("loop", false))
+	spr.sprite_frames = _sprite_frames_for(
+		sheet_path, tex, fw, fh, frame_count, fps, &"fly", sheet_row, loop_anim)
 	spr.modulate = Color(
 		minf(1.2, tint.r * 1.08),
 		minf(1.2, tint.g * 1.08),
@@ -120,12 +123,13 @@ static func create_projectile_sprite(cfg: Dictionary, tint: Color) -> AnimatedSp
 	spr.z_index = int(cfg.get("z_index", 56))
 	spr.position = sprite_display_offset(cfg)
 	spr.play(&"fly")
-	spr.animation_finished.connect(
-		func() -> void:
-			if is_instance_valid(spr):
-				spr.stop()
-				spr.frame = hold_frame,
-		CONNECT_ONE_SHOT)
+	if not loop_anim:
+		spr.animation_finished.connect(
+			func() -> void:
+				if is_instance_valid(spr):
+					spr.stop()
+					spr.frame = hold_frame,
+			CONNECT_ONE_SHOT)
 	return spr
 
 
@@ -158,7 +162,9 @@ static func spawn_explosion(
 	var spr := AnimatedSprite2D.new()
 	spr.centered = true
 	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	spr.sprite_frames = _sprite_frames_for(sheet_path, tex, fw, fh, frame_count, fps, &"explode")
+	var sheet_row: int = maxi(1, int(cfg.get("sheet_row", 1)))
+	spr.sprite_frames = _sprite_frames_for(
+		sheet_path, tex, fw, fh, frame_count, fps, &"explode", sheet_row, false)
 	spr.scale = Vector2.ONE * sc
 	var raw_tint: Variant = cfg.get("tint", null)
 	if raw_tint is Color:
@@ -177,18 +183,23 @@ static func _sprite_frames_for(
 		fh: int,
 		frame_count: int,
 		fps: float,
-		anim_name: StringName) -> SpriteFrames:
-	var key: String = "%s|%s|%d|%d|%d" % [sheet_path, anim_name, fw, fh, frame_count]
+		anim_name: StringName,
+		sheet_row: int = 1,
+		loop_anim: bool = false) -> SpriteFrames:
+	var row: int = maxi(1, sheet_row)
+	var key: String = "%s|%s|%d|%d|%d|%d|%s" % [
+		sheet_path, anim_name, fw, fh, frame_count, row, loop_anim]
 	if _sprite_frames_cache.has(key):
 		return _sprite_frames_cache[key]
 	var sf := SpriteFrames.new()
 	sf.add_animation(anim_name)
 	sf.set_animation_speed(anim_name, fps)
-	sf.set_animation_loop(anim_name, false)
+	sf.set_animation_loop(anim_name, loop_anim)
+	var row_y: int = (row - 1) * fh
 	for i in frame_count:
 		var at := AtlasTexture.new()
 		at.atlas = tex
-		at.region = Rect2(i * fw, 0, fw, fh)
+		at.region = Rect2(i * fw, row_y, fw, fh)
 		sf.add_frame(anim_name, at)
 	_sprite_frames_cache[key] = sf
 	return sf
