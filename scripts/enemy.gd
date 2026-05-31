@@ -794,8 +794,14 @@ func _frame_count_for_row(row: int) -> int:
 	return max(1, hframes_count)
 
 
+func _death_row() -> int:
+	return clampi(int(slime_def.get("anim_row_death", ROW_DEATH)), 0, maxi(0, vframes_count - 1))
+
+
 func _has_death_animation() -> bool:
-	return sprite != null and sprite.texture != null and hframes_count > 1 and vframes_count > ROW_DEATH
+	if sprite == null or sprite.texture == null or hframes_count <= 1:
+		return false
+	return vframes_count > _death_row()
 
 
 func _begin_death_animation() -> void:
@@ -812,7 +818,8 @@ func _begin_death_animation() -> void:
 		body_shape.set_deferred("disabled", true)
 	anim_time = 0.0
 	modulate = Color(1, 1, 1, 1)
-	sprite.frame = ROW_DEATH * hframes_count
+	var dr: int = _death_row()
+	sprite.frame = dr * hframes_count
 
 
 func _process_death_animation(delta: float) -> void:
@@ -820,8 +827,9 @@ func _process_death_animation(delta: float) -> void:
 		queue_free()
 		return
 	anim_time += delta
-	var fcount: int = _frame_count_for_row(ROW_DEATH)
+	var dr: int = _death_row()
+	var fcount: int = _frame_count_for_row(dr)
 	var f: int = min(fcount - 1, int(anim_time * ANIM_FPS))
-	sprite.frame = ROW_DEATH * hframes_count + f
+	sprite.frame = dr * hframes_count + f
 	if anim_time >= float(fcount) / ANIM_FPS:
 		queue_free()

@@ -9,7 +9,7 @@ var def: Dictionary = {"params": {}}
 var owner_player: Node = null
 
 
-func damage_enemy(e: Node, mult: float = 1.0) -> void:
+func damage_enemy(e: Node, mult: float = 1.0, _hit_ctx: Dictionary = {}) -> void:
 	if not is_instance_valid(e):
 		return
 	if e.has_method("take_damage"):

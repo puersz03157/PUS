@@ -89,11 +89,22 @@ func _ready() -> void:
 	_restore_selection_from_state()
 	if title_label:
 		title_label.text = tr("CSEL_TITLE_VILLAGE") if GameState.next_scene == "village" else tr("CSEL_TITLE_BATTLE")
+	_setup_ui_pattern_background()
 	_apply_panel_layout()
 	_setup_armament_rich_labels()
 	_build_touch_controls()
 	_update_panels()
 	_apply_touch_visibility()
+
+
+func _setup_ui_pattern_background() -> void:
+	var solid_bg: ColorRect = $Background
+	if solid_bg:
+		solid_bg.color = Color(0.05, 0.07, 0.13, 0.0)
+	var bg: Control = GameData.attach_ui_pattern_bg(
+		self, GameData.UI_PATTERN_STYLE_FULL, GameData.UI_BG_CTX_MAIN, 0)
+	if size.x > 1.0 and size.y > 1.0:
+		GameData.finalize_pattern_bg_size(bg, size)
 
 
 # 把 GameState 中先前儲存的角色 / 被動 / 技能還原成本畫面的索引（找不到時退回 0）
@@ -160,6 +171,7 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED and is_node_ready():
 		_apply_panel_layout()
 		_update_panels()
+		GameData.refresh_ui_pattern_backgrounds(self)
 
 
 ## 單人時將 P1 資訊卡水平置中；雙人維持左右並排。

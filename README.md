@@ -88,11 +88,11 @@ scripts/              ─ 程式
 
 ---
 
-## 本機專用素材（Puersz 造型）
+## 本機專用素材（Puersz / Shiang 造型）
 
-`assets/characters/Puersz/` 內的 PNG **不會進 Git**（見 `.gitignore`），clone 後請自行放入三張圖；說明見該資料夾的 `README.md`。
+`assets/characters/Puersz/`、`assets/characters/Shiang/` 內的 PNG **不會進 Git**（見 `.gitignore`），clone 後請自行放入圖檔；說明見各資料夾的 `README.md`。
 
-正式 **匯出** 時請在匯出預設的 **Exclude filter** 加入 `assets/characters/Puersz/*`，或參考根目錄 `export_presets.cfg.example` 合併到你的 `export_presets.cfg`（此檔本來就不提交）。
+正式 **匯出** 時請在匯出預設的 **Exclude filter** 加入 `assets/characters/Puersz/*` 與 `assets/characters/Shiang/*`，或參考根目錄 `export_presets.cfg.example` 合併到你的 `export_presets.cfg`（此檔本來就不提交）。
 
 ## 房屋造型 × 武器特效
 
@@ -101,6 +101,7 @@ scripts/              ─ 程式
 | 造型 id | 資料夾（例） | 利劍特效檔 |
 |---------|--------------|------------|
 | `puersz` | `assets/characters/Puersz/` | `sword.png`（本機專用，不進 Git） |
+| `shiang` | `assets/characters/Shiang/` | `sword.png` 等（本機專用，不進 Git） |
 | `fire_knight` | `assets/characters/chierit/fire_knight/` | `sword.png` |
 | `leaf_ranger` | `assets/characters/chierit/Leaf_Ranger/` | `bow.png` 等 |
 

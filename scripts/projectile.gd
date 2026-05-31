@@ -28,6 +28,7 @@ var damage_mult: float = 1.0
 var _arrow_sprite: Sprite2D = null
 var _magic_sprite: AnimatedSprite2D = null
 var _magic_cfg: Dictionary = {}
+var _bow_element_cfg: Dictionary = {}
 var _magic_manual_hit: bool = false
 var _hit_variant: String = ""
 
@@ -64,7 +65,10 @@ func setup(w: Node, vel: Vector2, col: Color) -> void:
 	if not w.has_method("get_spawn_range"):
 		max_distance = float(w.eff_range)
 	lifetime = clamp(max_distance / max(60.0, vel.length()) + 0.4, 0.4, 4.0)
-	if _uses_arrow_sprite():
+	_bow_element_cfg = _resolve_bow_element_visual_cfg()
+	if not _bow_element_cfg.is_empty():
+		call_deferred("_apply_sheet_projectile_visual")
+	elif _uses_arrow_sprite():
 		call_deferred("_apply_arrow_visual")
 	elif _uses_sheet_projectile():
 		call_deferred("_apply_sheet_projectile_visual")
@@ -81,7 +85,22 @@ func _weapon_def() -> Dictionary:
 	return raw if raw is Dictionary else {}
 
 
+func _owner_player() -> Node:
+	if weapon == null:
+		return null
+	var raw: Variant = weapon.get("owner_player")
+	return raw if raw is Node else null
+
+
+func _resolve_bow_element_visual_cfg() -> Dictionary:
+	if String(_weapon_def().get("id", "")) != "bow":
+		return {}
+	return GameData.resolve_bow_projectile_visual(_owner_player())
+
+
 func _uses_arrow_sprite() -> bool:
+	if not _bow_element_cfg.is_empty():
+		return false
 	var def: Dictionary = _weapon_def()
 	var prm: Dictionary = def.get("params", {})
 	if bool(prm.get("arrow_sprite", false)):
@@ -98,6 +117,8 @@ func _uses_sheet_projectile() -> bool:
 
 
 func _projectile_visual_cfg() -> Dictionary:
+	if not _bow_element_cfg.is_empty():
+		return _bow_element_cfg
 	var prm: Dictionary = _weapon_def().get("params", {})
 	var raw: Variant = prm.get("projectile_visual", null)
 	return raw if raw is Dictionary else {}

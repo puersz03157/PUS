@@ -55,15 +55,16 @@ const DREAMIR_CHARACTER_ANIMS: Dictionary = {
 }
 var _dreamir_sprite_frames_cache: Dictionary = {}
 var _chierit_sprite_frames_cache: Dictionary = {}
-var _puersz_sprite_frames_cache: Dictionary = {}
+var _sheet_house_skin_sprite_frames_cache: Dictionary = {}
 var _sprite_sheet_row_bands_cache: Dictionary = {}
+var _element_arrow_preview_sprite_frames_cache: Dictionary = {}
 var _sprite_sheet_anim_frames_cache: Dictionary = {}
 
 const FIRE_KNIGHT_ROOT := CHIERIT_CHAR_ROOT + "fire_knight/"
 ## chierit 逐幀素材（單幀約 288×128）— 戰鬥顯示倍率（相對 CHARACTERS 預設 scale=1）
 const CHIERIT_CHARACTER_SCALE := 1
 ## chierit 造型在房屋／選角預覽的顯示倍率（可與戰鬥分開調）
-const CHIERIT_PREVIEW_SCALE := 0.88
+const CHIERIT_PREVIEW_SCALE := 1.05
 ## chierit 村莊腳底微調（正值＝角色往下，加在角色 village_sprite_feet_fine 上）
 const CHIERIT_VILLAGE_FEET_FINE_Y := 10.0
 ## chierit 房屋預覽框內略下沉（TextureRect position.y）
@@ -79,8 +80,30 @@ const PUERSZ_CHARACTER_SCALE := 0.92
 const PUERSZ_PREVIEW_SCALE := 0.78
 const PUERSZ_VILLAGE_FEET_FINE_Y := 0.0
 const PUERSZ_PREVIEW_FEET_FINE_Y := 4.0
-## Puersz 列序（俯視四方向）：0=正面向下、1=向左、2=向右、3=背面向上
-const PUERSZ_DIR_ROWS: Array[String] = ["down", "left", "right", "up"]
+## 俯視 sheet 造型列序：0=正面向下、1=向左、2=向右、3=背面向上
+const SHEET_HOUSE_SKIN_DIR_ROWS: Array[String] = ["down", "left", "right", "up"]
+const PUERSZ_DIR_ROWS: Array[String] = SHEET_HOUSE_SKIN_DIR_ROWS
+const SHIANG_CHAR_ROOT := "res://assets/characters/Shiang/"
+const SHIANG_HOUSE_SKIN_IDS: Array[String] = ["shiang"]
+const SHIANG_FRAME_W := 64
+const SHIANG_FRAME_H := 64
+const SHIANG_CHARACTER_SCALE := 0.88
+const SHIANG_PREVIEW_SCALE := 0.68
+const SHIANG_SPRITE_FEET_FINE := 2.0
+const SHIANG_VILLAGE_FEET_FINE_Y := 0.0
+const SHIANG_PREVIEW_FEET_FINE_Y := 6.0
+const SHIANG_ANIM_SHEETS: Dictionary = {
+	"idle": {
+		"sheet": SHIANG_CHAR_ROOT + "Shiang_Idle.png",
+		"cols": 4,
+		"rows": 1,
+	},
+	"walk": {
+		"sheet": SHIANG_CHAR_ROOT + "Shiang_Move.png",
+		"cols": 4,
+		"rows": 1,
+	},
+}
 const PUERSZ_ANIM_SHEETS: Dictionary = {
 	"idle": {
 		"sheet": PUERSZ_CHAR_ROOT + "Puersz_Idle.png",
@@ -120,10 +143,32 @@ const LEAF_RANGER_ANIM_FOLDERS: Dictionary = {
 ## 房屋造型素材根目錄；武器專用特效：於該目錄放 <weapon_id>.png（例：sword.png）
 const HOUSE_SKIN_ASSET_ROOTS: Dictionary = {
 	"puersz": PUERSZ_CHAR_ROOT,
+	"shiang": SHIANG_CHAR_ROOT,
 	"fire_knight": FIRE_KNIGHT_ROOT,
 	"leaf_ranger": LEAF_RANGER_ROOT,
 }
 const BOW_ARROW_PROJECTILE_TEXTURE := "res://assets/Effects/arrow/arrow_.png"
+const ELEMENT_ARROW_SHEET := (
+	"res://assets/Effects/Skin/Element Arrow/Arrow and Spell Projectiles Set Sprite Sheet.png")
+const ELEMENT_ARROW_FRAME_W := 32
+const ELEMENT_ARROW_FRAME_H := 32
+const ELEMENT_ARROW_FRAME_COUNT := 4
+## 弓箭造型（單一選單；element_* 為元素箭矢獨立款式，element_mix 每發隨機元素）
+const BOW_ARROW_VISUAL_SKINS: Array[Dictionary] = [
+	{"id": "default", "name_key": "BOW_VISUAL_DEFAULT", "sheet_row": 0, "rarity": "common"},
+	{"id": "element_fire", "name_key": "BOW_ARROW_BLAZING", "sheet_row": 1, "rarity": "legend"},
+	{"id": "element_ice", "name_key": "BOW_ARROW_FROST", "sheet_row": 2, "rarity": "legend"},
+	{"id": "element_poison", "name_key": "BOW_ARROW_VENOM", "sheet_row": 3, "rarity": "legend"},
+	{"id": "element_rock", "name_key": "BOW_ARROW_STONE", "sheet_row": 4, "rarity": "legend"},
+	{"id": "element_electric", "name_key": "BOW_ARROW_THUNDER", "sheet_row": 5, "rarity": "legend"},
+	{"id": "element_bone", "name_key": "BOW_ARROW_BONE", "sheet_row": 6, "rarity": "legend"},
+	{"id": "element_mix", "name_key": "BOW_ARROW_ELEMENT_MIX", "sheet_row": 0, "rarity": "legend", "random_mix": true},
+]
+## 房屋武器造型：至少含「預設」；有額外款式的武器（如 bow）在 weapon_visual_skin_options 擴充
+const HOUSE_WEAPON_VISUAL_SKIN_WEAPON_ORDER: Array[String] = [
+	"bow", "sword", "spear", "magic_bullet", "ice", "lightning", "shard",
+	"boxing", "firearm", "flame", "holy", "axe", "melody", "claw", "poison",
+]
 const SPELL_PROJECTILES_SHEET := "res://assets/Effects/Spell Projectiles Sprite Sheet.png"
 const SPELL_PROJECTILE_FRAME_W := 32
 const SPELL_PROJECTILE_FRAME_H := 32
@@ -408,7 +453,7 @@ const WEAPONS: Array[Dictionary] = [
 			"count": 3,
 			"color": Color(1.0, 0.78, 0.52),
 		},
-		"max_effect": "機率暈眩；Combo 增傷與中斷回血提升", "max_effect_key": "WEAPON_BOXING_MAX",
+		"max_effect": "機率暈眩；全武器 Combo 增傷；中斷回血提升", "max_effect_key": "WEAPON_BOXING_MAX",
 	},
 	{
 		"id": "shard",
@@ -1198,13 +1243,55 @@ const BOXING_COMBO_MAX_HEAL_EFF_MULT := 1.45
 const BOXING_STUN_CHANCE := 0.12
 const BOXING_STUN_CD := 5.0
 const BOXING_STUN_DURATION := 0.85
+## 非拳擊武器維持 Combo 的命中換算（1.0 = 直接 +1 層）
+const BOXING_COMBO_HITS_PER_STACK_BOXING := 1
+const BOXING_COMBO_HITS_PER_STACK_MELEE := 5
+const BOXING_COMBO_HITS_PER_STACK_RANGED := 10
+## 拳擊滿級：其他武器共享 Combo 增傷（bonus 比例，非整段倍率）
+const BOXING_COMBO_AUX_DMG_MELEE_RATIO := 0.50
+const BOXING_COMBO_AUX_DMG_RANGED_RATIO := 0.25
+
+
+func boxing_combo_hits_per_stack_for_kind(weapon_kind: String) -> int:
+	match weapon_kind:
+		"boxing":
+			return BOXING_COMBO_HITS_PER_STACK_BOXING
+		"projectile", "firearm":
+			return BOXING_COMBO_HITS_PER_STACK_RANGED
+		_:
+			return BOXING_COMBO_HITS_PER_STACK_MELEE
+
+
+func boxing_combo_progress_per_hit(weapon_kind: String) -> float:
+	return 1.0 / float(maxi(1, boxing_combo_hits_per_stack_for_kind(weapon_kind)))
 
 
 func boxing_combo_damage_mult(combo: int, maxed: bool) -> float:
+	return boxing_combo_hit_damage_mult(combo, maxed, "boxing")
+
+
+func boxing_combo_bonus_ratio(combo: int, boxing_maxed: bool) -> float:
 	var per: float = BOXING_COMBO_DMG_PER_STACK
-	if maxed:
+	if boxing_maxed:
 		per *= BOXING_COMBO_MAX_DMG_EFF_MULT
-	return 1.0 + float(maxi(0, combo)) * per
+	return float(maxi(0, combo)) * per
+
+
+func boxing_combo_aux_damage_ratio(weapon_kind: String) -> float:
+	if weapon_kind in ["projectile", "firearm"]:
+		return BOXING_COMBO_AUX_DMG_RANGED_RATIO
+	return BOXING_COMBO_AUX_DMG_MELEE_RATIO
+
+
+func boxing_combo_hit_damage_mult(combo: int, boxing_maxed: bool, weapon_kind: String) -> float:
+	if combo <= 0:
+		return 1.0
+	var bonus: float = boxing_combo_bonus_ratio(combo, boxing_maxed)
+	if weapon_kind == "boxing":
+		return 1.0 + bonus
+	if not boxing_maxed:
+		return 1.0
+	return 1.0 + bonus * boxing_combo_aux_damage_ratio(weapon_kind)
 
 
 func boxing_combo_break_heal(max_hp: float, combo: int, maxed: bool) -> float:
@@ -1256,12 +1343,572 @@ func get_player_house_skin_id(player: Node) -> String:
 	return "default"
 
 
+func is_element_arrow_assets_available() -> bool:
+	return ResourceLoader.exists(ELEMENT_ARROW_SHEET, "Texture2D")
+
+
+func get_bow_arrow_skin_def(skin_id: String) -> Dictionary:
+	for skin in BOW_ARROW_VISUAL_SKINS:
+		if String(skin.get("id", "")) == skin_id:
+			return skin
+	return {}
+
+
+func _bow_element_arrow_sheet_rows() -> Array[int]:
+	var rows: Array[int] = []
+	for skin in BOW_ARROW_VISUAL_SKINS:
+		if bool(skin.get("random_mix", false)):
+			continue
+		var row: int = int(skin.get("sheet_row", 0))
+		if row > 0:
+			rows.append(row)
+	return rows
+
+
+func bow_element_arrow_preview_rows() -> Array[int]:
+	return _bow_element_arrow_sheet_rows()
+
+
+func _pick_random_bow_element_arrow_row() -> int:
+	var rows: Array[int] = _bow_element_arrow_sheet_rows()
+	if rows.is_empty():
+		return 1
+	return rows.pick_random()
+
+
+func migrate_legacy_bow_arrow_skin(visual_skin: String, element_mode: String) -> String:
+	var vis: String = visual_skin if visual_skin != "" else "default"
+	if vis == "default":
+		return "default"
+	if is_valid_bow_arrow_skin(vis):
+		return vis
+	if vis != "element_arrow":
+		return "default"
+	var mode: String = element_mode if element_mode != "" else "random"
+	match mode:
+		"fire":
+			return "element_fire"
+		"ice":
+			return "element_ice"
+		"poison":
+			return "element_poison"
+		"rock":
+			return "element_rock"
+		"electric":
+			return "element_electric"
+		"bone":
+			return "element_bone"
+		_:
+			return "element_mix"
+
+
+func bow_arrow_skin_options() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for skin in BOW_ARROW_VISUAL_SKINS:
+		var sid: String = String(skin.get("id", ""))
+		if sid != "default" and not is_element_arrow_assets_available():
+			continue
+		out.append({
+			"id": sid,
+			"label": tr(String(skin.get("name_key", sid))),
+			"rarity": String(skin.get("rarity", "common")),
+		})
+	return out
+
+
+func is_valid_bow_arrow_skin(skin_id: String) -> bool:
+	for opt in bow_arrow_skin_options():
+		if String(opt.get("id", "")) == skin_id:
+			return true
+	return false
+
+
+func resolve_bow_arrow_sheet_row(skin_id: String, randomize_mix: bool = true) -> int:
+	var def: Dictionary = get_bow_arrow_skin_def(skin_id)
+	if def.is_empty() or skin_id == "default":
+		return 0
+	if bool(def.get("random_mix", false)):
+		if randomize_mix:
+			return _pick_random_bow_element_arrow_row()
+		return 1
+	var row: int = int(def.get("sheet_row", 0))
+	return maxi(1, row)
+
+
+func get_player_bow_arrow_skin(player: Node) -> String:
+	if player == null:
+		return "default"
+	var prefix: String = String(player.get("input_prefix"))
+	if prefix == "p1":
+		return GameState.get_bow_arrow_skin("p1")
+	if prefix == "p2":
+		return GameState.get_bow_arrow_skin("p2")
+	return "default"
+
+
+func build_element_arrow_projectile_visual(sheet_row: int) -> Dictionary:
+	if not is_element_arrow_assets_available():
+		return {}
+	return {
+		"sheet": ELEMENT_ARROW_SHEET,
+		"sheet_row": maxi(1, sheet_row),
+		"frame_w": ELEMENT_ARROW_FRAME_W,
+		"frame_h": ELEMENT_ARROW_FRAME_H,
+		"frame_count": ELEMENT_ARROW_FRAME_COUNT,
+		"fps": 12.0,
+		"loop": true,
+		"hold_frame": ELEMENT_ARROW_FRAME_COUNT - 1,
+		"art_tilt_deg": 0.0,
+		"visual_scale_mult": 1.5,
+		"z_index": 55,
+	}
+
+
+func resolve_bow_projectile_visual(player: Node) -> Dictionary:
+	if player == null:
+		return {}
+	var skin_id: String = get_player_bow_arrow_skin(player)
+	if skin_id == "default":
+		return {}
+	var row: int = resolve_bow_arrow_sheet_row(skin_id, true)
+	if row <= 0:
+		return {}
+	return build_element_arrow_projectile_visual(row)
+
+
+func weapon_supports_house_visual_preview(weapon_id: String) -> bool:
+	if get_weapon_def(weapon_id).is_empty():
+		return false
+	if weapon_id == "bow":
+		return true
+	return not resolve_default_weapon_house_preview(weapon_id).is_empty()
+
+
+func house_weapon_visual_skin_weapon_ids() -> Array[String]:
+	var out: Array[String] = []
+	for wid in HOUSE_WEAPON_VISUAL_SKIN_WEAPON_ORDER:
+		if weapon_supports_house_visual_preview(wid):
+			out.append(wid)
+	for w in WEAPONS:
+		var wid: String = String(w.get("id", ""))
+		if wid == "" or wid in out:
+			continue
+		if weapon_supports_house_visual_preview(wid):
+			out.append(wid)
+	return out
+
+
+func weapon_visual_skin_options(weapon_id: String) -> Array[Dictionary]:
+	if weapon_id == "bow":
+		return bow_arrow_skin_options()
+	if not weapon_supports_house_visual_preview(weapon_id):
+		return []
+	return [{
+		"id": "default",
+		"label": tr("WEAPON_VISUAL_SKIN_DEFAULT"),
+		"rarity": "common",
+	}]
+
+
+func is_valid_weapon_visual_skin(weapon_id: String, skin_id: String) -> bool:
+	for opt in weapon_visual_skin_options(weapon_id):
+		if String(opt.get("id", "")) == skin_id:
+			return true
+	return false
+
+
+func get_weapon_visual_skin_label(weapon_id: String, skin_id: String) -> String:
+	if weapon_id == "bow":
+		var def: Dictionary = get_bow_arrow_skin_def(skin_id)
+		if not def.is_empty():
+			return tr(String(def.get("name_key", skin_id)))
+	for opt in weapon_visual_skin_options(weapon_id):
+		if String(opt.get("id", "")) == skin_id:
+			return String(opt.get("label", skin_id))
+	return skin_id
+
+
+func resolve_weapon_house_preview(weapon_id: String, skin_id: String) -> Dictionary:
+	return resolve_weapon_house_preview_slots(weapon_id, skin_id).get("projectile", {})
+
+
+func resolve_weapon_house_preview_slots(weapon_id: String, skin_id: String) -> Dictionary:
+	if weapon_id == "":
+		return {"hit": {}, "projectile": {}, "extra": {}}
+	if skin_id == "":
+		skin_id = "default"
+	return {
+		"hit": _house_preview_hit_weapon(weapon_id),
+		"projectile": _house_preview_projectile_weapon(weapon_id, skin_id),
+		"extra": _house_preview_extra_weapon(weapon_id),
+	}
+
+
+func _house_preview_sheet_anim(
+		cfg: Dictionary,
+		scale_mul: float = 1.65,
+		anim: StringName = &"fly") -> Dictionary:
+	if cfg.is_empty():
+		return {}
+	return {"kind": "sheet_anim", "cfg": cfg, "anim": anim, "scale_mul": scale_mul}
+
+
+func _house_preview_hit_weapon(weapon_id: String) -> Dictionary:
+	if WeaponHitVfx.has_effect(weapon_id):
+		var hv: Dictionary = WeaponHitVfx.resolve_sheet(weapon_id, "")
+		if not hv.is_empty():
+			var hit_cfg: Dictionary = hv.duplicate()
+			hit_cfg["loop"] = true
+			return _house_preview_sheet_anim(hit_cfg, 1.55, &"hit")
+	var wdef: Dictionary = get_weapon_def(weapon_id)
+	if wdef.is_empty():
+		return {}
+	var ae: Variant = wdef.get("params", {}).get("attack_effect", null)
+	if ae is Dictionary and not (ae as Dictionary).is_empty():
+		var acfg: Dictionary = (ae as Dictionary).duplicate()
+		acfg["loop"] = int(acfg.get("frame_count", 1)) > 1
+		return _house_preview_sheet_anim(acfg, 1.4, &"fly")
+	return {}
+
+
+func _house_preview_projectile_weapon(weapon_id: String, skin_id: String) -> Dictionary:
+	if weapon_id == "bow":
+		return _resolve_bow_house_preview(skin_id)
+	var wdef: Dictionary = get_weapon_def(weapon_id)
+	if wdef.is_empty():
+		return {}
+	var pv: Variant = wdef.get("params", {}).get("projectile_visual", null)
+	if pv is Dictionary and not (pv as Dictionary).is_empty():
+		var out: Dictionary = (pv as Dictionary).duplicate()
+		out["loop"] = true
+		var scale: float = 2.0 if weapon_id in ["ice", "lightning", "magic_bullet"] else 1.65
+		if weapon_id == "shard":
+			scale = 2.4
+		return _house_preview_sheet_anim(out, scale)
+	return {}
+
+
+func _house_preview_extra_weapon(weapon_id: String) -> Dictionary:
+	var wdef: Dictionary = get_weapon_def(weapon_id)
+	if wdef.is_empty():
+		return {}
+	var prm: Dictionary = wdef.get("params", {})
+	var ev: Variant = prm.get("explosion_visual", null)
+	if ev is Dictionary and not (ev as Dictionary).is_empty():
+		var ecfg: Dictionary = (ev as Dictionary).duplicate()
+		ecfg["loop"] = true
+		return _house_preview_sheet_anim(ecfg, 1.85, &"explode")
+	if weapon_id == "firearm":
+		var path: String = ammo_pack_icon_path()
+		if path != "" and ResourceLoader.exists(path, "Texture2D"):
+			var tex: Texture2D = load(path) as Texture2D
+			if tex != null:
+				return {
+					"kind": "static_tex",
+					"texture": tex,
+					"w": float(maxi(1, tex.get_width())),
+					"h": float(maxi(1, tex.get_height())),
+					"scale_mul": 1.6,
+				}
+	return {}
+
+
+func _resolve_bow_house_preview(skin_id: String) -> Dictionary:
+	if skin_id == "default":
+		var prepared: Dictionary = prepare_bow_default_arrow_display()
+		if not prepared.is_empty():
+			return {
+				"kind": "static_tex",
+				"texture": prepared["texture"],
+				"w": prepared["w"],
+				"h": prepared["h"],
+				"scale_mul": 2.0,
+			}
+		return {"kind": "icon", "weapon_id": "bow"}
+	if skin_id == "element_mix" and is_element_arrow_assets_available():
+		return {"kind": "element_arrow_mix"}
+	var row: int = resolve_bow_arrow_sheet_row(skin_id, false)
+	if row > 0 and is_element_arrow_assets_available():
+		return {"kind": "element_arrow", "row": row}
+	return resolve_default_weapon_house_preview("bow")
+
+
+func prepare_bow_default_arrow_display() -> Dictionary:
+	if not ResourceLoader.exists(BOW_ARROW_PROJECTILE_TEXTURE, "Texture2D"):
+		return {}
+	var tex: Texture2D = load(BOW_ARROW_PROJECTILE_TEXTURE) as Texture2D
+	if tex == null:
+		return {}
+	var tw: float = float(maxi(1, tex.get_width()))
+	var th: float = float(maxi(1, tex.get_height()))
+	var trim: Dictionary = trim_preview_texture(tex)
+	var use_tex: Texture2D = trim.get("texture")
+	var w: float = float(trim.get("w", 1.0))
+	var h: float = float(trim.get("h", 1.0))
+	# 不透明大底圖時 trim 會含整張 → 改取中央橫帶再裁一次（同 projectile.gd）
+	if w >= tw * 0.7 and h >= th * 0.7 and maxf(tw, th) > 64.0:
+		var band_h: float = clampf(th * 0.25, 10.0, 72.0)
+		var band := AtlasTexture.new()
+		band.atlas = tex
+		band.region = Rect2(0.0, (th - band_h) * 0.5, tw, band_h)
+		trim = trim_preview_texture(band)
+		use_tex = trim.get("texture")
+		w = float(trim.get("w", 1.0))
+		h = float(trim.get("h", 1.0))
+	if use_tex == null or w < 1.0 or h < 1.0:
+		return {}
+	return {"texture": use_tex, "w": w, "h": h}
+
+
+func resolve_default_weapon_house_preview(weapon_id: String) -> Dictionary:
+	var cfg: Dictionary = _weapon_default_sheet_preview_cfg(weapon_id)
+	if not cfg.is_empty():
+		var scale: float = 2.0 if weapon_id in ["ice", "lightning", "magic_bullet"] else 1.65
+		if weapon_id == "shard":
+			scale = 2.4
+		return {"kind": "sheet_anim", "cfg": cfg, "anim": &"fly", "scale_mul": scale}
+	if weapon_icon_path(weapon_id) != "":
+		return {"kind": "icon", "weapon_id": weapon_id}
+	return {}
+
+
+func _weapon_default_sheet_preview_cfg(weapon_id: String) -> Dictionary:
+	var wdef: Dictionary = get_weapon_def(weapon_id)
+	if wdef.is_empty():
+		return {}
+	var prm: Dictionary = wdef.get("params", {})
+	var pv: Variant = prm.get("projectile_visual", null)
+	if pv is Dictionary and not (pv as Dictionary).is_empty():
+		var out: Dictionary = (pv as Dictionary).duplicate()
+		out["loop"] = true
+		return out
+	var ae: Variant = prm.get("attack_effect", null)
+	if ae is Dictionary:
+		var acfg: Dictionary = (ae as Dictionary).duplicate()
+		if int(acfg.get("frame_count", 1)) > 1:
+			acfg["loop"] = true
+			return acfg
+	if WeaponHitVfx.has_effect(weapon_id):
+		var hv: Dictionary = WeaponHitVfx.resolve_sheet(weapon_id, "")
+		if not hv.is_empty():
+			hv["loop"] = true
+			return hv
+	return {}
+
+
+func apply_weapon_house_preview_to_rect(prev: TextureRect, weapon_id: String, player_slot: String) -> void:
+	if prev == null:
+		return
+	if weapon_id == "":
+		prev.texture = null
+		prev.visible = false
+		return
+	if weapon_id == "bow":
+		var skin_id: String = GameState.get_bow_arrow_skin(player_slot)
+		var row: int = resolve_bow_arrow_sheet_row(skin_id, false)
+		if row > 0 and is_element_arrow_assets_available():
+			var sheet: Texture2D = load(ELEMENT_ARROW_SHEET) as Texture2D
+			if sheet != null:
+				var atlas := AtlasTexture.new()
+				atlas.atlas = sheet
+				atlas.region = Rect2(
+					0.0,
+					float(maxi(0, row - 1)) * float(ELEMENT_ARROW_FRAME_H),
+					float(ELEMENT_ARROW_FRAME_W),
+					float(ELEMENT_ARROW_FRAME_H))
+				prev.texture = atlas
+				prev.modulate = Color.WHITE
+				prev.visible = true
+				prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				layout_character_preview_texture_rect(
+					prev,
+					float(ELEMENT_ARROW_FRAME_W),
+					float(ELEMENT_ARROW_FRAME_H),
+					2.2)
+				return
+	var path: String = weapon_icon_path(weapon_id)
+	if path == "" or not ResourceLoader.exists(path, "Texture2D"):
+		prev.texture = null
+		prev.visible = false
+		return
+	var tex: Texture2D = load(path) as Texture2D
+	if tex == null:
+		prev.texture = null
+		prev.visible = false
+		return
+	prev.texture = tex
+	prev.modulate = Color.WHITE
+	prev.visible = true
+	prev.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var tw: float = float(maxi(1, tex.get_width()))
+	var th: float = float(maxi(1, tex.get_height()))
+	layout_character_preview_texture_rect(prev, tw, th, 1.35)
+
+
+func get_element_arrow_preview_sprite_frames(sheet_row: int) -> SpriteFrames:
+	return get_sheet_row_preview_sprite_frames(
+		build_element_arrow_projectile_visual(sheet_row), &"fly")
+
+
+func get_sheet_row_preview_sprite_frames(
+		cfg: Dictionary,
+		anim_name: StringName = &"fly") -> SpriteFrames:
+	if cfg.is_empty():
+		return null
+	var sheet_path: String = String(cfg.get("sheet", ""))
+	if sheet_path == "" or not ResourceLoader.exists(sheet_path, "Texture2D"):
+		return null
+	var fw: int = maxi(1, int(cfg.get("frame_w", 32)))
+	var fh: int = maxi(1, int(cfg.get("frame_h", 32)))
+	var frame_count: int = maxi(1, int(cfg.get("frame_count", 4)))
+	var fps: float = maxf(1.0, float(cfg.get("fps", 12.0)))
+	var loop_anim: bool = bool(cfg.get("loop", true))
+	var sheet_row: int = int(cfg.get("sheet_row", 0))
+	var key: String = "%s|%s|%d|%d|%d|%d|%s" % [
+		sheet_path, anim_name, fw, fh, frame_count, sheet_row, loop_anim]
+	if _element_arrow_preview_sprite_frames_cache.has(key):
+		return _element_arrow_preview_sprite_frames_cache[key]
+	var tex: Texture2D = load(sheet_path) as Texture2D
+	if tex == null:
+		return null
+	var sf := SpriteFrames.new()
+	sf.add_animation(anim_name)
+	sf.set_animation_speed(anim_name, fps)
+	sf.set_animation_loop(anim_name, loop_anim)
+	var row_y: int = (maxi(1, sheet_row) - 1) * fh if sheet_row > 0 else 0
+	for i in frame_count:
+		var at := AtlasTexture.new()
+		at.atlas = tex
+		at.region = Rect2(i * fw, row_y, fw, fh)
+		sf.add_frame(anim_name, at)
+	_element_arrow_preview_sprite_frames_cache[key] = sf
+	return sf
+
+
+func collect_preview_frame_textures(entry: Variant) -> Array:
+	var out: Array = []
+	if entry is Array:
+		for item in entry:
+			var t: Texture2D = resolve_frame_texture(item)
+			if t != null:
+				out.append(t)
+	elif entry is Dictionary:
+		for dk in ["right", "down", "left", "up"]:
+			if not entry.has(dk):
+				continue
+			var row: Variant = entry[dk]
+			if row is Array:
+				for item in row:
+					var t2: Texture2D = resolve_frame_texture(item)
+					if t2 != null:
+						out.append(t2)
+				if not out.is_empty():
+					return out
+		for path in _resolve_frame_paths_dict(entry):
+			var t3: Texture2D = resolve_frame_texture(path)
+			if t3 != null:
+				out.append(t3)
+	return out
+
+
+func build_looping_sprite_frames(
+		textures: Array,
+		fps: float,
+		anim_name: StringName = &"idle") -> SpriteFrames:
+	var sf := SpriteFrames.new()
+	sf.add_animation(anim_name)
+	sf.set_animation_speed(anim_name, maxf(1.0, fps))
+	sf.set_animation_loop(anim_name, true)
+	for tex in textures:
+		if tex is Texture2D:
+			sf.add_frame(anim_name, tex)
+	return sf
+
+
+func layout_house_preview_sprite2d(
+		spr: Node2D,
+		panel: Control,
+		src_w: float,
+		src_h: float,
+		scale_mul: float = 1.0,
+		offset_y: float = 0.0,
+		min_fill: float = 0.86,
+		center_dx: float = 0.0,
+		center_dy: float = 0.0) -> void:
+	if spr == null or panel == null:
+		return
+	var pw: float = panel.size.x
+	var ph: float = panel.size.y
+	var min_pw: float = maxf(1.0, float(panel.custom_minimum_size.x))
+	var min_ph: float = maxf(1.0, float(panel.custom_minimum_size.y))
+	if pw < min_pw * 0.75 or ph < min_ph * 0.75:
+		pw = min_pw
+		ph = min_ph
+	if pw <= 0.0 or ph <= 0.0:
+		return
+	var avail_w: float = pw * 0.94
+	var avail_h: float = ph * 0.94
+	var fit: float = minf(avail_w / maxf(1.0, src_w), avail_h / maxf(1.0, src_h))
+	if min_fill > 0.0 and src_h > 0.0:
+		var want_h: float = avail_h * min_fill
+		if src_h * fit < want_h:
+			fit = want_h / src_h
+	if scale_mul > 0.0:
+		fit *= scale_mul
+	fit = maxf(0.05, fit)
+	spr.scale = Vector2.ONE * fit
+	spr.position = Vector2(
+		pw * 0.5 - center_dx * fit,
+		ph * 0.5 + offset_y - center_dy * fit)
+
+
+func compute_centered_sprite_trim_layout(tex: Texture2D) -> Dictionary:
+	if tex == null:
+		return {"w": 32.0, "h": 32.0, "center_dx": 0.0, "center_dy": 0.0}
+	var tw: float
+	var th: float
+	var vis: Rect2
+	if tex is AtlasTexture:
+		var at := tex as AtlasTexture
+		if at.atlas == null:
+			return {"w": 32.0, "h": 32.0, "center_dx": 0.0, "center_dy": 0.0}
+		tw = at.region.size.x
+		th = at.region.size.y
+		vis = visible_texture_region(at.atlas, at.region)
+		vis = Rect2(
+			vis.position.x - at.region.position.x,
+			vis.position.y - at.region.position.y,
+			vis.size.x,
+			vis.size.y)
+	else:
+		tw = float(maxi(1, tex.get_width()))
+		th = float(maxi(1, tex.get_height()))
+		vis = visible_texture_region(tex, Rect2(0.0, 0.0, tw, th))
+	var vis_cx: float = vis.position.x + vis.size.x * 0.5
+	var vis_cy: float = vis.position.y + vis.size.y * 0.5
+	return {
+		"w": maxf(1.0, vis.size.x),
+		"h": maxf(1.0, vis.size.y),
+		"center_dx": vis_cx - tw * 0.5,
+		"center_dy": vis_cy - th * 0.5,
+	}
+
+
+func compute_centered_sprite_trim_layout_rect(tex: Texture2D, cell: Rect2) -> Dictionary:
+	if tex == null or cell.size.x <= 0.0 or cell.size.y <= 0.0:
+		return {"w": 32.0, "h": 32.0, "center_dx": 0.0, "center_dy": 0.0}
+	var at := AtlasTexture.new()
+	at.atlas = tex
+	at.region = cell
+	return compute_centered_sprite_trim_layout(at)
+
+
 func get_house_skin_asset_root(skin_id: String) -> String:
 	if skin_id == "" or skin_id == "default" or skin_id == "human" or skin_id.begins_with("look_"):
 		return ""
 	if not HOUSE_SKIN_ASSET_ROOTS.has(skin_id):
 		return ""
-	if skin_id == "puersz" and not is_puersz_assets_available():
+	if is_sheet_house_skin(skin_id) and not is_sheet_house_skin_assets_available(skin_id):
 		return ""
 	var root: String = String(HOUSE_SKIN_ASSET_ROOTS[skin_id])
 	if root == "":
@@ -1334,48 +1981,358 @@ const ARMAMENT_FAVORITE_STAT_FIELDS: Array[String] = [
 	"hp_add", "def_add", "atk_add", "spd_add",
 	"rate_add", "crit_rate_add", "crit_dmg_add",
 ]
+## 房屋召喚獸設定格數（每位角色固定 3 格；戰鬥召喚邏輯後續接入）
+const P1_HOUSE_SUMMON_SLOTS := 3
+const SUMMON_MIN_LEVEL := 0
+const SUMMON_MAX_LEVEL := 10
+const SUMMON_EVOLVE_LEVEL := 5
+const SUMMON_TEST_LEVELS: Array[int] = [0, 1, 5, 10]
+const SUMMON_LEVEL_STAT_MULT := 0.08
+const SUMMON_EGG_PREVIEW_SCALE := 0.65
+const SUMMON_EVOLVE_STAT_MULT := 1.18
+const PET_ASSET_ROOT := "res://assets/Pet/"
+
+const SUMMONS: Array[Dictionary] = [
+	{
+		"id": "none",
+		"name": "無", "name_key": "CSEL_NONE",
+		"desc": "不召喚。", "desc_key": "SUMMON_NONE_DESC",
+	},
+	{
+		"id": "frcloudy",
+		"name": "凍雲獸", "name_key": "SUMMON_FRCLOUDY_NAME",
+		"evolve_name": "白雲浪客龍", "evolve_name_key": "SUMMON_FRCLOUDY_EVOLVE_NAME",
+		"desc": "御五家速度型。擅長追擊與閃避輔助。", "desc_key": "SUMMON_FRCLOUDY_DESC",
+		"type": "speed", "type_key": "SUMMON_TYPE_SPEED",
+		"texture": PET_ASSET_ROOT + "Frcloudy.png",
+		"evolve_texture": PET_ASSET_ROOT + "Nimbusabre.png",
+		"egg_texture": PET_ASSET_ROOT + "Frcloudy_egg.png",
+		"egg_name": "凍雲獸蛋", "egg_name_key": "SUMMON_FRCLOUDY_EGG_NAME",
+		"preview_scale": 1.0,
+		"preview_min_fill": 0.0,
+		"base_stats": {"atk": 6.0, "def": 6.0, "spd": 14.0, "hp": 65.0, "sup": 4.0},
+	},
+	{
+		"id": "herbarmor",
+		"name": "草殼仔", "name_key": "SUMMON_HERBARMOR_NAME",
+		"evolve_name": "翠羽刺甲獸", "evolve_name_key": "SUMMON_HERBARMOR_EVOLVE_NAME",
+		"desc": "御五家防禦型。高血量與減傷，穩定護航。", "desc_key": "SUMMON_HERBARMOR_DESC",
+		"type": "defense", "type_key": "SUMMON_TYPE_DEFENSE",
+		"texture": PET_ASSET_ROOT + "Herbarmor.png",
+		"evolve_texture": PET_ASSET_ROOT + "Verdarmor.png",
+		"egg_texture": PET_ASSET_ROOT + "Herbarmor_061_egg.png",
+		"egg_name": "草殼仔蛋", "egg_name_key": "SUMMON_HERBARMOR_EGG_NAME",
+		"preview_scale": 1.0,
+		"preview_min_fill": 0.0,
+		"base_stats": {"atk": 5.0, "def": 14.0, "spd": 5.0, "hp": 95.0, "sup": 5.0},
+	},
+	{
+		"id": "scarfner",
+		"name": "絨領熊", "name_key": "SUMMON_SCARFNER_NAME",
+		"evolve_name": "赤焰巾絨熊", "evolve_name_key": "SUMMON_SCARFNER_EVOLVE_NAME",
+		"desc": "御五家射擊型。遠程牽制與輸出。", "desc_key": "SUMMON_SCARFNER_DESC",
+		"type": "ranged", "type_key": "SUMMON_TYPE_RANGED",
+		"texture": PET_ASSET_ROOT + "Scarfner.png",
+		"evolve_texture": PET_ASSET_ROOT + "Pyroscarf.png",
+		"egg_texture": PET_ASSET_ROOT + "Scarfner_egg.png",
+		"egg_name": "絨領熊蛋", "egg_name_key": "SUMMON_SCARFNER_EGG_NAME",
+		"preview_scale": 1.0,
+		"preview_min_fill": 0.0,
+		"base_stats": {"atk": 12.0, "def": 7.0, "spd": 8.0, "hp": 70.0, "sup": 4.0},
+	},
+	{
+		"id": "mossis",
+		"name": "苔蘚蟲", "name_key": "SUMMON_MOSSIS_NAME",
+		"evolve_name": "花冠妖精蝶", "evolve_name_key": "SUMMON_MOSSIS_EVOLVE_NAME",
+		"desc": "御五家輔助型。強化隊友與控場支援。", "desc_key": "SUMMON_MOSSIS_DESC",
+		"type": "support", "type_key": "SUMMON_TYPE_SUPPORT",
+		"texture": PET_ASSET_ROOT + "Mossis.png",
+		"evolve_texture": PET_ASSET_ROOT + "Florafaie.png",
+		"egg_texture": PET_ASSET_ROOT + "Mossis_068_egg.png",
+		"egg_name": "苔蘚蟲蛋", "egg_name_key": "SUMMON_MOSSIS_EGG_NAME",
+		"preview_scale": 1.0,
+		"preview_min_fill": 0.0,
+		"base_stats": {"atk": 5.0, "def": 8.0, "spd": 7.0, "hp": 75.0, "sup": 12.0},
+	},
+	{
+		"id": "brawno",
+		"name": "剛咚咚", "name_key": "SUMMON_BRAWNO_NAME",
+		"evolve_name": "剛咚咚鬥士", "evolve_name_key": "SUMMON_BRAWNO_EVOLVE_NAME",
+		"desc": "御五家攻擊型。近身爆發與連段輸出。", "desc_key": "SUMMON_BRAWNO_DESC",
+		"type": "attack", "type_key": "SUMMON_TYPE_ATTACK",
+		"texture": PET_ASSET_ROOT + "Bampam.png",
+		"evolve_texture": PET_ASSET_ROOT + "Brawno.png",
+		"egg_texture": PET_ASSET_ROOT + "Bampam_egg.png",
+		"egg_name": "剛咚咚蛋", "egg_name_key": "SUMMON_BRAWNO_EGG_NAME",
+		"preview_scale": 1.0,
+		"preview_min_fill": 0.0,
+		"base_stats": {"atk": 14.0, "def": 6.0, "spd": 7.0, "hp": 80.0, "sup": 3.0},
+	},
+]
 
 
-## 房屋可選造型（預設、狼人人形、已解鎖角色的外觀借用）
-func character_house_skin_options(char_id: String, unlocked_character_ids: Array) -> Array[Dictionary]:
+func get_summon_def(id: String) -> Dictionary:
+	for s in SUMMONS:
+		if String(s.get("id", "")) == id:
+			return s.duplicate(true)
+	return {}
+
+
+func is_valid_summon_id(id: String) -> bool:
+	return id == "none" or not get_summon_def(id).is_empty()
+
+
+func house_summon_choice_ids() -> Array[String]:
+	var out: Array[String] = []
+	for s in SUMMONS:
+		out.append(String(s.get("id", "")))
+	return out
+
+
+func summon_exp_to_next_level(level: int) -> int:
+	if level >= SUMMON_MAX_LEVEL:
+		return 0
+	return 100 + (maxi(SUMMON_MIN_LEVEL, level) - 1) * 50
+
+
+func summon_is_egg(level: int) -> bool:
+	return level <= SUMMON_MIN_LEVEL
+
+
+func summon_is_evolved(level: int) -> bool:
+	return level >= SUMMON_EVOLVE_LEVEL
+
+
+func summon_computed_stats(summon_id: String, level: int) -> Dictionary:
+	var sdef: Dictionary = get_summon_def(summon_id)
+	if sdef.is_empty() or summon_id == "none":
+		return {}
+	var lv: int = clampi(level, SUMMON_MIN_LEVEL, SUMMON_MAX_LEVEL)
+	var base: Dictionary = sdef.get("base_stats", {})
+	var mult: float = 1.0 + SUMMON_LEVEL_STAT_MULT * float(maxi(0, lv - 1))
+	if summon_is_egg(lv):
+		mult *= 0.55
+	elif summon_is_evolved(lv):
+		mult *= SUMMON_EVOLVE_STAT_MULT
+	var out: Dictionary = {}
+	for key in ["atk", "def", "spd", "hp", "sup"]:
+		out[key] = roundi(float(base.get(key, 0.0)) * mult)
+	return out
+
+
+func tr_summon_type(sdef: Dictionary) -> String:
+	var key: String = String(sdef.get("type_key", ""))
+	if key != "":
+		return tr(key)
+	return String(sdef.get("type", ""))
+
+
+func format_summon_level_text(level: int) -> String:
+	var lv: int = clampi(level, SUMMON_MIN_LEVEL, SUMMON_MAX_LEVEL)
+	return tr("SUMMON_LEVEL_FMT") % [lv, SUMMON_MAX_LEVEL]
+
+
+func format_summon_exp_text(level: int, exp: int) -> String:
+	var lv: int = clampi(level, SUMMON_MIN_LEVEL, SUMMON_MAX_LEVEL)
+	if lv >= SUMMON_MAX_LEVEL:
+		return tr("SUMMON_EXP_MAX")
+	var need: int = summon_exp_to_next_level(lv)
+	return tr("SUMMON_EXP_FMT") % [maxi(0, exp), need]
+
+
+func format_summon_stats_text(summon_id: String, level: int) -> String:
+	var stats: Dictionary = summon_computed_stats(summon_id, level)
+	if stats.is_empty():
+		return tr("SUMMON_STATS_EMPTY")
+	return tr("SUMMON_STATS_FMT") % [
+		stats.get("atk", 0), stats.get("def", 0),
+		stats.get("spd", 0), stats.get("hp", 0), stats.get("sup", 0)]
+
+
+func format_summon_evolve_text(level: int) -> String:
+	if summon_is_egg(level):
+		return tr("SUMMON_EGG_FORM")
+	if summon_is_evolved(level):
+		return tr("SUMMON_EVOLVED")
+	return tr("SUMMON_NOT_EVOLVED_FMT") % SUMMON_EVOLVE_LEVEL
+
+
+func resolve_summon_house_preview(summon_id: String, level: int = 1) -> Dictionary:
+	if summon_id == "" or summon_id == "none":
+		return {}
+	var sdef: Dictionary = get_summon_def(summon_id)
+	if sdef.is_empty():
+		return {}
+	var lv: int = clampi(level, SUMMON_MIN_LEVEL, SUMMON_MAX_LEVEL)
+	var tex_path: String = ""
+	if summon_is_egg(lv):
+		tex_path = String(sdef.get("egg_texture", ""))
+	elif summon_is_evolved(lv):
+		tex_path = String(sdef.get("evolve_texture", ""))
+	else:
+		tex_path = String(sdef.get("texture", ""))
+	if tex_path == "" or not ResourceLoader.exists(tex_path, "Texture2D"):
+		return {}
+	var sheet: Texture2D = load(tex_path) as Texture2D
+	if sheet == null:
+		return {}
+	var trimmed: Dictionary = trim_preview_texture(sheet)
+	var tex: Texture2D = trimmed.get("texture")
+	if tex == null:
+		return {}
+	var scale_mul: float = float(sdef.get("preview_scale", 1.0))
+	if summon_is_egg(lv):
+		scale_mul *= float(sdef.get("egg_preview_scale", SUMMON_EGG_PREVIEW_SCALE))
+	return {
+		"kind": "static_tex",
+		"texture": tex,
+		"w": float(trimmed.get("w", 32.0)),
+		"h": float(trimmed.get("h", 32.0)),
+		"scale_mul": scale_mul,
+		"min_fill": float(sdef.get("preview_min_fill", 0.0)),
+	}
+
+
+func tr_summon_name(id: String) -> String:
+	return tr_name(get_summon_def(id))
+
+
+func tr_summon_evolve_name(id: String) -> String:
+	var sdef: Dictionary = get_summon_def(id)
+	if sdef.is_empty():
+		return tr_summon_name(id)
+	var ekey: String = String(sdef.get("evolve_name_key", ""))
+	if ekey != "":
+		return tr(ekey)
+	return String(sdef.get("evolve_name", tr_summon_name(id)))
+
+
+func tr_summon_egg_name(id: String) -> String:
+	var sdef: Dictionary = get_summon_def(id)
+	if sdef.is_empty():
+		return tr_summon_name(id)
+	var ekey: String = String(sdef.get("egg_name_key", ""))
+	if ekey != "":
+		return tr(ekey)
+	return String(sdef.get("egg_name", tr_summon_name(id)))
+
+
+func tr_summon_display_name(id: String, level: int = 1) -> String:
+	if id == "" or id == "none":
+		return tr_summon_name(id)
+	if summon_is_egg(level):
+		return tr_summon_egg_name(id)
+	if summon_is_evolved(level):
+		return tr_summon_evolve_name(id)
+	return tr_summon_name(id)
+
+
+func tr_summon_desc(id: String) -> String:
+	return tr_desc(get_summon_def(id))
+
+
+func format_summon_house_detail_text(
+		summon_id: String, level: int, exp: int) -> String:
+	if summon_id == "" or summon_id == "none":
+		return tr("SUMMON_NONE_DETAIL")
+	var sdef: Dictionary = get_summon_def(summon_id)
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("[b]%s[/b]｜%s" % [tr_summon_display_name(summon_id, level), tr_summon_type(sdef)])
+	lines.append(format_summon_level_text(level))
+	lines.append(format_summon_exp_text(level, exp))
+	lines.append(format_summon_evolve_text(level))
+	lines.append(format_summon_stats_text(summon_id, level))
+	lines.append(tr_summon_desc(summon_id))
+	lines.append(tr("SUMMON_GROWTH_PLAN_HINT"))
+	return "\n".join(lines)
+
+
+## 房屋可選造型：預設、角色專屬（烈焰騎士／翠葉遊俠）、本機通用（Puersz／Shiang）
+func character_house_skin_options(char_id: String, _unlocked_character_ids: Array = []) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	out.append({"id": "default", "label": tr("HOUSE_SKIN_DEFAULT")})
-	if char_id == "werewolf":
-		out.append({"id": "human", "label": tr("HOUSE_SKIN_WEREWOLF_HUMAN")})
 	if char_id == "swordsman":
 		out.append({"id": "fire_knight", "label": tr("HOUSE_SKIN_FIRE_KNIGHT")})
 	if char_id == "ranger":
 		out.append({"id": "leaf_ranger", "label": tr("HOUSE_SKIN_LEAF_RANGER")})
 	if is_puersz_assets_available():
 		out.append({"id": "puersz", "label": tr("HOUSE_SKIN_PUERSZ")})
-	for raw in unlocked_character_ids:
-		var uid: String = String(raw)
-		if uid == "" or uid == char_id:
-			continue
-		if get_character_def(uid).is_empty():
-			continue
-		out.append({
-			"id": "look_%s" % uid,
-			"label": tr("HOUSE_SKIN_LOOK_FMT") % tr_character_name(uid),
-		})
+	if is_shiang_assets_available():
+		out.append({"id": "shiang", "label": tr("HOUSE_SKIN_SHIANG")})
 	return out
+
+
+func is_house_character_skin_allowed(char_id: String, skin_id: String) -> bool:
+	if skin_id == "" or skin_id == "default":
+		return true
+	for opt in character_house_skin_options(char_id):
+		if String(opt.get("id", "")) == skin_id:
+			return true
+	return false
 
 
 func is_chierit_house_skin(skin_id: String) -> bool:
 	return skin_id in CHIERIT_HOUSE_SKIN_IDS
 
 
+func is_sheet_house_skin(skin_id: String) -> bool:
+	return skin_id in PUERSZ_HOUSE_SKIN_IDS or skin_id in SHIANG_HOUSE_SKIN_IDS
+
+
 func is_puersz_house_skin(skin_id: String) -> bool:
 	return skin_id in PUERSZ_HOUSE_SKIN_IDS
 
 
-## 三張 Puersz 圖皆存在且尺寸足以切出設定格數時才提供造型選項
-func is_puersz_assets_available() -> bool:
-	const REQUIRED_ANIMS: Array[String] = ["idle", "walk", "attack"]
-	for anim_key in REQUIRED_ANIMS:
-		if not PUERSZ_ANIM_SHEETS.has(anim_key):
+func is_shiang_house_skin(skin_id: String) -> bool:
+	return skin_id in SHIANG_HOUSE_SKIN_IDS
+
+
+func _sheet_house_skin_profile(skin_id: String) -> Dictionary:
+	if skin_id == "puersz":
+		return {
+			"anims": PUERSZ_ANIM_SHEETS,
+			"required": ["idle", "walk", "attack"],
+			"frame_w": PUERSZ_FRAME_W,
+			"frame_h": PUERSZ_FRAME_H,
+			"character_scale": PUERSZ_CHARACTER_SCALE,
+			"preview_scale": PUERSZ_PREVIEW_SCALE,
+			"village_feet_fine_y": PUERSZ_VILLAGE_FEET_FINE_Y,
+			"preview_feet_fine_y": PUERSZ_PREVIEW_FEET_FINE_Y,
+			"visual_pack": "puersz",
+			"attack_fallback": "",
+		}
+	if skin_id == "shiang":
+		return {
+			"anims": SHIANG_ANIM_SHEETS,
+			"required": ["idle", "walk"],
+			"frame_w": SHIANG_FRAME_W,
+			"frame_h": SHIANG_FRAME_H,
+			"sheet_dir_rows": ["right"],
+			"broadcast_sheet_dirs": true,
+			"flatten_sheet_frames": true,
+			"character_scale": SHIANG_CHARACTER_SCALE,
+			"sprite_feet_fine": SHIANG_SPRITE_FEET_FINE,
+			"preview_scale": SHIANG_PREVIEW_SCALE,
+			"village_feet_fine_y": SHIANG_VILLAGE_FEET_FINE_Y,
+			"preview_feet_fine_y": SHIANG_PREVIEW_FEET_FINE_Y,
+			"visual_pack": "shiang",
+			"attack_fallback": "walk",
+		}
+	return {}
+
+
+func is_sheet_house_skin_assets_available(skin_id: String) -> bool:
+	var profile: Dictionary = _sheet_house_skin_profile(skin_id)
+	if profile.is_empty():
+		return false
+	var anims: Dictionary = profile.get("anims", {})
+	var required: Array = profile.get("required", [])
+	var fw: int = int(profile.get("frame_w", 128))
+	var fh: int = int(profile.get("frame_h", 128))
+	for anim_key in required:
+		if not anims.has(anim_key):
 			return false
-		var spec: Dictionary = PUERSZ_ANIM_SHEETS[anim_key]
+		var spec: Dictionary = anims[anim_key]
 		var sheet_path: String = String(spec.get("sheet", ""))
 		if sheet_path == "" or not ResourceLoader.exists(sheet_path):
 			return false
@@ -1384,50 +2341,130 @@ func is_puersz_assets_available() -> bool:
 			return false
 		var cols: int = maxi(1, int(spec.get("cols", 1)))
 		var rows: int = maxi(1, int(spec.get("rows", 1)))
-		if tex.get_width() < cols * PUERSZ_FRAME_W or tex.get_height() < rows * PUERSZ_FRAME_H:
+		if tex.get_width() < cols * fw or tex.get_height() < rows * fh:
 			return false
 	return true
 
 
-func get_puersz_sprite_frames() -> Dictionary:
-	if _puersz_sprite_frames_cache.has("puersz"):
-		return _puersz_sprite_frames_cache["puersz"]
+func is_puersz_assets_available() -> bool:
+	return is_sheet_house_skin_assets_available("puersz")
+
+
+func is_shiang_assets_available() -> bool:
+	return is_sheet_house_skin_assets_available("shiang")
+
+
+func get_sheet_house_skin_sprite_frames(skin_id: String) -> Dictionary:
+	if _sheet_house_skin_sprite_frames_cache.has(skin_id):
+		return _sheet_house_skin_sprite_frames_cache[skin_id]
+	var profile: Dictionary = _sheet_house_skin_profile(skin_id)
+	if profile.is_empty():
+		return {}
+	var anims: Dictionary = profile.get("anims", {})
+	var fw: int = int(profile.get("frame_w", 128))
+	var fh: int = int(profile.get("frame_h", 128))
+	var dir_rows: Array = profile.get("sheet_dir_rows", SHEET_HOUSE_SKIN_DIR_ROWS)
+	var broadcast_dirs: bool = bool(profile.get("broadcast_sheet_dirs", false))
 	var out: Dictionary = {}
-	for anim_key in PUERSZ_ANIM_SHEETS:
-		var spec: Dictionary = PUERSZ_ANIM_SHEETS[anim_key]
-		var by_dir: Dictionary = _build_puersz_sheet_frames_4dir(spec)
+	for anim_key in anims:
+		var spec: Dictionary = anims[anim_key]
+		var by_dir: Dictionary = _build_sheet_house_skin_frames_4dir(spec, fw, fh, dir_rows)
+		if broadcast_dirs:
+			by_dir = _broadcast_sheet_house_skin_dirs(by_dir, "right")
 		if not by_dir.is_empty():
 			out[anim_key] = by_dir
 	if not out.is_empty():
+		var attack_fb: String = String(profile.get("attack_fallback", ""))
+		if not out.has("attack"):
+			if attack_fb != "" and out.has(attack_fb):
+				out["attack"] = _duplicate_sheet_house_skin_frames(out[attack_fb])
+			elif out.has("walk"):
+				out["attack"] = _duplicate_sheet_house_skin_frames(out["walk"])
+			elif out.has("idle"):
+				out["attack"] = _duplicate_sheet_house_skin_frames(out["idle"])
 		if not out.has("hurt") and out.has("idle"):
-			out["hurt"] = (out["idle"] as Dictionary).duplicate(true)
+			out["hurt"] = _duplicate_sheet_house_skin_frames(out["idle"])
 		if not out.has("death") and out.has("idle"):
-			out["death"] = (out["idle"] as Dictionary).duplicate(true)
-	_puersz_sprite_frames_cache["puersz"] = out
+			out["death"] = _duplicate_sheet_house_skin_frames(out["idle"])
+		if bool(profile.get("flatten_sheet_frames", false)):
+			out = _flatten_sheet_house_skin_to_arrays(out, "right")
+	_sheet_house_skin_sprite_frames_cache[skin_id] = out
+	return out
+
+
+func get_puersz_sprite_frames() -> Dictionary:
+	return get_sheet_house_skin_sprite_frames("puersz")
+
+
+func _build_sheet_house_skin_frames_4dir(
+		spec: Dictionary,
+		frame_w: int,
+		frame_h: int,
+		dir_row_keys: Array = SHEET_HOUSE_SKIN_DIR_ROWS) -> Dictionary:
+	var row_arrays: Array = _build_sheet_house_skin_row_arrays(spec, frame_w, frame_h)
+	if row_arrays.is_empty():
+		return {}
+	var out: Dictionary = {}
+	for i in range(mini(dir_row_keys.size(), row_arrays.size())):
+		var row_frames: Array = row_arrays[i]
+		if not row_frames.is_empty():
+			out[String(dir_row_keys[i])] = row_frames
+	return out
+
+
+func _duplicate_sheet_house_skin_frames(entry: Variant) -> Variant:
+	if entry is Dictionary:
+		return (entry as Dictionary).duplicate(true)
+	if entry is Array:
+		return (entry as Array).duplicate()
+	return entry
+
+
+func _flatten_sheet_house_skin_to_arrays(anim_dict: Dictionary, source_key: String = "right") -> Dictionary:
+	var flat: Dictionary = {}
+	for anim_key in anim_dict:
+		var entry: Variant = anim_dict[anim_key]
+		if entry is Array:
+			flat[anim_key] = entry
+			continue
+		if entry is Dictionary:
+			var by_dir: Dictionary = entry
+			var frames: Array = by_dir.get(source_key, []) as Array
+			if frames.is_empty() and by_dir.has("down"):
+				frames = by_dir["down"] as Array
+			if not frames.is_empty():
+				flat[anim_key] = frames
+	return flat
+
+
+func _broadcast_sheet_house_skin_dirs(by_dir: Dictionary, source_key: String) -> Dictionary:
+	var frames: Array = by_dir.get(source_key, [])
+	if frames.is_empty():
+		for k in by_dir:
+			frames = by_dir[k] as Array
+			if not frames.is_empty():
+				break
+	if frames.is_empty():
+		return by_dir
+	var out: Dictionary = {}
+	for dk in SHEET_HOUSE_SKIN_DIR_ROWS:
+		out[dk] = frames
 	return out
 
 
 func _build_puersz_sheet_frames_4dir(spec: Dictionary) -> Dictionary:
-	var row_arrays: Array = _build_puersz_sheet_row_arrays(spec)
-	if row_arrays.is_empty():
-		return {}
-	var out: Dictionary = {}
-	for i in range(mini(PUERSZ_DIR_ROWS.size(), row_arrays.size())):
-		var row_frames: Array = row_arrays[i]
-		if not row_frames.is_empty():
-			out[PUERSZ_DIR_ROWS[i]] = row_frames
-	return out
+	return _build_sheet_house_skin_frames_4dir(spec, PUERSZ_FRAME_W, PUERSZ_FRAME_H)
 
 
-func _build_puersz_sheet_row_arrays(spec: Dictionary) -> Array:
+func _build_sheet_house_skin_row_arrays(spec: Dictionary, frame_w: int, frame_h: int) -> Array:
 	var sheet_path: String = String(spec.get("sheet", ""))
 	var tex: Texture2D = load(sheet_path) as Texture2D
 	if tex == null:
 		return []
 	var cols: int = maxi(1, int(spec.get("cols", 1)))
 	var rows: int = maxi(1, int(spec.get("rows", 1)))
-	var fw: int = PUERSZ_FRAME_W
-	var fh: int = PUERSZ_FRAME_H
+	var fw: int = frame_w
+	var fh: int = frame_h
 	var max_cols: int = maxi(1, tex.get_width() / fw)
 	var max_rows: int = maxi(1, tex.get_height() / fh)
 	cols = mini(cols, max_cols)
@@ -1444,32 +2481,51 @@ func _build_puersz_sheet_row_arrays(spec: Dictionary) -> Array:
 	return out
 
 
-func _build_puersz_house_skin_visual(base: Dictionary) -> Dictionary:
-	var frames: Dictionary = get_puersz_sprite_frames()
+func _build_puersz_sheet_row_arrays(spec: Dictionary) -> Array:
+	return _build_sheet_house_skin_row_arrays(spec, PUERSZ_FRAME_W, PUERSZ_FRAME_H)
+
+
+func _build_sheet_house_skin_visual(skin_id: String, base: Dictionary) -> Dictionary:
+	var frames: Dictionary = get_sheet_house_skin_sprite_frames(skin_id)
 	if frames.is_empty():
 		return {}
+	var profile: Dictionary = _sheet_house_skin_profile(skin_id)
 	var vis: Dictionary = base.duplicate(true)
 	vis["sprite_frames"] = frames
-	vis["sprite_frames_4dir"] = true
+	vis["sprite_frames_4dir"] = not bool(profile.get("flatten_sheet_frames", false))
 	vis.erase("sprite_sheet")
 	vis.erase("sprite_strips")
-	apply_puersz_visual_scale(vis, base)
-	vis["sprite_feet_fine"] = 0.0
+	apply_sheet_house_skin_visual_scale(skin_id, vis, base)
+	vis["sprite_feet_fine"] = float(profile.get("sprite_feet_fine", 0.0))
 	vis["walk_anim_over_attack"] = false
 	vis["attack_anim_play_once"] = true
 	vis["anim_fps"] = 12.0
 	vis["strip_fps"] = {"attack": 14.0, "walk": 14.0}
+	vis["visual_pack"] = String(profile.get("visual_pack", skin_id))
+	if bool(profile.get("flatten_sheet_frames", false)):
+		vis["sprite_faces_left"] = false
 	return vis
 
 
-func apply_puersz_visual_scale(visual: Dictionary, base: Dictionary) -> void:
+func _build_puersz_house_skin_visual(base: Dictionary) -> Dictionary:
+	return _build_sheet_house_skin_visual("puersz", base)
+
+
+func apply_sheet_house_skin_visual_scale(skin_id: String, visual: Dictionary, base: Dictionary) -> void:
+	var profile: Dictionary = _sheet_house_skin_profile(skin_id)
+	if profile.is_empty():
+		return
 	var base_scale: float = float(base.get("scale", 1.0))
-	visual["scale"] = base_scale * PUERSZ_CHARACTER_SCALE
-	visual["visual_pack"] = "puersz"
-	visual["preview_scale"] = PUERSZ_PREVIEW_SCALE
+	visual["scale"] = base_scale * float(profile.get("character_scale", 1.0))
+	visual["visual_pack"] = String(profile.get("visual_pack", skin_id))
+	visual["preview_scale"] = float(profile.get("preview_scale", 0.78))
 	visual["village_sprite_feet_fine"] = float(base.get("village_sprite_feet_fine", 0)) \
-		+ PUERSZ_VILLAGE_FEET_FINE_Y
-	visual["preview_feet_fine_y"] = PUERSZ_PREVIEW_FEET_FINE_Y
+		+ float(profile.get("village_feet_fine_y", 0.0))
+	visual["preview_feet_fine_y"] = float(profile.get("preview_feet_fine_y", 0.0))
+
+
+func apply_puersz_visual_scale(visual: Dictionary, base: Dictionary) -> void:
+	apply_sheet_house_skin_visual_scale("puersz", visual, base)
 
 
 func get_chierit_sprite_frames(root: String, folder_map: Dictionary, cache_key: String) -> Dictionary:
@@ -1527,28 +2583,16 @@ func resolve_character_visual_def(char_id: String, skin_id: String) -> Dictionar
 		return {}
 	if skin_id == "" or skin_id == "default":
 		return base
-	if skin_id == "human" and char_id == "werewolf":
-		var d: Dictionary = base.duplicate(true)
-		d["start_transform"] = false
-		if d.get("sprite_strips") is Dictionary:
-			var strips: Dictionary = (d["sprite_strips"] as Dictionary).duplicate()
-			if strips.has("human_idle"):
-				strips["idle"] = strips["human_idle"]
-			d["sprite_strips"] = strips
-		return d
+	if not is_house_character_skin_allowed(char_id, skin_id):
+		return base
 	if is_chierit_house_skin(skin_id):
 		var chierit_vis: Dictionary = _resolve_chierit_house_skin(char_id, skin_id, base)
 		if not chierit_vis.is_empty():
 			return chierit_vis
-	if is_puersz_house_skin(skin_id):
-		var puerz_vis: Dictionary = _build_puersz_house_skin_visual(base)
-		if not puerz_vis.is_empty():
-			return puerz_vis
-	if skin_id.begins_with("look_"):
-		var look_id: String = skin_id.substr(5)
-		var look_def: Dictionary = get_character_def(look_id)
-		if not look_def.is_empty():
-			return look_def
+	if is_sheet_house_skin(skin_id):
+		var sheet_vis: Dictionary = _build_sheet_house_skin_visual(skin_id, base)
+		if not sheet_vis.is_empty():
+			return sheet_vis
 	return base
 
 
@@ -2863,23 +3907,27 @@ func layout_character_preview_texture_rect(
 		return
 	var pw: float = parent.size.x
 	var ph: float = parent.size.y
-	if pw <= 0.0 or ph <= 0.0:
-		pw = float(parent.custom_minimum_size.x)
-		ph = float(parent.custom_minimum_size.y)
+	var min_pw: float = maxf(1.0, float(parent.custom_minimum_size.x))
+	var min_ph: float = maxf(1.0, float(parent.custom_minimum_size.y))
+	# 子視窗剛開啟時父節點可能尚未完成排版，size 偏小會把角色算到左側
+	if pw < min_pw * 0.75 or ph < min_ph * 0.75:
+		pw = min_pw
+		ph = min_ph
 	if pw <= 0.0 or ph <= 0.0:
 		pw = 144.0
 		ph = 144.0
 	var avail_w: float = pw * 0.94
 	var avail_h: float = ph * 0.94
-	var fit_scale: int = maxi(1, mini(int(avail_w / src_w), int(avail_h / src_h)))
+	var fit: float = minf(avail_w / maxf(1.0, src_w), avail_h / maxf(1.0, src_h))
 	var min_fill: float = 0.86
 	var want_h: float = avail_h * min_fill
-	if src_h > 0.0 and src_h * float(fit_scale) < want_h:
-		fit_scale = maxi(fit_scale, int(ceil(want_h / src_h)))
+	if src_h > 0.0 and src_h * fit < want_h:
+		fit = want_h / src_h
 	if scale_mul > 0.0:
-		fit_scale = maxi(1, int(round(float(fit_scale) * scale_mul)))
-	var disp_w: float = src_w * float(fit_scale)
-	var disp_h: float = src_h * float(fit_scale)
+		fit *= scale_mul
+	fit = maxf(0.05, fit)
+	var disp_w: float = src_w * fit
+	var disp_h: float = src_h * fit
 	prev.set_anchors_preset(Control.PRESET_TOP_LEFT, false)
 	prev.size = Vector2(disp_w, disp_h)
 	prev.position = Vector2((pw - disp_w) * 0.5, (ph - disp_h) * 0.5 + offset_y)
@@ -4249,9 +5297,9 @@ const ENEMY_POOL_UNDEAD: Array[Dictionary] = [
 	{"id": "undead_zombie", "name_key": "ENEMY_UNDEAD_ZOMBIE_NAME",
 		"tex": "res://assets/enemy/Undead/undead_zombie.png",
 		"tier": 1, "elite": false, "boss": false, "hframes": 9, "vframes": 9,
-		"frames_per_row": [], "scale": 1.62, "radius": 28.0, "offset_y": -10,
+		"frames_per_row": [4, 4, 6, 4, 4, 4, 4, 4, 4], "scale": 1.62, "radius": 28.0, "offset_y": -10,
 		"hp_mult": 1.55, "dmg_mult": 1.08, "speed_mult": 0.72, "xp_mult": 1.15, "defense": 0.06,
-		"anim_row_idle": 1, "anim_row_walk": 2, "codex_portrait_row": 1,
+		"anim_row_idle": 1, "anim_row_walk": 2, "anim_row_death": 8, "codex_portrait_row": 1,
 		"material_drops": [
 			{"id": "rag", "chance": 0.16, "min": 1, "max": 2},
 			{"id": "bone", "chance": 0.07, "min": 1, "max": 1},
@@ -4259,7 +5307,7 @@ const ENEMY_POOL_UNDEAD: Array[Dictionary] = [
 	{"id": "undead_sk_archer", "name_key": "ENEMY_UNDEAD_SK_ARCHER_NAME",
 		"tex": "res://assets/enemy/Undead/undead_sk_archer.png",
 		"tier": 2, "elite": false, "boss": false, "hframes": 10, "vframes": 7,
-		"frames_per_row": [], "scale": 1.52, "radius": 24.0, "offset_y": -11,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.52, "radius": 24.0, "offset_y": -11,
 		"hp_mult": 1.05, "dmg_mult": 0.95, "speed_mult": 0.95, "xp_mult": 1.12, "defense": 0.0,
 		"ranged": {"range": 300.0, "min_range": 90.0, "width": 46.0, "windup": 0.95, "cooldown": 4.8, "damage_mult": 0.78},
 		"material_drops": [
@@ -4269,7 +5317,7 @@ const ENEMY_POOL_UNDEAD: Array[Dictionary] = [
 	{"id": "undead_warrior", "name_key": "ENEMY_UNDEAD_WARRIOR_NAME",
 		"tex": "res://assets/enemy/Undead/undead_warrior.png",
 		"tier": 3, "elite": false, "boss": false, "hframes": 8, "vframes": 7,
-		"frames_per_row": [], "scale": 1.58, "radius": 28.0, "offset_y": -11,
+		"frames_per_row": [4, 6, 3, 4, 2, 4, 4], "scale": 1.58, "radius": 28.0, "offset_y": -11,
 		"hp_mult": 1.75, "dmg_mult": 1.28, "speed_mult": 0.92, "xp_mult": 1.4, "defense": 0.08,
 		"material_drops": [
 			{"id": "bone", "chance": 0.10, "min": 1, "max": 2},
@@ -4320,8 +5368,8 @@ const ENEMY_POOL_DWARF: Array[Dictionary] = [
 		]},
 	{"id": "dwarf_bomber", "name_key": "ENEMY_DWARF_BOMBER_NAME",
 		"tex": "res://assets/enemy/Dwarfs/dwarf_bomber.png",
-		"tier": 2, "elite": false, "boss": false, "hframes": 6, "vframes": 7,
-		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.48, "radius": 23.0, "offset_y": -11,
+		"tier": 2, "elite": false, "boss": false, "hframes": 6, "vframes": 6,
+		"frames_per_row": [4, 6, 3, 4, 2, 4], "scale": 1.48, "radius": 23.0, "offset_y": -11,
 		"hp_mult": 1.1, "dmg_mult": 1.0, "speed_mult": 0.9, "xp_mult": 1.2, "defense": 0.0,
 		"ranged": {"kind": "bomb", "range": 340.0, "min_range": 70.0, "aoe_radius": 92.0,
 			"windup": 1.15, "cooldown": 5.0, "damage_mult": 0.95},
@@ -4339,8 +5387,8 @@ const ENEMY_POOL_DWARF: Array[Dictionary] = [
 		]},
 	{"id": "dwarf_axeman", "name_key": "ENEMY_DWARF_AXEMAN_NAME",
 		"tex": "res://assets/enemy/Dwarfs/dwarf_axeman.png",
-		"tier": 4, "elite": false, "boss": false, "hframes": 6, "vframes": 7,
-		"frames_per_row": [4, 6, 3, 4, 2, 4, 6], "scale": 1.58, "radius": 28.0, "offset_y": -11,
+		"tier": 4, "elite": false, "boss": false, "hframes": 6, "vframes": 6,
+		"frames_per_row": [4, 6, 3, 4, 2, 4], "scale": 1.58, "radius": 28.0, "offset_y": -11,
 		"hp_mult": 1.65, "dmg_mult": 1.32, "speed_mult": 0.94, "xp_mult": 1.45, "defense": 0.05,
 		"melee_aoe": {"radius": 76.0, "damage_mult": 0.68},
 		"material_drops": [
@@ -4350,7 +5398,7 @@ const ENEMY_POOL_DWARF: Array[Dictionary] = [
 	{"id": "boss_dwarf_hammer_lord", "name_key": "ENEMY_BOSS_DWARF_HAMMER_LORD_NAME",
 		"tex": "res://assets/enemy/Dwarfs/boss_dwarf_hammer_lord.png",
 		"tier": 99, "elite": true, "boss": true, "stage_boss": true,
-		"hframes": 6, "vframes": 9, "frames_per_row": [4, 6, 3, 4, 2, 4, 6, 6, 6],
+		"hframes": 7, "vframes": 7, "frames_per_row": [4, 6, 3, 4, 2, 4, 6],
 		"scale": 3.2, "radius": 86.0, "offset_y": -12,
 		"hp_mult": 34.0, "dmg_mult": 4.8, "speed_mult": 0.6, "xp_mult": 28.0, "defense": 0.12,
 		"melee_aoe": {"radius": 118.0, "damage_mult": 0.82},
@@ -4778,7 +5826,287 @@ func all_enemy_defs_for_codex() -> Array[Dictionary]:
 	return out
 
 
+const PATTERN_MIX_ROOT := "res://assets/PatternMix/"
+const PINBALL_BG_PATTERN_DEFAULT := "default"
+const PINBALL_BG_DEFAULT_COLOR := Color(0.06, 0.08, 0.18, 1.0)
+
+const UiPatternBackgroundT = preload("res://scripts/ui/ui_pattern_background.gd")
+
+const UI_PATTERN_STYLE_FULL := 0
+const UI_PATTERN_STYLE_MODAL_DIM := 1
+const UI_PATTERN_STYLE_PANEL := 2
+const UI_PATTERN_STYLE_DIALOG := 3
+
+const UI_BG_CTX_MAIN := "main"
+const UI_BG_CTX_PANEL := "panel"
+const UI_BG_CTX_DIALOG := "dialog"
+const UI_BG_CTX_PINBALL := "pinball"
+
+const UI_BG_CONTEXT_ORDER: Array[String] = [
+	UI_BG_CTX_MAIN,
+	UI_BG_CTX_PANEL,
+	UI_BG_CTX_DIALOG,
+	UI_BG_CTX_PINBALL,
+]
+
+## 玩家選「預設」時，各場合使用的低調內建圖案（彈珠台仍用深藍實色）。
+const UI_BG_CONTEXT_DEFAULTS: Dictionary = {
+	UI_BG_CTX_MAIN: "space",
+	UI_BG_CTX_PANEL: "grid_line",
+	UI_BG_CTX_DIALOG: "paper",
+}
+
+var _pinball_bg_pattern_ids: Array[String] = []
+
+
+func pinball_bg_pattern_ids() -> Array[String]:
+	_ensure_pinball_bg_pattern_ids()
+	var out: Array[String] = []
+	out.append(PINBALL_BG_PATTERN_DEFAULT)
+	out.append_array(_pinball_bg_pattern_ids)
+	return out
+
+
+func _ensure_pinball_bg_pattern_ids() -> void:
+	if not _pinball_bg_pattern_ids.is_empty():
+		return
+	var dir := DirAccess.open(PATTERN_MIX_ROOT)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var file_name: String = dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".png"):
+			_pinball_bg_pattern_ids.append(file_name.get_basename())
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	_pinball_bg_pattern_ids.sort()
+
+
+func is_valid_pinball_bg_pattern(pattern_id: String) -> bool:
+	if pattern_id == "" or pattern_id == PINBALL_BG_PATTERN_DEFAULT:
+		return true
+	_ensure_pinball_bg_pattern_ids()
+	return _pinball_bg_pattern_ids.has(pattern_id)
+
+
+func pinball_bg_pattern_texture_path(pattern_id: String) -> String:
+	if pattern_id == "" or pattern_id == PINBALL_BG_PATTERN_DEFAULT:
+		return ""
+	if not is_valid_pinball_bg_pattern(pattern_id):
+		return ""
+	return PATTERN_MIX_ROOT + pattern_id + ".png"
+
+
+func resolve_pinball_bg_texture(pattern_id: String) -> Texture2D:
+	var path: String = pinball_bg_pattern_texture_path(pattern_id)
+	if path == "":
+		return null
+	if not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
+
+
+func format_pinball_bg_pattern_label(pattern_id: String) -> String:
+	var parts: PackedStringArray = pattern_id.split("_")
+	for i in parts.size():
+		var p: String = String(parts[i])
+		if p.is_empty():
+			continue
+		parts[i] = p.substr(0, 1).to_upper() + p.substr(1)
+	return " ".join(parts)
+
+
+func tr_pinball_bg_pattern_name(pattern_id: String) -> String:
+	if pattern_id == "" or pattern_id == PINBALL_BG_PATTERN_DEFAULT:
+		return tr("PINBALL_BG_DEFAULT_NAME")
+	var key: String = "PATTERN_MIX_" + pattern_id.to_upper()
+	var translated: String = tr(key)
+	if translated != key:
+		return translated
+	return format_pinball_bg_pattern_label(pattern_id)
+
+
+func draw_pinball_bg_pattern(
+		canvas: CanvasItem,
+		pattern_id: String,
+		rect: Rect2,
+		preview_grid: int = 0,
+) -> void:
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	canvas.draw_rect(rect, PINBALL_BG_DEFAULT_COLOR)
+	if pattern_id == "" or pattern_id == PINBALL_BG_PATTERN_DEFAULT:
+		return
+	var tex: Texture2D = resolve_pinball_bg_texture(pattern_id)
+	if tex == null:
+		return
+	if preview_grid > 0:
+		var cell: float = minf(rect.size.x, rect.size.y) / float(preview_grid)
+		for gy in preview_grid:
+			for gx in preview_grid:
+				canvas.draw_texture_rect(
+					tex,
+					Rect2(rect.position + Vector2(gx * cell, gy * cell), Vector2(cell, cell)),
+					false)
+		canvas.draw_rect(rect, Color(0.95, 0.65, 0.18, 0.9), false, 2.0)
+		return
+	canvas.draw_texture_rect(tex, rect, true)
+
+
+func tr_ui_bg_context_name(context: String) -> String:
+	match context:
+		UI_BG_CTX_MAIN:
+			return tr("UI_BG_CTX_MAIN")
+		UI_BG_CTX_PANEL:
+			return tr("UI_BG_CTX_PANEL")
+		UI_BG_CTX_DIALOG:
+			return tr("UI_BG_CTX_DIALOG")
+		UI_BG_CTX_PINBALL:
+			return tr("UI_BG_CTX_PINBALL")
+	return context
+
+
+func ui_pattern_effective_id(pattern_id: String, context: String) -> String:
+	if pattern_id != "" and pattern_id != PINBALL_BG_PATTERN_DEFAULT:
+		if is_valid_pinball_bg_pattern(pattern_id):
+			return pattern_id
+	if context == UI_BG_CTX_PINBALL:
+		return PINBALL_BG_PATTERN_DEFAULT
+	var fallback: String = String(UI_BG_CONTEXT_DEFAULTS.get(context, ""))
+	if fallback != "" and is_valid_pinball_bg_pattern(fallback):
+		return fallback
+	return PINBALL_BG_PATTERN_DEFAULT
+
+
+func ui_pattern_overlay_for_style(style: int) -> Color:
+	var base: Color
+	match style:
+		UI_PATTERN_STYLE_FULL:
+			base = Color(0.05, 0.07, 0.13, 0.48)
+		UI_PATTERN_STYLE_MODAL_DIM:
+			base = Color(0.02, 0.03, 0.08, 0.62)
+		UI_PATTERN_STYLE_PANEL:
+			base = Color(0.05, 0.07, 0.13, 0.72)
+		UI_PATTERN_STYLE_DIALOG:
+			base = Color(0.03, 0.05, 0.11, 0.78)
+		_:
+			base = Color(0.05, 0.07, 0.13, 0.55)
+	var dim_mul: float = 1.0
+	if is_instance_valid(GameState):
+		dim_mul = GameState.get_ui_bg_pattern_dim()
+	base.a *= dim_mul
+	return base
+
+
+func ui_pattern_tint_for_style(style: int) -> Color:
+	match style:
+		UI_PATTERN_STYLE_DIALOG:
+			return Color(0.55, 0.58, 0.65, 0.42)
+		UI_PATTERN_STYLE_PANEL:
+			return Color(0.72, 0.76, 0.82, 0.68)
+		UI_PATTERN_STYLE_MODAL_DIM:
+			return Color(0.65, 0.68, 0.75, 0.55)
+	return Color(0.88, 0.9, 0.95, 0.82)
+
+
+func draw_ui_pattern_background(
+		canvas: CanvasItem,
+		pattern_id: String,
+		rect: Rect2,
+		style: int = UI_PATTERN_STYLE_FULL,
+		context: String = UI_BG_CTX_PANEL,
+) -> void:
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	var effective_id: String = ui_pattern_effective_id(pattern_id, context)
+	canvas.draw_rect(rect, PINBALL_BG_DEFAULT_COLOR)
+	if effective_id == PINBALL_BG_PATTERN_DEFAULT:
+		return
+	var tex: Texture2D = resolve_pinball_bg_texture(effective_id)
+	if tex == null:
+		return
+	canvas.draw_texture_rect(tex, rect, true)
+	canvas.draw_rect(rect, ui_pattern_overlay_for_style(style))
+
+
+func attach_ui_pattern_bg(
+		parent: Node,
+		style: int,
+		context: String,
+		child_index: int = -1,
+		pattern_id: String = "",
+) -> Control:
+	var bg: Control = UiPatternBackgroundT.new()
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(bg)
+	if child_index >= 0:
+		parent.move_child(bg, child_index)
+	if parent is CanvasLayer:
+		bg.call_deferred("fit_viewport")
+	else:
+		bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bg.anchor_right = 1.0
+		bg.anchor_bottom = 1.0
+		bg.offset_right = 0.0
+		bg.offset_bottom = 0.0
+		bg.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		bg.grow_vertical = Control.GROW_DIRECTION_BOTH
+	bg.setup(style, context, pattern_id)
+	return bg
+
+
+func finalize_pattern_bg_size(bg: Control, target_size: Vector2) -> void:
+	if bg == null or not is_instance_valid(bg):
+		return
+	bg.process_mode = Node.PROCESS_MODE_ALWAYS
+	if bg.has_method("sync_to_size"):
+		bg.call("sync_to_size", target_size)
+	if bg.has_method("sync_to_parent_size"):
+		bg.call_deferred("sync_to_parent_size")
+
+
+func attach_ui_pattern_to_panel(
+		panel: Control,
+		style: int,
+		context: String,
+		pattern_id: String = "",
+) -> Control:
+	panel.clip_contents = true
+	if panel.custom_minimum_size.x > 1.0 and panel.size.x <= 1.0:
+		panel.size = panel.custom_minimum_size
+	var bg: Control = attach_ui_pattern_bg(panel, style, context, 0, pattern_id)
+	bg.process_mode = Node.PROCESS_MODE_ALWAYS
+	if panel.size.x > 1.0 and panel.size.y > 1.0:
+		finalize_pattern_bg_size(bg, panel.size)
+	elif panel.custom_minimum_size.x > 1.0:
+		finalize_pattern_bg_size(bg, panel.custom_minimum_size)
+	return bg
+
+
+func stylebox_transparent_for_pattern(
+		sb: StyleBoxFlat,
+		border_only: bool = false,
+		tint_alpha: float = 0.08,
+) -> StyleBoxFlat:
+	if border_only:
+		sb.bg_color = Color(0.06, 0.08, 0.18, tint_alpha)
+	else:
+		sb.bg_color = Color(0.06, 0.08, 0.18, 0.0)
+	return sb
+
+
+func refresh_ui_pattern_backgrounds(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node.has_method("refresh_pattern"):
+		node.call("refresh_pattern")
+	for child in node.get_children():
+		refresh_ui_pattern_backgrounds(child)
+
+
 func _ready() -> void:
+	_ensure_pinball_bg_pattern_ids()
 	if OS.has_feature("web"):
 		_prewarm_character_visual_defs()
 

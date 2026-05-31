@@ -16,9 +16,13 @@ export_credentials.cfg
 # Temp commit message files used by the agent on PowerShell (no heredoc).
 /.git_commit_msg.tmp
 
-# Puersz 造型素材：僅本機開發，不提交（說明見 assets/characters/Puersz/README.md）
+# Puersz / Shiang 造型素材：僅本機開發，不提交（說明見各資料夾 README.md）
 /assets/characters/Puersz/*
 !/assets/characters/Puersz/README.md
+/assets/characters/Shiang/*
+!/assets/characters/Shiang/README.md
 /assets/characters/新增資料夾/Puersz_*.png
 /assets/characters/新增資料夾/Puersz_*.png.import
+/assets/characters/新增資料夾/Shiang_*.png
+/assets/characters/新增資料夾/Shiang_*.png.import
 

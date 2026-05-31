@@ -4,6 +4,8 @@ extends Node
 
 const SAVE_PATH := "user://save.cfg"
 const HOUSE_FAVORITES_CFG_SECTION := "house_favorites"
+const HOUSE_SUMMONS_CFG_SECTION := "house_summons"
+const HOUSE_SUMMON_PROGRESS_CFG_SECTION := "house_summon_progress"
 const DEFAULT_UNLOCKED_CHARACTERS: Array[String] = ["swordsman", "ranger"]
 const MAX_WEAPON_SLOTS := 5
 const DEFAULT_UNLOCKED_WEAPON_SLOTS := 3
@@ -150,6 +152,24 @@ var p1_house_character_skins: Dictionary = {}
 var p1_house_character_favorites: Dictionary = {}
 var p2_house_character_skins: Dictionary = {}
 var p2_house_character_favorites: Dictionary = {}
+## 房屋：各玩家、各角色召喚獸三格（P1/P2 分開；同角色三格不可重複）
+var p1_house_character_summons: Dictionary = {}
+var p2_house_character_summons: Dictionary = {}
+## 召喚獸等級／經驗（依玩家＋召喚獸 id；帶出戰累積後續接入）
+var p1_summon_progress: Dictionary = {}
+var p2_summon_progress: Dictionary = {}
+var _summon_test_level_cycle_idx: int = 0
+## 已取得的寵物 id（不含 none）；新帳號為空，後續由蛋／獎勵解鎖。
+var unlocked_summons: Array[String] = []
+## 弓箭場上資源造型（P1/P2 分開；與武裝數值無關）
+var p1_bow_arrow_skin: String = "default"
+var p2_bow_arrow_skin: String = "default"
+var p1_pinball_bg_pattern: String = GameData.PINBALL_BG_PATTERN_DEFAULT
+var p1_ui_bg_main: String = GameData.PINBALL_BG_PATTERN_DEFAULT
+var p1_ui_bg_panel: String = GameData.PINBALL_BG_PATTERN_DEFAULT
+var p1_ui_bg_dialog: String = GameData.PINBALL_BG_PATTERN_DEFAULT
+## UI PatternMix 淡化強度：0=不淡化（圖案最清楚），1=預設淡化。
+var ui_bg_pattern_dim: float = 1.0
 ## 喜愛武裝目前可用格數（含 P1／P2 所有角色；上限見 GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS）
 var house_favorite_unlocked_slots: int = 2
 
@@ -740,6 +760,220 @@ func house_favorite_armament_ids_for_battle(player_slot: String, char_id: String
 	return out
 
 
+func _house_summons_dict(player_slot: String) -> Dictionary:
+	return p2_house_character_summons if player_slot == "p2" else p1_house_character_summons
+
+
+func _house_summons_cfg_key(player_slot: String, char_id: String) -> String:
+	return "%s:%s" % [player_slot, char_id]
+
+
+func _default_house_summons_array() -> Array[String]:
+	var out: Array[String] = []
+	for _i in GameData.P1_HOUSE_SUMMON_SLOTS:
+		out.append("none")
+	return out
+
+
+func _ensure_house_char_summons(player_slot: String, char_id: String) -> void:
+	if not _house_player_slot_valid(player_slot) or char_id == "":
+		return
+	var sum_dict: Dictionary = _house_summons_dict(player_slot)
+	if not sum_dict.has(char_id):
+		sum_dict[char_id] = _default_house_summons_array()
+		return
+	var arr: Variant = sum_dict[char_id]
+	if not (arr is Array):
+		sum_dict[char_id] = _default_house_summons_array()
+		return
+	while (arr as Array).size() < GameData.P1_HOUSE_SUMMON_SLOTS:
+		(arr as Array).append("none")
+	if (arr as Array).size() > GameData.P1_HOUSE_SUMMON_SLOTS:
+		sum_dict[char_id] = (arr as Array).slice(0, GameData.P1_HOUSE_SUMMON_SLOTS)
+
+
+func get_house_summons(player_slot: String, char_id: String) -> Array[String]:
+	_ensure_house_char_summons(player_slot, char_id)
+	var arr: Array = _house_summons_dict(player_slot)[char_id]
+	var out: Array[String] = []
+	for item in arr:
+		out.append(String(item))
+	return out
+
+
+func _collect_house_summons_used(
+		player_slot: String, char_id: String, except_index: int) -> Dictionary:
+	var used: Dictionary = {}
+	_ensure_house_char_summons(player_slot, char_id)
+	var slots: Array[String] = get_house_summons(player_slot, char_id)
+	for i in mini(slots.size(), GameData.P1_HOUSE_SUMMON_SLOTS):
+		if i == except_index:
+			continue
+		var sid: String = slots[i]
+		if sid != "none":
+			used[sid] = true
+	return used
+
+
+func house_summon_choices(player_slot: String, char_id: String, slot_index: int) -> Array[String]:
+	if slot_index < 0 or slot_index >= GameData.P1_HOUSE_SUMMON_SLOTS:
+		return ["none"]
+	var out: Array[String] = ["none"]
+	var slots: Array[String] = get_house_summons(player_slot, char_id)
+	var current: String = slots[slot_index] if slot_index < slots.size() else "none"
+	var used: Dictionary = _collect_house_summons_used(player_slot, char_id, slot_index)
+	for sid in GameData.house_summon_choice_ids():
+		if sid == "" or sid == "none":
+			continue
+		if not is_summon_unlocked(sid) and sid != current:
+			continue
+		if used.has(sid) and sid != current:
+			continue
+		if not out.has(sid):
+			out.append(sid)
+	return out
+
+
+func is_summon_unlocked(summon_id: String) -> bool:
+	if summon_id == "" or summon_id == "none":
+		return false
+	return unlocked_summons.has(summon_id)
+
+
+func has_any_unlocked_summon() -> bool:
+	return not unlocked_summons.is_empty()
+
+
+func grant_summon_unlock(summon_id: String, do_save: bool = true) -> bool:
+	if summon_id == "" or summon_id == "none" or GameData.get_summon_def(summon_id).is_empty():
+		return false
+	if unlocked_summons.has(summon_id):
+		return false
+	unlocked_summons.append(summon_id)
+	ensure_summon_progress("p1", summon_id)
+	ensure_summon_progress("p2", summon_id)
+	if do_save:
+		save_to_disk()
+	return true
+
+
+func unlock_all_summons_for_test() -> void:
+	var changed: bool = false
+	for sid in GameData.house_summon_choice_ids():
+		if grant_summon_unlock(String(sid), false):
+			changed = true
+	if changed:
+		save_to_disk()
+
+
+func set_house_summon_slot(player_slot: String, char_id: String, index: int, summon_id: String) -> bool:
+	if not _house_player_slot_valid(player_slot) or char_id == "":
+		return false
+	_ensure_house_char_summons(player_slot, char_id)
+	if index < 0 or index >= GameData.P1_HOUSE_SUMMON_SLOTS:
+		return false
+	var sid: String = summon_id
+	if sid == "":
+		sid = "none"
+	if sid != "none" and not is_summon_unlocked(sid):
+		return false
+	if sid != "none" and GameData.get_summon_def(sid).is_empty():
+		return false
+	if sid != "none" and _collect_house_summons_used(player_slot, char_id, index).has(sid):
+		return false
+	var arr: Array = _house_summons_dict(player_slot)[char_id]
+	arr[index] = sid
+	_house_summons_dict(player_slot)[char_id] = arr.duplicate()
+	if sid != "none":
+		ensure_summon_progress(player_slot, sid)
+	save_to_disk()
+	return true
+
+
+func house_summon_ids_for_battle(player_slot: String, char_id: String) -> Array[String]:
+	var out: Array[String] = []
+	var arr: Array[String] = get_house_summons(player_slot, char_id)
+	for i in mini(arr.size(), GameData.P1_HOUSE_SUMMON_SLOTS):
+		var sid: String = arr[i]
+		if sid != "none" and not GameData.get_summon_def(sid).is_empty():
+			out.append(sid)
+	return out
+
+
+## 村莊跟隨：單人最多三格；雙人各只跟第一格（slot 0）。
+func village_summon_ids_for_follow(player_slot: String, char_id: String) -> Array[String]:
+	var arr: Array[String] = get_house_summons(player_slot, char_id)
+	if two_players:
+		if arr.is_empty():
+			return []
+		var first: String = arr[0]
+		if first == "none" or GameData.get_summon_def(first).is_empty():
+			return []
+		return [first]
+	return house_summon_ids_for_battle(player_slot, char_id)
+
+
+func _summon_progress_dict(player_slot: String) -> Dictionary:
+	return p2_summon_progress if player_slot == "p2" else p1_summon_progress
+
+
+func _summon_progress_cfg_key(player_slot: String, summon_id: String) -> String:
+	return "%s:%s" % [player_slot, summon_id]
+
+
+func _default_summon_progress_entry() -> Dictionary:
+	return {"level": GameData.SUMMON_MIN_LEVEL, "exp": 0}
+
+
+func _normalize_summon_progress_entry(raw: Variant) -> Dictionary:
+	if raw is Dictionary:
+		var lv: int = clampi(
+			int(raw.get("level", GameData.SUMMON_MIN_LEVEL)),
+			GameData.SUMMON_MIN_LEVEL, GameData.SUMMON_MAX_LEVEL)
+		var xp: int = maxi(0, int(raw.get("exp", 0)))
+		if lv >= GameData.SUMMON_MAX_LEVEL:
+			xp = 0
+		else:
+			var cap: int = GameData.summon_exp_to_next_level(lv)
+			xp = clampi(xp, 0, maxi(0, cap - 1))
+		return {"level": lv, "exp": xp}
+	return _default_summon_progress_entry()
+
+
+func ensure_summon_progress(player_slot: String, summon_id: String) -> void:
+	if not _house_player_slot_valid(player_slot) or not GameData.is_valid_summon_id(summon_id):
+		return
+	if summon_id == "none":
+		return
+	var prog_dict: Dictionary = _summon_progress_dict(player_slot)
+	if not prog_dict.has(summon_id):
+		prog_dict[summon_id] = _default_summon_progress_entry()
+
+
+func get_summon_progress(player_slot: String, summon_id: String) -> Dictionary:
+	if summon_id == "" or summon_id == "none":
+		return _default_summon_progress_entry()
+	ensure_summon_progress(player_slot, summon_id)
+	return _normalize_summon_progress_entry(_summon_progress_dict(player_slot).get(summon_id, null))
+
+
+func cycle_all_summon_test_levels() -> int:
+	var levels: Array[int] = GameData.SUMMON_TEST_LEVELS
+	if levels.is_empty():
+		return GameData.SUMMON_MIN_LEVEL
+	var lv: int = levels[_summon_test_level_cycle_idx % levels.size()]
+	_summon_test_level_cycle_idx = (_summon_test_level_cycle_idx + 1) % levels.size()
+	for player_slot in ["p1", "p2"]:
+		var prog_dict: Dictionary = _summon_progress_dict(player_slot)
+		for sid in unlocked_summons:
+			var summon_id: String = String(sid)
+			if summon_id == "" or summon_id == "none":
+				continue
+			prog_dict[summon_id] = {"level": lv, "exp": 0}
+	save_to_disk()
+	return lv
+
+
 func _default_p1_house_favorites_array() -> Array[String]:
 	return _default_house_favorites_array()
 
@@ -782,6 +1016,102 @@ func get_p2_house_character_skin(char_id: String) -> String:
 
 func set_p2_house_character_skin(char_id: String, skin_id: String) -> void:
 	set_house_character_skin("p2", char_id, skin_id)
+
+
+func get_bow_arrow_skin(player_slot: String) -> String:
+	if player_slot != "p1" and player_slot != "p2":
+		return "default"
+	var sid: String = p2_bow_arrow_skin if player_slot == "p2" else p1_bow_arrow_skin
+	if not GameData.is_valid_bow_arrow_skin(sid):
+		return "default"
+	return sid
+
+
+func set_bow_arrow_skin(player_slot: String, skin_id: String) -> bool:
+	return set_weapon_visual_skin(player_slot, "bow", skin_id)
+
+
+func get_weapon_visual_skin(player_slot: String, weapon_id: String) -> String:
+	if player_slot != "p1" and player_slot != "p2":
+		return "default"
+	if weapon_id == "bow":
+		return get_bow_arrow_skin(player_slot)
+	return "default"
+
+
+func get_pinball_bg_pattern(_player_slot: String = "p1") -> String:
+	return get_ui_bg_pattern(GameData.UI_BG_CTX_PINBALL, _player_slot)
+
+
+func get_ui_bg_pattern_dim() -> float:
+	return clampf(ui_bg_pattern_dim, 0.0, 1.0)
+
+
+func set_ui_bg_pattern_dim(value: float) -> void:
+	ui_bg_pattern_dim = clampf(value, 0.0, 1.0)
+	save_to_disk()
+
+
+func get_ui_bg_pattern(context: String, _player_slot: String = "p1") -> String:
+	var pid: String = GameData.PINBALL_BG_PATTERN_DEFAULT
+	match context:
+		GameData.UI_BG_CTX_MAIN:
+			pid = p1_ui_bg_main
+		GameData.UI_BG_CTX_PANEL:
+			pid = p1_ui_bg_panel
+		GameData.UI_BG_CTX_DIALOG:
+			pid = p1_ui_bg_dialog
+		GameData.UI_BG_CTX_PINBALL:
+			pid = p1_pinball_bg_pattern
+		_:
+			pid = GameData.PINBALL_BG_PATTERN_DEFAULT
+	if not GameData.is_valid_pinball_bg_pattern(pid):
+		return GameData.PINBALL_BG_PATTERN_DEFAULT
+	return pid
+
+
+func set_pinball_bg_pattern(player_slot: String, pattern_id: String) -> bool:
+	return set_ui_bg_pattern(GameData.UI_BG_CTX_PINBALL, player_slot, pattern_id)
+
+
+func set_ui_bg_pattern(context: String, player_slot: String, pattern_id: String) -> bool:
+	if player_slot != "p1":
+		return false
+	var pid: String = pattern_id if pattern_id != "" else GameData.PINBALL_BG_PATTERN_DEFAULT
+	if not GameData.is_valid_pinball_bg_pattern(pid):
+		return false
+	match context:
+		GameData.UI_BG_CTX_MAIN:
+			p1_ui_bg_main = pid
+		GameData.UI_BG_CTX_PANEL:
+			p1_ui_bg_panel = pid
+		GameData.UI_BG_CTX_DIALOG:
+			p1_ui_bg_dialog = pid
+		GameData.UI_BG_CTX_PINBALL:
+			p1_pinball_bg_pattern = pid
+		_:
+			return false
+	save_to_disk()
+	return true
+
+
+func set_weapon_visual_skin(player_slot: String, weapon_id: String, skin_id: String) -> bool:
+	if player_slot != "p1" and player_slot != "p2":
+		return false
+	var sid: String = skin_id if skin_id != "" else "default"
+	if weapon_id == "bow":
+		if not GameData.is_valid_bow_arrow_skin(sid):
+			return false
+		if player_slot == "p2":
+			p2_bow_arrow_skin = sid
+		else:
+			p1_bow_arrow_skin = sid
+		save_to_disk()
+		return true
+	if not GameData.is_valid_weapon_visual_skin(weapon_id, sid):
+		return false
+	save_to_disk()
+	return true
 
 
 func p1_house_favorite_armament_ids_for_battle(char_id: String) -> Array[String]:
@@ -1167,6 +1497,17 @@ func reset_account() -> void:
 	p1_house_character_favorites.clear()
 	p2_house_character_skins.clear()
 	p2_house_character_favorites.clear()
+	p1_house_character_summons.clear()
+	p2_house_character_summons.clear()
+	p1_summon_progress.clear()
+	p2_summon_progress.clear()
+	unlocked_summons.clear()
+	_summon_test_level_cycle_idx = 0
+	p1_pinball_bg_pattern = GameData.PINBALL_BG_PATTERN_DEFAULT
+	p1_ui_bg_main = GameData.PINBALL_BG_PATTERN_DEFAULT
+	p1_ui_bg_panel = GameData.PINBALL_BG_PATTERN_DEFAULT
+	p1_ui_bg_dialog = GameData.PINBALL_BG_PATTERN_DEFAULT
+	ui_bg_pattern_dim = 1.0
 	house_favorite_unlocked_slots = GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL
 	reset_run()
 	save_to_disk()
@@ -1358,9 +1699,45 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "unlocked_codex_monsters", unlocked_codex_monster_ids)
 	cfg.set_value("meta", "p1_house_character_skins", p1_house_character_skins.duplicate())
 	cfg.set_value("meta", "p2_house_character_skins", p2_house_character_skins.duplicate())
+	cfg.set_value("meta", "p1_bow_arrow_skin", p1_bow_arrow_skin)
+	cfg.set_value("meta", "p2_bow_arrow_skin", p2_bow_arrow_skin)
+	cfg.set_value("meta", "p1_pinball_bg_pattern", p1_pinball_bg_pattern)
+	cfg.set_value("meta", "p1_ui_bg_main", p1_ui_bg_main)
+	cfg.set_value("meta", "p1_ui_bg_panel", p1_ui_bg_panel)
+	cfg.set_value("meta", "p1_ui_bg_dialog", p1_ui_bg_dialog)
+	cfg.set_value("meta", "ui_bg_pattern_dim", ui_bg_pattern_dim)
+	cfg.set_value("meta", "unlocked_summons", unlocked_summons.duplicate())
 	cfg.set_value("meta", "house_favorite_unlocked_slots", house_favorite_unlocked_slots)
 	_write_house_favorites_cfg(cfg)
+	_write_house_summons_cfg(cfg)
+	_write_house_summon_progress_cfg(cfg)
 	cfg.save(SAVE_PATH)
+
+
+func _write_house_summon_progress_cfg(cfg: ConfigFile) -> void:
+	for player_slot in ["p1", "p2"]:
+		var prog_dict: Dictionary = _summon_progress_dict(player_slot)
+		for raw_sid in prog_dict.keys():
+			var sid: String = String(raw_sid)
+			if sid == "" or sid == "none":
+				continue
+			var entry: Dictionary = get_summon_progress(player_slot, sid)
+			cfg.set_value(
+				HOUSE_SUMMON_PROGRESS_CFG_SECTION,
+				_summon_progress_cfg_key(player_slot, sid),
+				"%d,%d" % [int(entry.get("level", GameData.SUMMON_MIN_LEVEL)), int(entry.get("exp", 0))])
+
+
+func _write_house_summons_cfg(cfg: ConfigFile) -> void:
+	for player_slot in ["p1", "p2"]:
+		var sum_dict: Dictionary = _house_summons_dict(player_slot)
+		for raw_cid in sum_dict.keys():
+			var cid: String = String(raw_cid)
+			var slots: Array[String] = get_house_summons(player_slot, cid)
+			cfg.set_value(
+				HOUSE_SUMMONS_CFG_SECTION,
+				_house_summons_cfg_key(player_slot, cid),
+				"|".join(slots))
 
 
 func _write_house_favorites_cfg(cfg: ConfigFile) -> void:
@@ -1389,6 +1766,18 @@ func load_from_disk() -> void:
 		p1_house_character_favorites.clear()
 		p2_house_character_skins.clear()
 		p2_house_character_favorites.clear()
+		p1_house_character_summons.clear()
+		p2_house_character_summons.clear()
+		p1_summon_progress.clear()
+		p2_summon_progress.clear()
+		unlocked_summons.clear()
+		p1_bow_arrow_skin = "default"
+		p2_bow_arrow_skin = "default"
+		p1_pinball_bg_pattern = GameData.PINBALL_BG_PATTERN_DEFAULT
+		p1_ui_bg_main = GameData.PINBALL_BG_PATTERN_DEFAULT
+		p1_ui_bg_panel = GameData.PINBALL_BG_PATTERN_DEFAULT
+		p1_ui_bg_dialog = GameData.PINBALL_BG_PATTERN_DEFAULT
+		ui_bg_pattern_dim = 1.0
 		house_favorite_unlocked_slots = GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL
 		roll_tavern_traveler_for_new_day()
 		return
@@ -1496,6 +1885,85 @@ func _parse_house_favorites_line(raw_line: String) -> Array[String]:
 	return slots
 
 
+func _parse_house_summons_line(raw_line: String) -> Array[String]:
+	var slots: Array[String] = []
+	for part in raw_line.split("|", false):
+		var sid: String = String(part)
+		if sid == "":
+			sid = "none"
+		slots.append(sid)
+	while slots.size() < GameData.P1_HOUSE_SUMMON_SLOTS:
+		slots.append("none")
+	if slots.size() > GameData.P1_HOUSE_SUMMON_SLOTS:
+		slots = slots.slice(0, GameData.P1_HOUSE_SUMMON_SLOTS)
+	return slots
+
+
+func _load_house_summons(cfg: ConfigFile) -> void:
+	p1_house_character_summons.clear()
+	p2_house_character_summons.clear()
+	if cfg.has_section(HOUSE_SUMMONS_CFG_SECTION):
+		for key in cfg.get_section_keys(HOUSE_SUMMONS_CFG_SECTION):
+			var key_s: String = String(key)
+			if key_s == "":
+				continue
+			var player_slot: String = "p1"
+			var char_id: String = key_s
+			if key_s.contains(":"):
+				var parts: PackedStringArray = key_s.split(":", true, 1)
+				player_slot = String(parts[0])
+				char_id = String(parts[1])
+			if not _house_player_slot_valid(player_slot) or char_id == "":
+				continue
+			var raw_line: String = String(cfg.get_value(HOUSE_SUMMONS_CFG_SECTION, key, ""))
+			_house_summons_dict(player_slot)[char_id] = _parse_house_summons_line(raw_line)
+	for player_slot in ["p1", "p2"]:
+		var sum_dict: Dictionary = _house_summons_dict(player_slot)
+		for raw_cid in sum_dict.keys():
+			var cid: String = String(raw_cid)
+			_ensure_house_char_summons(player_slot, cid)
+			var arr: Array = sum_dict[cid]
+			for i in arr.size():
+				var sid: String = String(arr[i])
+				if sid != "none" and not GameData.is_valid_summon_id(sid):
+					arr[i] = "none"
+				elif sid != "none":
+					ensure_summon_progress(player_slot, sid)
+
+
+func _parse_house_summon_progress_line(raw_line: String) -> Dictionary:
+	var parts: PackedStringArray = raw_line.split(",", false)
+	if parts.size() < 2:
+		return _default_summon_progress_entry()
+	return _normalize_summon_progress_entry({
+		"level": int(parts[0]),
+		"exp": int(parts[1]),
+	})
+
+
+func _load_house_summon_progress(cfg: ConfigFile) -> void:
+	p1_summon_progress.clear()
+	p2_summon_progress.clear()
+	if not cfg.has_section(HOUSE_SUMMON_PROGRESS_CFG_SECTION):
+		return
+	for key in cfg.get_section_keys(HOUSE_SUMMON_PROGRESS_CFG_SECTION):
+		var key_s: String = String(key)
+		if key_s == "":
+			continue
+		var player_slot: String = "p1"
+		var summon_id: String = key_s
+		if key_s.contains(":"):
+			var parts: PackedStringArray = key_s.split(":", true, 1)
+			player_slot = String(parts[0])
+			summon_id = String(parts[1])
+		if not _house_player_slot_valid(player_slot) or not GameData.is_valid_summon_id(summon_id):
+			continue
+		if summon_id == "none":
+			continue
+		var raw_line: String = String(cfg.get_value(HOUSE_SUMMON_PROGRESS_CFG_SECTION, key, ""))
+		_summon_progress_dict(player_slot)[summon_id] = _parse_house_summon_progress_line(raw_line)
+
+
 func _infer_house_favorite_unlocked_slots_from_favorites() -> int:
 	var max_i: int = -1
 	for player_slot in ["p1", "p2"]:
@@ -1525,9 +1993,84 @@ func _load_house_favorite_unlocked_slots(cfg: ConfigFile) -> void:
 	save_to_disk()
 
 
+func _load_unlocked_summons(cfg: ConfigFile) -> void:
+	unlocked_summons.clear()
+	if cfg.has_section_key("meta", "unlocked_summons"):
+		var saved: Array = cfg.get_value("meta", "unlocked_summons", [])
+		for id in saved:
+			var sid: String = String(id)
+			if sid != "" and sid != "none" and GameData.is_valid_summon_id(sid):
+				if not unlocked_summons.has(sid):
+					unlocked_summons.append(sid)
+		return
+	_migrate_unlocked_summons_from_legacy()
+	if not unlocked_summons.is_empty():
+		save_to_disk()
+
+
+func _migrate_unlocked_summons_from_legacy() -> void:
+	for player_slot in ["p1", "p2"]:
+		for raw_sid in _summon_progress_dict(player_slot).keys():
+			grant_summon_unlock(String(raw_sid), false)
+		var sum_dict: Dictionary = _house_summons_dict(player_slot)
+		for raw_cid in sum_dict.keys():
+			for sid in get_house_summons(player_slot, String(raw_cid)):
+				if sid != "none":
+					grant_summon_unlock(sid, false)
+
+
+func _sanitize_house_summons_unlocks() -> void:
+	for player_slot in ["p1", "p2"]:
+		var sum_dict: Dictionary = _house_summons_dict(player_slot)
+		for raw_cid in sum_dict.keys():
+			var cid: String = String(raw_cid)
+			_ensure_house_char_summons(player_slot, cid)
+			var arr: Array = sum_dict[cid]
+			var changed: bool = false
+			for i in arr.size():
+				var sid: String = String(arr[i])
+				if sid != "none" and not is_summon_unlocked(sid):
+					arr[i] = "none"
+					changed = true
+			if changed:
+				sum_dict[cid] = arr.duplicate()
+
+
 func _load_house_state(cfg: ConfigFile) -> void:
 	_load_house_skins_from_meta(cfg, "p1_house_character_skins", "p1")
 	_load_house_skins_from_meta(cfg, "p2_house_character_skins", "p2")
+	p1_bow_arrow_skin = String(cfg.get_value("meta", "p1_bow_arrow_skin", ""))
+	if p1_bow_arrow_skin == "":
+		p1_bow_arrow_skin = GameData.migrate_legacy_bow_arrow_skin(
+			String(cfg.get_value("meta", "p1_bow_visual_skin", "default")),
+			String(cfg.get_value("meta", "p1_bow_element_arrow_mode", "random")))
+	p2_bow_arrow_skin = String(cfg.get_value("meta", "p2_bow_arrow_skin", ""))
+	if p2_bow_arrow_skin == "":
+		p2_bow_arrow_skin = GameData.migrate_legacy_bow_arrow_skin(
+			String(cfg.get_value("meta", "p2_bow_visual_skin", "default")),
+			String(cfg.get_value("meta", "p2_bow_element_arrow_mode", "random")))
+	if not GameData.is_valid_bow_arrow_skin(p1_bow_arrow_skin):
+		p1_bow_arrow_skin = "default"
+	p1_pinball_bg_pattern = String(cfg.get_value(
+		"meta", "p1_pinball_bg_pattern", GameData.PINBALL_BG_PATTERN_DEFAULT))
+	p1_ui_bg_main = String(cfg.get_value(
+		"meta", "p1_ui_bg_main", GameData.PINBALL_BG_PATTERN_DEFAULT))
+	p1_ui_bg_panel = String(cfg.get_value(
+		"meta", "p1_ui_bg_panel", GameData.PINBALL_BG_PATTERN_DEFAULT))
+	p1_ui_bg_dialog = String(cfg.get_value(
+		"meta", "p1_ui_bg_dialog", GameData.PINBALL_BG_PATTERN_DEFAULT))
+	ui_bg_pattern_dim = float(cfg.get_value("meta", "ui_bg_pattern_dim", 1.0))
+	ui_bg_pattern_dim = clampf(ui_bg_pattern_dim, 0.0, 1.0)
+	if not GameData.is_valid_pinball_bg_pattern(p1_pinball_bg_pattern):
+		p1_pinball_bg_pattern = GameData.PINBALL_BG_PATTERN_DEFAULT
+	if not GameData.is_valid_pinball_bg_pattern(p1_ui_bg_main):
+		p1_ui_bg_main = GameData.PINBALL_BG_PATTERN_DEFAULT
+	if not GameData.is_valid_pinball_bg_pattern(p1_ui_bg_panel):
+		p1_ui_bg_panel = GameData.PINBALL_BG_PATTERN_DEFAULT
+	if not GameData.is_valid_pinball_bg_pattern(p1_ui_bg_dialog):
+		p1_ui_bg_dialog = GameData.PINBALL_BG_PATTERN_DEFAULT
+	if not GameData.is_valid_bow_arrow_skin(p2_bow_arrow_skin):
+		p2_bow_arrow_skin = "default"
 	p1_house_character_favorites.clear()
 	p2_house_character_favorites.clear()
 	if cfg.has_section(HOUSE_FAVORITES_CFG_SECTION):
@@ -1579,6 +2122,10 @@ func _load_house_state(cfg: ConfigFile) -> void:
 				legacy_slots = legacy_slots.slice(0, GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS)
 			p1_house_character_favorites[p1_character] = legacy_slots
 			save_to_disk()
+	_load_house_summons(cfg)
+	_load_house_summon_progress(cfg)
+	_load_unlocked_summons(cfg)
+	_sanitize_house_summons_unlocks()
 	_load_house_favorite_unlocked_slots(cfg)
 	for player_slot in ["p1", "p2"]:
 		var fav_dict: Dictionary = _house_favorites_dict(player_slot)

@@ -59,6 +59,7 @@ const REPEAT_EVENT_CAMERA_VIEW_MARGIN_RELAXED := 36.0
 @onready var gameover_subtitle: Label = $HUD/GameOverPanel/Subtitle
 @onready var gameover_stats: RichTextLabel = $HUD/GameOverPanel/Stats
 @onready var gameover_hint: Label = $HUD/GameOverPanel/Hint
+var gameover_village_btn: Button = null
 @onready var stage_banner: Label = $HUD/StageBanner
 @onready var boss_warning: Label = $HUD/BossWarning
 @onready var boss_hp_panel: Control = $HUD/BossHPPanel
@@ -121,6 +122,7 @@ func _ready() -> void:
 	GameState.last_result["stage_id"] = String(stage_def.get("id", ""))
 	GameState.last_result["stage_name"] = String(stage_def.get("name", ""))
 	gameover_panel.visible = false
+	_build_gameover_actions()
 	boss_warning.visible = false
 	boss_hp_panel.visible = false
 	camera.make_current()
@@ -1544,8 +1546,62 @@ func _populate_summary(won: bool, reward: int, early_exit: bool = false) -> void
 		lines.append("")
 
 	gameover_stats.text = "\n".join(lines)
-	gameover_hint.text = tr("GAME_HINT_BACK")
+	_update_gameover_actions()
 	_cache_battle_summary_overlay()
+
+
+func _build_gameover_actions() -> void:
+	gameover_village_btn = Button.new()
+	gameover_village_btn.text = tr("GAME_BTN_RETURN_VILLAGE")
+	gameover_village_btn.visible = false
+	gameover_village_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	gameover_village_btn.add_theme_font_size_override("font_size", 20)
+	gameover_village_btn.pressed.connect(_on_gameover_return_village)
+	gameover_panel.add_child(gameover_village_btn)
+
+
+func _update_gameover_actions() -> void:
+	var hide_village: bool = _is_test_arena_stage()
+	if gameover_village_btn != null:
+		gameover_village_btn.visible = not hide_village
+		if not hide_village:
+			_layout_gameover_village_btn()
+			gameover_village_btn.call_deferred("grab_focus")
+	if gameover_hint != null:
+		if hide_village:
+			gameover_hint.text = tr("GAME_HINT_BACK")
+		else:
+			gameover_hint.text = tr("GAME_HINT_RETURN_VILLAGE")
+
+
+func _layout_gameover_village_btn() -> void:
+	if gameover_village_btn == null or gameover_panel == null:
+		return
+	var pw: float = gameover_panel.size.x
+	var ph: float = gameover_panel.size.y
+	var btn_w: float = minf(320.0, pw - 48.0)
+	var btn_h: float = 52.0
+	gameover_village_btn.custom_minimum_size = Vector2(btn_w, btn_h)
+	gameover_village_btn.size = Vector2(btn_w, btn_h)
+	gameover_village_btn.position = Vector2((pw - btn_w) * 0.5, ph - btn_h - 20.0)
+	if gameover_hint != null:
+		gameover_hint.position = Vector2(12.0, ph - btn_h - 56.0)
+		gameover_hint.size = Vector2(pw - 24.0, 28.0)
+
+
+func _on_gameover_return_village() -> void:
+	if _is_test_arena_stage() or not stage_completed:
+		return
+	AudioManager.play_sfx("ui_confirm")
+	retreat_to_village_with_summary()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not stage_completed or not gameover_panel.visible or _is_test_arena_stage():
+		return
+	if event.is_action_pressed("ui_accept") or event.is_action_pressed("ui_cancel"):
+		_on_gameover_return_village()
+		get_viewport().set_input_as_handled()
 
 
 func _cache_battle_summary_overlay() -> void:
@@ -1554,7 +1610,7 @@ func _cache_battle_summary_overlay() -> void:
 		gameover_title.get_theme_color("font_color"),
 		gameover_subtitle.text,
 		gameover_stats.text,
-		tr("GAME_HINT_BACK"),
+		tr("GAME_HINT_RETURN_VILLAGE"),
 		tr("GAME_HINT_SUMMARY_DISMISS"),
 	)
 

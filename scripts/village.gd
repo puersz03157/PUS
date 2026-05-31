@@ -3,6 +3,8 @@ extends Node2D
 ## ESC 開啟離開村莊選單。
 
 const PLAYER_SCENE := preload("res://scenes/Player.tscn")
+const HousePreviewAnimT := preload("res://scripts/ui/house_preview_anim.gd")
+const PinballPatternPreviewT := preload("res://scripts/ui/pinball_pattern_preview.gd")
 const RESCUE_NPC_TEXTURE := preload("res://assets/characters/GandalfHardcore/Save NPC.png")
 const VILLAGE_NPC_ANIM_SCRIPT := preload("res://scripts/village_npc_anim.gd")
 const VILLAGE_NPC_SPRITE_HEIGHT := 72.0
@@ -20,6 +22,8 @@ const BLACKSMITH_INTERACT_RADIUS := 90.0
 const MERCHANT_INTERACT_RADIUS := 90.0
 const VILLAGE_FACILITY_INTERACT_RADIUS := 90.0
 const P1_HOUSE_INTERACT_RADIUS := 100.0
+const HOUSE_DIALOG_DIM_ALPHA := 0.58
+const HOUSE_SUB_DIALOG_DIM_ALPHA := 0.78
 const ENTRANCE_INTERACT_RADIUS := 96.0
 const TAVERN_DOOR_INTERACT_RADIUS := 96.0
 const TAVERN_EXIT_INTERACT_RADIUS := 88.0
@@ -38,6 +42,7 @@ const VILLAGE_TIME_CYCLE := 480.0             # 完整循環 8 分鐘
 
 const Coop := preload("res://scripts/coop_pair_follow.gd")
 const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
+const VillageSummonFollowerT := preload("res://scripts/village_summon_follower.gd")
 const InputPrompt := preload("res://scripts/input_prompt.gd")
 const BlockingNotice := preload("res://scripts/blocking_notice.gd")
 
@@ -96,16 +101,42 @@ var _expedition_dialog: CanvasLayer = null
 var _p2_join_dialog: CanvasLayer = null
 var _p2_leave_dialog: CanvasLayer = null
 var _house_dialog: CanvasLayer = null
+var _house_appearance_dialog: CanvasLayer = null
+var _house_favorites_dialog: CanvasLayer = null
+var _house_summons_dialog: CanvasLayer = null
+var _house_pinball_bg_dialog: CanvasLayer = null
 var _house_player_slot: String = "p1"
 var _house_status_label: RichTextLabel = null
 var _house_char_index: int = 0
+var _house_weapon_index: int = 0
 var _house_suppress_ui: bool = false
-var _house_preview: TextureRect = null
+var _house_preview: HousePreviewAnimT = null
+var _house_weapon_preview: HousePreviewAnimT = null
 var _house_char_name_label: Label = null
+var _house_weapon_name_label: Label = null
 var _house_skin_option: OptionButton = null
+var _house_weapon_skin_lbl: Label = null
+var _house_bow_skin_option: OptionButton = null
+var _house_weapon_visual_section: VBoxContainer = null
+var _house_appearance_char_idle_preview: HousePreviewAnimT = null
+var _house_appearance_char_walk_preview: HousePreviewAnimT = null
+var _house_appearance_char_attack_preview: HousePreviewAnimT = null
+var _house_appearance_weapon_hit_preview: HousePreviewAnimT = null
+var _house_appearance_weapon_projectile_preview: HousePreviewAnimT = null
+var _house_appearance_weapon_extra_preview: HousePreviewAnimT = null
+var _house_appearance_char_name_label: Label = null
+var _house_appearance_weapon_name_label: Label = null
 var _house_fav_title: Label = null
 var _house_fav_grid: GridContainer = null
 var _house_favorite_option_buttons: Array[OptionButton] = []
+var _house_summon_slot_ui: Array[Dictionary] = []
+var _house_summon_desc_label: RichTextLabel = null
+var _house_summon_focus_slot: int = 0
+var _house_pinball_bg_preview: Control = null
+var _house_pinball_bg_name_label: Label = null
+var _house_pinball_bg_status_label: Label = null
+var _house_pinball_bg_category_label: Label = null
+var _house_ui_bg_context_idx: int = 0
 var _merchant_status_label: Label = null
 var _merchant_gold_label: Label = null
 var _merchant_inventory_label: RichTextLabel = null
@@ -147,6 +178,7 @@ var _time_label: Label = null
 var _battle_summary_layer: CanvasLayer = null
 # 所有「只在白天出現」的功能性 NPC 節點（傍晚/夜晚隱藏且無法互動）
 var _timed_npc_nodes: Array = []
+var _summon_followers: Array = []
 
 
 func _ready() -> void:
@@ -156,6 +188,7 @@ func _ready() -> void:
 	camera.make_current()
 	_setup_village_exterior()
 	_spawn_players()
+	_refresh_village_summon_followers()
 	_spawn_quest_markers()
 	_position_camera()
 	if GameState.two_players and players.size() >= 2:
@@ -193,6 +226,27 @@ func _setup_hud() -> void:
 	pause_leave_btn.process_mode = Node.PROCESS_MODE_ALWAYS
 	pause_panel.visible = false
 	pause_dim.visible = false
+	pause_dim.color = Color(0, 0, 0, 0.55)
+	pause_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pause_dim.anchor_right = 1.0
+	pause_dim.anchor_bottom = 1.0
+	pause_dim.offset_right = 0.0
+	pause_dim.offset_bottom = 0.0
+	var pause_sb := StyleBoxFlat.new()
+	pause_sb.bg_color = Color(0.06, 0.08, 0.18, 0.08)
+	pause_sb.border_color = Color(0.52, 0.6, 0.76, 0.88)
+	pause_sb.border_width_left = 2
+	pause_sb.border_width_right = 2
+	pause_sb.border_width_top = 2
+	pause_sb.border_width_bottom = 2
+	pause_sb.corner_radius_top_left = 10
+	pause_sb.corner_radius_top_right = 10
+	pause_sb.corner_radius_bottom_left = 10
+	pause_sb.corner_radius_bottom_right = 10
+	pause_panel.add_theme_stylebox_override("panel", pause_sb)
+	pause_panel.clip_contents = true
+	GameData.attach_ui_pattern_to_panel(
+		pause_panel, GameData.UI_PATTERN_STYLE_PANEL, GameData.UI_BG_CTX_PANEL)
 	pause_resume_btn.pressed.connect(_close_pause)
 	pause_leave_btn.pressed.connect(_leave_village)
 	hint_label.text = tr("VILLAGE_HINT")
@@ -224,6 +278,18 @@ func _process(_delta: float) -> void:
 			return
 		if _facility_dialog != null:
 			_close_facility_dialog()
+			return
+		if _house_favorites_dialog != null:
+			_close_house_favorites_dialog()
+			return
+		if _house_summons_dialog != null:
+			_close_house_summons_dialog()
+			return
+		if _house_pinball_bg_dialog != null:
+			_close_house_pinball_bg_dialog()
+			return
+		if _house_appearance_dialog != null:
+			_close_house_appearance_dialog()
 			return
 		if _house_dialog != null:
 			_close_house_dialog()
@@ -451,6 +517,12 @@ func _close_pause() -> void:
 	pause_dim.visible = false
 	pause_panel.visible = false
 	get_tree().paused = false
+
+
+func _refresh_meta() -> void:
+	if _house_summons_dialog != null:
+		_refresh_house_summons_panel("")
+	_refresh_village_summon_followers()
 
 
 func _leave_village() -> void:
@@ -2118,18 +2190,10 @@ func _open_npc_random_talk(entry: Dictionary) -> void:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.process_mode = Node.PROCESS_MODE_ALWAYS
 	_talk_dialog.add_child(root)
 
-	var bar := PanelContainer.new()
-	bar.anchor_left = 0.0; bar.anchor_right = 1.0
-	bar.anchor_top = 1.0; bar.anchor_bottom = 1.0
-	bar.offset_top = -128.0; bar.offset_bottom = 0.0
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.06, 0.14, 0.94)
-	sb.border_color = Color(0.7, 0.55, 0.2)
-	sb.border_width_top = 2
-	bar.add_theme_stylebox_override("panel", sb)
-	root.add_child(bar)
+	var bar := _make_talk_dialog_bar(root)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 16)
@@ -2235,18 +2299,10 @@ func _open_sequential_talk_dialog(
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.process_mode = Node.PROCESS_MODE_ALWAYS
 	_talk_dialog.add_child(root)
 
-	var bar := PanelContainer.new()
-	bar.anchor_left = 0.0; bar.anchor_right = 1.0
-	bar.anchor_top = 1.0; bar.anchor_bottom = 1.0
-	bar.offset_top = -128.0; bar.offset_bottom = 0.0
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.06, 0.14, 0.94)
-	sb.border_color = Color(0.7, 0.55, 0.2)
-	sb.border_width_top = 2
-	bar.add_theme_stylebox_override("panel", sb)
-	root.add_child(bar)
+	var bar := _make_talk_dialog_bar(root)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 16)
@@ -2374,21 +2430,10 @@ func _open_bottom_bar_dialog(
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.process_mode = Node.PROCESS_MODE_ALWAYS
 	layer.add_child(root)
 
-	var bar := PanelContainer.new()
-	bar.anchor_left = 0.0
-	bar.anchor_right = 1.0
-	bar.anchor_top = 1.0
-	bar.anchor_bottom = 1.0
-	bar.offset_top = -bar_h
-	bar.offset_bottom = 0.0
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.06, 0.14, 0.94)
-	sb.border_color = Color(0.7, 0.55, 0.2)
-	sb.border_width_top = 2
-	bar.add_theme_stylebox_override("panel", sb)
-	root.add_child(bar)
+	var bar := _make_talk_dialog_bar(root, bar_h)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 16)
@@ -2849,6 +2894,7 @@ func _spawn_p2_only() -> void:
 		ref_x = players[0].position.x
 	p2.position = Vector2(ref_x + 60.0, floor_y - p2.body_radius)
 	players.append(p2)
+	_refresh_village_summon_followers()
 
 
 func _close_p2_join_dialog() -> void:
@@ -2881,6 +2927,7 @@ func _confirm_p2_leave() -> void:
 			p.queue_free()
 	players = players.filter(func(p): return p != null and is_instance_valid(p) \
 		and String(p.get("input_prefix")) != "p2")
+	_refresh_village_summon_followers()
 	_close_p2_leave_dialog()
 
 
@@ -2912,6 +2959,194 @@ func _spawn_p2_house_marker() -> void:
 	_p2_house_node = _make_house_interact_anchor("VillageP2House", pos)
 
 
+func _style_house_modal_panel(panel: PanelContainer) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.07, 0.09, 0.15, 0.06)
+	sb.border_color = Color(0.52, 0.6, 0.76, 0.88)
+	sb.border_width_left = 2
+	sb.border_width_right = 2
+	sb.border_width_top = 2
+	sb.border_width_bottom = 2
+	sb.corner_radius_top_left = 10
+	sb.corner_radius_top_right = 10
+	sb.corner_radius_bottom_left = 10
+	sb.corner_radius_bottom_right = 10
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.clip_contents = true
+	GameData.attach_ui_pattern_to_panel(
+		panel, GameData.UI_PATTERN_STYLE_PANEL, GameData.UI_BG_CTX_PANEL)
+
+
+func _add_modal_dim_bg(root: Control, alpha: float = HOUSE_DIALOG_DIM_ALPHA) -> void:
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, alpha)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(dim)
+
+
+func _make_talk_dialog_bar(root: Control, bar_h: float = 128.0) -> PanelContainer:
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var bar_size := Vector2(vp.x, bar_h)
+
+	var shell := Control.new()
+	shell.anchor_left = 0.0
+	shell.anchor_right = 1.0
+	shell.anchor_top = 1.0
+	shell.anchor_bottom = 1.0
+	shell.offset_top = -bar_h
+	shell.offset_bottom = 0.0
+	shell.mouse_filter = Control.MOUSE_FILTER_STOP
+	shell.process_mode = Node.PROCESS_MODE_ALWAYS
+	root.add_child(shell)
+
+	var pattern_bg := GameData.attach_ui_pattern_bg(
+		shell, GameData.UI_PATTERN_STYLE_DIALOG, GameData.UI_BG_CTX_DIALOG, 0)
+	GameData.finalize_pattern_bg_size(pattern_bg, bar_size)
+
+	var bar := PanelContainer.new()
+	bar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bar.clip_contents = true
+	bar.mouse_filter = Control.MOUSE_FILTER_STOP
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.border_color = Color(0.7, 0.55, 0.2)
+	sb.border_width_top = 2
+	bar.add_theme_stylebox_override("panel", sb)
+	shell.add_child(bar)
+
+	if not shell.resized.is_connected(_on_talk_bar_shell_resized):
+		shell.resized.connect(_on_talk_bar_shell_resized.bind(pattern_bg))
+	return bar
+
+
+func _on_talk_bar_shell_resized(pattern_bg: Control) -> void:
+	if not is_instance_valid(pattern_bg):
+		return
+	if pattern_bg.has_method("sync_to_parent_size"):
+		pattern_bg.sync_to_parent_size()
+
+
+func _make_house_preview_anim(panel: Panel, margin: float = 8.0) -> HousePreviewAnimT:
+	var anim := HousePreviewAnimT.new()
+	anim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	anim.offset_left = margin
+	anim.offset_top = margin
+	anim.offset_right = -margin
+	anim.offset_bottom = -margin
+	panel.add_child(anim)
+	return anim
+
+
+func _add_house_preview_column(
+		parent_row: HBoxContainer,
+		title_text: String,
+		title_color: Color,
+		name_color: Color) -> Dictionary:
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 6)
+	parent_row.add_child(col)
+	var title := Label.new()
+	title.text = title_text
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 14)
+	title.add_theme_color_override("font_color", title_color)
+	col.add_child(title)
+	var preview_panel := Panel.new()
+	preview_panel.custom_minimum_size = Vector2(120, 120)
+	col.add_child(preview_panel)
+	var anim := _make_house_preview_anim(preview_panel)
+	var name_lbl := Label.new()
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 13)
+	name_lbl.add_theme_color_override("font_color", name_color)
+	col.add_child(name_lbl)
+	return {"anim": anim, "name": name_lbl}
+
+
+func _add_house_char_tri_preview(parent_col: VBoxContainer) -> Dictionary:
+	var title := Label.new()
+	title.text = tr("P1_HOUSE_PREVIEW_CHAR")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 14)
+	title.add_theme_color_override("font_color", Color(1.0, 0.88, 0.65))
+	parent_col.add_child(title)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	parent_col.add_child(row)
+	var idle_slot := _add_house_weapon_effect_slot(
+		row, tr("P1_HOUSE_CHAR_PREVIEW_IDLE"), Color(1.0, 0.88, 0.65), Vector2(112, 112))
+	var walk_slot := _add_house_weapon_effect_slot(
+		row, tr("P1_HOUSE_CHAR_PREVIEW_WALK"), Color(1.0, 0.92, 0.7), Vector2(112, 112))
+	var attack_slot := _add_house_weapon_effect_slot(
+		row, tr("P1_HOUSE_CHAR_PREVIEW_ATTACK"), Color(0.95, 0.78, 0.62), Vector2(112, 112))
+	var name_lbl := Label.new()
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 13)
+	name_lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.7))
+	parent_col.add_child(name_lbl)
+	return {
+		"idle": idle_slot["anim"],
+		"walk": walk_slot["anim"],
+		"attack": attack_slot["anim"],
+		"name": name_lbl,
+	}
+
+
+func _add_house_weapon_tri_preview(parent_col: VBoxContainer) -> Dictionary:
+	var title := Label.new()
+	title.text = tr("P1_HOUSE_PREVIEW_WEAPON")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 14)
+	title.add_theme_color_override("font_color", Color(0.72, 0.88, 1.0))
+	parent_col.add_child(title)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	parent_col.add_child(row)
+	var hit_slot := _add_house_weapon_effect_slot(
+		row, tr("P1_HOUSE_WEAPON_PREVIEW_HIT"), Color(0.95, 0.75, 0.55))
+	var proj_slot := _add_house_weapon_effect_slot(
+		row, tr("P1_HOUSE_WEAPON_PREVIEW_PROJECTILE"), Color(0.72, 0.88, 1.0))
+	var extra_slot := _add_house_weapon_effect_slot(
+		row, tr("P1_HOUSE_WEAPON_PREVIEW_EXTRA"), Color(0.78, 0.92, 0.72))
+	var name_lbl := Label.new()
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 13)
+	name_lbl.add_theme_color_override("font_color", Color(0.82, 0.94, 1.0))
+	parent_col.add_child(name_lbl)
+	return {
+		"hit": hit_slot["anim"],
+		"projectile": proj_slot["anim"],
+		"extra": extra_slot["anim"],
+		"name": name_lbl,
+	}
+
+
+func _add_house_weapon_effect_slot(
+		parent_row: HBoxContainer,
+		title_text: String,
+		title_color: Color,
+		panel_size: Vector2 = Vector2(88, 88)) -> Dictionary:
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 4)
+	parent_row.add_child(col)
+	var lbl := Label.new()
+	lbl.text = title_text
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 11)
+	lbl.add_theme_color_override("font_color", title_color)
+	col.add_child(lbl)
+	var preview_panel := Panel.new()
+	preview_panel.custom_minimum_size = panel_size
+	col.add_child(preview_panel)
+	var anim := _make_house_preview_anim(preview_panel, 6.0)
+	return {"anim": anim}
+
+
 func _open_house_dialog(player_slot: String) -> void:
 	if _house_dialog != null:
 		return
@@ -2921,6 +3156,7 @@ func _open_house_dialog(player_slot: String) -> void:
 		return
 	_house_player_slot = player_slot
 	_house_char_index = _house_dialog_start_char_index()
+	_house_weapon_index = _house_dialog_start_weapon_index()
 	get_tree().paused = true
 	_house_dialog = CanvasLayer.new()
 	_house_dialog.layer = 240
@@ -2933,16 +3169,14 @@ func _open_house_dialog(player_slot: String) -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
 	_house_dialog.add_child(root)
 
-	var dim := ColorRect.new()
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0, 0, 0, 0.58)
-	root.add_child(dim)
+	_add_modal_dim_bg(root)
 
 	var panel := PanelContainer.new()
-	var panel_w: float = min(720.0, vp.x - 32.0)
-	var panel_h: float = min(580.0, vp.y - 32.0)
+	var panel_w: float = min(680.0, vp.x - 32.0)
+	var panel_h: float = min(460.0, vp.y - 32.0)
 	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
 	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
 	root.add_child(panel)
 
 	var margin := MarginContainer.new()
@@ -2970,93 +3204,133 @@ func _open_house_dialog(player_slot: String) -> void:
 	intro.add_theme_font_size_override("font_size", 13)
 	vbox.add_child(intro)
 
-	# 角色切換列：◀ 預覽 ▶
-	var char_row := HBoxContainer.new()
-	char_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	char_row.add_theme_constant_override("separation", 12)
-	vbox.add_child(char_row)
+	# 雙欄預覽：左角色、右武器
+	var preview_row := HBoxContainer.new()
+	preview_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	preview_row.add_theme_constant_override("separation", 20)
+	vbox.add_child(preview_row)
 
-	var prev_btn := Button.new()
-	prev_btn.custom_minimum_size = Vector2(52, 52)
-	GameData.apply_icon_button(prev_btn, GameData.UI_ICON_ARROW_LEFT, tr("P1_HOUSE_CHAR_PREV_FALLBACK"))
-	prev_btn.pressed.connect(_on_p1_house_char_prev)
-	char_row.add_child(prev_btn)
+	var char_col := VBoxContainer.new()
+	char_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	char_col.add_theme_constant_override("separation", 6)
+	preview_row.add_child(char_col)
 
-	var preview_panel := Panel.new()
-	preview_panel.custom_minimum_size = Vector2(160, 160)
-	char_row.add_child(preview_panel)
+	var char_title := Label.new()
+	char_title.text = tr("P1_HOUSE_PREVIEW_CHAR")
+	char_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	char_title.add_theme_font_size_override("font_size", 15)
+	char_title.add_theme_color_override("font_color", Color(1.0, 0.88, 0.65))
+	char_col.add_child(char_title)
 
-	_house_preview = TextureRect.new()
-	_house_preview.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_house_preview.offset_left = 8.0
-	_house_preview.offset_top = 8.0
-	_house_preview.offset_right = -8.0
-	_house_preview.offset_bottom = -8.0
-	_house_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	preview_panel.add_child(_house_preview)
+	var char_nav := HBoxContainer.new()
+	char_nav.alignment = BoxContainer.ALIGNMENT_CENTER
+	char_nav.add_theme_constant_override("separation", 8)
+	char_col.add_child(char_nav)
 
-	var next_btn := Button.new()
-	next_btn.custom_minimum_size = Vector2(52, 52)
-	GameData.apply_icon_button(next_btn, GameData.UI_ICON_ARROW_RIGHT, tr("P1_HOUSE_CHAR_NEXT_FALLBACK"))
-	next_btn.pressed.connect(_on_p1_house_char_next)
-	char_row.add_child(next_btn)
+	var char_prev_btn := Button.new()
+	char_prev_btn.custom_minimum_size = Vector2(44, 44)
+	GameData.apply_icon_button(char_prev_btn, GameData.UI_ICON_ARROW_LEFT, tr("P1_HOUSE_CHAR_PREV_FALLBACK"))
+	char_prev_btn.pressed.connect(_on_p1_house_char_prev)
+	char_nav.add_child(char_prev_btn)
+
+	var char_preview_panel := Panel.new()
+	char_preview_panel.custom_minimum_size = Vector2(140, 140)
+	char_nav.add_child(char_preview_panel)
+
+	_house_preview = _make_house_preview_anim(char_preview_panel, 8.0)
+
+	var char_next_btn := Button.new()
+	char_next_btn.custom_minimum_size = Vector2(44, 44)
+	GameData.apply_icon_button(char_next_btn, GameData.UI_ICON_ARROW_RIGHT, tr("P1_HOUSE_CHAR_NEXT_FALLBACK"))
+	char_next_btn.pressed.connect(_on_p1_house_char_next)
+	char_nav.add_child(char_next_btn)
 
 	_house_char_name_label = Label.new()
 	_house_char_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_house_char_name_label.add_theme_font_size_override("font_size", 20)
+	_house_char_name_label.add_theme_font_size_override("font_size", 17)
 	_house_char_name_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.7))
-	vbox.add_child(_house_char_name_label)
+	char_col.add_child(_house_char_name_label)
+
+	var weapon_col := VBoxContainer.new()
+	weapon_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	weapon_col.add_theme_constant_override("separation", 6)
+	preview_row.add_child(weapon_col)
+
+	var weapon_title := Label.new()
+	weapon_title.text = tr("P1_HOUSE_PREVIEW_WEAPON")
+	weapon_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	weapon_title.add_theme_font_size_override("font_size", 15)
+	weapon_title.add_theme_color_override("font_color", Color(0.72, 0.88, 1.0))
+	weapon_col.add_child(weapon_title)
+
+	var weapon_nav := HBoxContainer.new()
+	weapon_nav.alignment = BoxContainer.ALIGNMENT_CENTER
+	weapon_nav.add_theme_constant_override("separation", 8)
+	weapon_col.add_child(weapon_nav)
+
+	var weapon_prev_btn := Button.new()
+	weapon_prev_btn.custom_minimum_size = Vector2(44, 44)
+	GameData.apply_icon_button(weapon_prev_btn, GameData.UI_ICON_ARROW_LEFT, tr("P1_HOUSE_WEAPON_PREV_FALLBACK"))
+	weapon_prev_btn.pressed.connect(_on_house_weapon_prev)
+	weapon_nav.add_child(weapon_prev_btn)
+
+	var weapon_preview_panel := Panel.new()
+	weapon_preview_panel.custom_minimum_size = Vector2(140, 140)
+	weapon_nav.add_child(weapon_preview_panel)
+
+	_house_weapon_preview = _make_house_preview_anim(weapon_preview_panel, 16.0)
+
+	var weapon_next_btn := Button.new()
+	weapon_next_btn.custom_minimum_size = Vector2(44, 44)
+	GameData.apply_icon_button(weapon_next_btn, GameData.UI_ICON_ARROW_RIGHT, tr("P1_HOUSE_WEAPON_NEXT_FALLBACK"))
+	weapon_next_btn.pressed.connect(_on_house_weapon_next)
+	weapon_nav.add_child(weapon_next_btn)
+
+	_house_weapon_name_label = Label.new()
+	_house_weapon_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_house_weapon_name_label.add_theme_font_size_override("font_size", 17)
+	_house_weapon_name_label.add_theme_color_override("font_color", Color(0.82, 0.94, 1.0))
+	weapon_col.add_child(_house_weapon_name_label)
 
 	var nav_hint := Label.new()
-	nav_hint.text = tr("P1_HOUSE_CHAR_NAV_HINT")
+	nav_hint.text = tr("P1_HOUSE_MAIN_NAV_HINT")
 	nav_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nav_hint.add_theme_font_size_override("font_size", 12)
 	nav_hint.add_theme_color_override("font_color", Color(0.7, 0.78, 0.9))
 	vbox.add_child(nav_hint)
 
-	# 造型
-	var skin_row := HBoxContainer.new()
-	skin_row.add_theme_constant_override("separation", 10)
-	vbox.add_child(skin_row)
-	var skin_lbl := Label.new()
-	skin_lbl.text = tr("P1_HOUSE_SKIN_LBL")
-	skin_lbl.custom_minimum_size = Vector2(88, 0)
-	skin_row.add_child(skin_lbl)
-	_house_skin_option = OptionButton.new()
-	_house_skin_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_house_skin_option.item_selected.connect(_on_p1_house_skin_selected)
-	skin_row.add_child(_house_skin_option)
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override("separation", 10)
+	vbox.add_child(action_row)
 
-	# 喜愛武裝（格數依鐵匠擴充）
-	_house_fav_title = Label.new()
-	_house_fav_title.add_theme_font_size_override("font_size", 15)
-	vbox.add_child(_house_fav_title)
+	var appearance_btn := Button.new()
+	appearance_btn.text = tr("P1_HOUSE_APPEARANCE_BTN")
+	appearance_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	appearance_btn.custom_minimum_size = Vector2(0, 42)
+	appearance_btn.pressed.connect(_open_house_appearance_dialog)
+	action_row.add_child(appearance_btn)
 
-	var fav_hint := Label.new()
-	fav_hint.text = tr("HOUSE_FAVORITES_SHARED_HINT")
-	fav_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	fav_hint.add_theme_color_override("font_color", Color(0.75, 0.82, 0.95))
-	fav_hint.add_theme_font_size_override("font_size", 12)
-	vbox.add_child(fav_hint)
+	var favorites_btn := Button.new()
+	favorites_btn.text = tr("P1_HOUSE_FAVORITES_BTN")
+	favorites_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	favorites_btn.custom_minimum_size = Vector2(0, 42)
+	favorites_btn.pressed.connect(_open_house_favorites_dialog)
+	action_row.add_child(favorites_btn)
 
-	_house_favorite_option_buttons.clear()
-	_house_fav_grid = GridContainer.new()
-	_house_fav_grid.columns = 2
-	_house_fav_grid.add_theme_constant_override("h_separation", 10)
-	_house_fav_grid.add_theme_constant_override("v_separation", 6)
-	vbox.add_child(_house_fav_grid)
-	var n_fav: int = GameState.get_house_favorite_unlocked_slot_count()
-	for i in n_fav:
-		_house_fav_grid.add_child(_make_p1_house_favorite_row(i))
+	var summons_btn := Button.new()
+	summons_btn.text = tr("P1_HOUSE_SUMMONS_BTN")
+	summons_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	summons_btn.custom_minimum_size = Vector2(0, 42)
+	summons_btn.pressed.connect(_open_house_summons_dialog)
+	action_row.add_child(summons_btn)
 
-	_house_status_label = RichTextLabel.new()
-	_house_status_label.bbcode_enabled = true
-	_house_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_house_status_label.fit_content = true
-	_house_status_label.scroll_active = false
-	_house_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_house_status_label.add_theme_color_override("default_color", Color(0.7, 0.9, 1.0))
-	vbox.add_child(_house_status_label)
+	if player_slot == "p1":
+		var pinball_bg_btn := Button.new()
+		pinball_bg_btn.text = tr("P1_HOUSE_PINBALL_BG_BTN")
+		pinball_bg_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pinball_bg_btn.custom_minimum_size = Vector2(0, 42)
+		pinball_bg_btn.pressed.connect(_open_house_pinball_bg_dialog)
+		action_row.add_child(pinball_bg_btn)
 
 	if player_slot == "p1":
 		var sep := HSeparator.new()
@@ -3093,9 +3367,908 @@ func _open_house_dialog(player_slot: String) -> void:
 	close_btn.pressed.connect(_close_house_dialog)
 	vbox.add_child(close_btn)
 
-	_refresh_house_character_panel("")
-	_refresh_house_favorite_title()
+	_refresh_house_main_panel()
 	_apply_house_skins_to_village_players()
+
+
+func _open_house_appearance_dialog() -> void:
+	if _house_dialog == null or _house_appearance_dialog != null \
+			or _house_favorites_dialog != null or _house_summons_dialog != null \
+			or _house_pinball_bg_dialog != null:
+		return
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	_house_appearance_dialog = CanvasLayer.new()
+	_house_appearance_dialog.layer = 241
+	_house_appearance_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_house_appearance_dialog)
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_house_appearance_dialog.add_child(root)
+
+	_add_modal_dim_bg(root, HOUSE_SUB_DIALOG_DIM_ALPHA)
+
+	var panel := PanelContainer.new()
+	var panel_w: float = min(680.0, vp.x - 32.0)
+	var panel_h: float = min(520.0, vp.y - 32.0)
+	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
+	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
+	root.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = tr("P1_HOUSE_APPEARANCE_TITLE")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.55))
+	vbox.add_child(title)
+
+	var appearance_intro := Label.new()
+	appearance_intro.text = tr("P1_HOUSE_APPEARANCE_INTRO")
+	appearance_intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	appearance_intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	appearance_intro.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(appearance_intro)
+
+	var preview_row := HBoxContainer.new()
+	preview_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	preview_row.add_theme_constant_override("separation", 16)
+	vbox.add_child(preview_row)
+
+	var char_col := VBoxContainer.new()
+	char_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	char_col.add_theme_constant_override("separation", 6)
+	preview_row.add_child(char_col)
+	var char_tri := _add_house_char_tri_preview(char_col)
+	_house_appearance_char_idle_preview = char_tri["idle"] as HousePreviewAnimT
+	_house_appearance_char_walk_preview = char_tri["walk"] as HousePreviewAnimT
+	_house_appearance_char_attack_preview = char_tri["attack"] as HousePreviewAnimT
+	_house_appearance_char_name_label = char_tri["name"] as Label
+
+	var weapon_col := VBoxContainer.new()
+	weapon_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	weapon_col.add_theme_constant_override("separation", 6)
+	preview_row.add_child(weapon_col)
+	var weapon_tri := _add_house_weapon_tri_preview(weapon_col)
+	_house_appearance_weapon_hit_preview = weapon_tri["hit"] as HousePreviewAnimT
+	_house_appearance_weapon_projectile_preview = weapon_tri["projectile"] as HousePreviewAnimT
+	_house_appearance_weapon_extra_preview = weapon_tri["extra"] as HousePreviewAnimT
+	_house_appearance_weapon_name_label = weapon_tri["name"] as Label
+
+	var preview_sep := HSeparator.new()
+	vbox.add_child(preview_sep)
+
+	var char_section := Label.new()
+	char_section.text = tr("P1_HOUSE_APPEARANCE_CHAR_SECTION")
+	char_section.add_theme_font_size_override("font_size", 15)
+	char_section.add_theme_color_override("font_color", Color(1.0, 0.88, 0.65))
+	vbox.add_child(char_section)
+
+	var skin_row := HBoxContainer.new()
+	skin_row.add_theme_constant_override("separation", 10)
+	vbox.add_child(skin_row)
+	var skin_lbl := Label.new()
+	skin_lbl.text = tr("P1_HOUSE_SKIN_LBL")
+	skin_lbl.custom_minimum_size = Vector2(88, 0)
+	skin_row.add_child(skin_lbl)
+	_house_skin_option = OptionButton.new()
+	_house_skin_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_house_skin_option.item_selected.connect(_on_p1_house_skin_selected)
+	skin_row.add_child(_house_skin_option)
+
+	_house_weapon_visual_section = VBoxContainer.new()
+	_house_weapon_visual_section.add_theme_constant_override("separation", 8)
+	vbox.add_child(_house_weapon_visual_section)
+
+	var weapon_section := Label.new()
+	weapon_section.text = tr("P1_HOUSE_APPEARANCE_WEAPON_SECTION")
+	weapon_section.add_theme_font_size_override("font_size", 15)
+	weapon_section.add_theme_color_override("font_color", Color(0.72, 0.88, 1.0))
+	_house_weapon_visual_section.add_child(weapon_section)
+
+	var bow_skin_row := HBoxContainer.new()
+	bow_skin_row.add_theme_constant_override("separation", 10)
+	_house_weapon_visual_section.add_child(bow_skin_row)
+	_house_weapon_skin_lbl = Label.new()
+	_house_weapon_skin_lbl.custom_minimum_size = Vector2(88, 0)
+	bow_skin_row.add_child(_house_weapon_skin_lbl)
+	_house_bow_skin_option = OptionButton.new()
+	_house_bow_skin_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_house_bow_skin_option.item_selected.connect(_on_house_weapon_skin_selected)
+	bow_skin_row.add_child(_house_bow_skin_option)
+
+	_house_status_label = RichTextLabel.new()
+	_house_status_label.bbcode_enabled = true
+	_house_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_house_status_label.fit_content = true
+	_house_status_label.scroll_active = false
+	_house_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_house_status_label.add_theme_color_override("default_color", Color(0.7, 0.9, 1.0))
+	vbox.add_child(_house_status_label)
+
+	var back_btn := Button.new()
+	back_btn.text = tr("P1_HOUSE_APPEARANCE_BACK")
+	back_btn.pressed.connect(_close_house_appearance_dialog)
+	vbox.add_child(back_btn)
+
+	_refresh_house_appearance_panel("")
+
+
+func _open_house_favorites_dialog() -> void:
+	if _house_dialog == null or _house_favorites_dialog != null \
+			or _house_appearance_dialog != null or _house_summons_dialog != null \
+			or _house_pinball_bg_dialog != null:
+		return
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	_house_favorites_dialog = CanvasLayer.new()
+	_house_favorites_dialog.layer = 241
+	_house_favorites_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_house_favorites_dialog)
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_house_favorites_dialog.add_child(root)
+
+	_add_modal_dim_bg(root, HOUSE_SUB_DIALOG_DIM_ALPHA)
+
+	var panel := PanelContainer.new()
+	var panel_w: float = min(720.0, vp.x - 32.0)
+	var panel_h: float = min(520.0, vp.y - 32.0)
+	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
+	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
+	root.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = tr("P1_HOUSE_FAVORITES_DIALOG_TITLE")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.55))
+	vbox.add_child(title)
+
+	_house_fav_title = Label.new()
+	_house_fav_title.add_theme_font_size_override("font_size", 15)
+	vbox.add_child(_house_fav_title)
+
+	var fav_hint := Label.new()
+	fav_hint.text = tr("HOUSE_FAVORITES_SHARED_HINT")
+	fav_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fav_hint.add_theme_color_override("font_color", Color(0.75, 0.82, 0.95))
+	fav_hint.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(fav_hint)
+
+	_house_favorite_option_buttons.clear()
+	_house_fav_grid = GridContainer.new()
+	_house_fav_grid.columns = 2
+	_house_fav_grid.add_theme_constant_override("h_separation", 10)
+	_house_fav_grid.add_theme_constant_override("v_separation", 6)
+	vbox.add_child(_house_fav_grid)
+	var n_fav: int = GameState.get_house_favorite_unlocked_slot_count()
+	for i in n_fav:
+		_house_fav_grid.add_child(_make_p1_house_favorite_row(i))
+
+	_house_status_label = RichTextLabel.new()
+	_house_status_label.bbcode_enabled = true
+	_house_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_house_status_label.fit_content = true
+	_house_status_label.scroll_active = false
+	_house_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_house_status_label.add_theme_color_override("default_color", Color(0.7, 0.9, 1.0))
+	vbox.add_child(_house_status_label)
+
+	var back_btn := Button.new()
+	back_btn.text = tr("P1_HOUSE_FAVORITES_BACK")
+	back_btn.pressed.connect(_close_house_favorites_dialog)
+	vbox.add_child(back_btn)
+
+	_refresh_house_favorites_panel("")
+
+
+func _close_house_appearance_dialog() -> void:
+	if _house_appearance_dialog != null and is_instance_valid(_house_appearance_dialog):
+		_house_appearance_dialog.queue_free()
+	_house_appearance_dialog = null
+	_house_status_label = null
+	_house_skin_option = null
+	_house_weapon_skin_lbl = null
+	_house_bow_skin_option = null
+	_house_weapon_visual_section = null
+	_house_appearance_char_idle_preview = null
+	_house_appearance_char_walk_preview = null
+	_house_appearance_char_attack_preview = null
+	_house_appearance_weapon_hit_preview = null
+	_house_appearance_weapon_projectile_preview = null
+	_house_appearance_weapon_extra_preview = null
+	_house_appearance_char_name_label = null
+	_house_appearance_weapon_name_label = null
+	_house_suppress_ui = false
+	if _house_dialog != null:
+		_refresh_house_main_panel()
+
+
+func _close_house_favorites_dialog() -> void:
+	if _house_favorites_dialog != null and is_instance_valid(_house_favorites_dialog):
+		_house_favorites_dialog.queue_free()
+	_house_favorites_dialog = null
+	_house_status_label = null
+	_house_fav_title = null
+	_house_fav_grid = null
+	_house_favorite_option_buttons.clear()
+	_house_suppress_ui = false
+
+
+func _open_house_summons_dialog() -> void:
+	if _house_dialog == null or _house_summons_dialog != null \
+			or _house_appearance_dialog != null or _house_favorites_dialog != null \
+			or _house_pinball_bg_dialog != null:
+		return
+	_house_summon_focus_slot = 0
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	_house_summons_dialog = CanvasLayer.new()
+	_house_summons_dialog.layer = 241
+	_house_summons_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_house_summons_dialog)
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_house_summons_dialog.add_child(root)
+
+	_add_modal_dim_bg(root, HOUSE_SUB_DIALOG_DIM_ALPHA)
+
+	var panel := PanelContainer.new()
+	var panel_w: float = min(720.0, vp.x - 32.0)
+	var panel_h: float = min(620.0, vp.y - 32.0)
+	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
+	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
+	root.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = tr("P1_HOUSE_SUMMONS_DIALOG_TITLE")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.55))
+	vbox.add_child(title)
+
+	var intro := Label.new()
+	intro.text = tr("P1_HOUSE_SUMMONS_INTRO")
+	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(intro)
+
+	var hint := Label.new()
+	hint.text = tr("P1_HOUSE_SUMMONS_HINT")
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_color_override("font_color", Color(0.75, 0.82, 0.95))
+	hint.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(hint)
+
+	_house_summon_slot_ui.clear()
+	var slots_row := HBoxContainer.new()
+	slots_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	slots_row.add_theme_constant_override("separation", 12)
+	vbox.add_child(slots_row)
+	for i in GameData.P1_HOUSE_SUMMON_SLOTS:
+		_house_summon_slot_ui.append(_make_house_summon_slot_column(slots_row, i))
+
+	_house_summon_desc_label = RichTextLabel.new()
+	_house_summon_desc_label.bbcode_enabled = true
+	_house_summon_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_house_summon_desc_label.custom_minimum_size = Vector2(0, 96)
+	_house_summon_desc_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_house_summon_desc_label.scroll_active = true
+	_house_summon_desc_label.add_theme_color_override("default_color", Color(0.82, 0.92, 0.88))
+	vbox.add_child(_house_summon_desc_label)
+
+	_house_status_label = RichTextLabel.new()
+	_house_status_label.bbcode_enabled = true
+	_house_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_house_status_label.fit_content = true
+	_house_status_label.scroll_active = false
+	_house_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_house_status_label.add_theme_color_override("default_color", Color(0.7, 0.9, 1.0))
+	vbox.add_child(_house_status_label)
+
+	var back_btn := Button.new()
+	back_btn.text = tr("P1_HOUSE_SUMMONS_BACK")
+	back_btn.pressed.connect(_close_house_summons_dialog)
+	vbox.add_child(back_btn)
+
+	_refresh_house_summons_panel("")
+
+
+func _make_house_summon_slot_column(parent_row: HBoxContainer, slot_index: int) -> Dictionary:
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 6)
+	parent_row.add_child(col)
+
+	var slot_lbl := Label.new()
+	slot_lbl.text = tr("P1_HOUSE_SUMMON_SLOT_FMT") % (slot_index + 1)
+	slot_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	slot_lbl.add_theme_font_size_override("font_size", 14)
+	slot_lbl.add_theme_color_override("font_color", Color(0.78, 0.92, 0.72))
+	col.add_child(slot_lbl)
+
+	var nav := HBoxContainer.new()
+	nav.alignment = BoxContainer.ALIGNMENT_CENTER
+	nav.add_theme_constant_override("separation", 6)
+	col.add_child(nav)
+
+	var prev_btn := Button.new()
+	prev_btn.custom_minimum_size = Vector2(40, 40)
+	GameData.apply_icon_button(prev_btn, GameData.UI_ICON_ARROW_LEFT, tr("P1_HOUSE_CHAR_PREV_FALLBACK"))
+	prev_btn.pressed.connect(func() -> void:
+		_on_house_summon_prev(slot_index))
+	nav.add_child(prev_btn)
+
+	var preview_panel := Panel.new()
+	preview_panel.custom_minimum_size = Vector2(112, 112)
+	nav.add_child(preview_panel)
+	var preview_anim := _make_house_preview_anim(preview_panel, 8.0)
+
+	var next_btn := Button.new()
+	next_btn.custom_minimum_size = Vector2(40, 40)
+	GameData.apply_icon_button(next_btn, GameData.UI_ICON_ARROW_RIGHT, tr("P1_HOUSE_CHAR_NEXT_FALLBACK"))
+	next_btn.pressed.connect(func() -> void:
+		_on_house_summon_next(slot_index))
+	nav.add_child(next_btn)
+
+	var name_lbl := Label.new()
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.add_theme_font_size_override("font_size", 13)
+	name_lbl.add_theme_color_override("font_color", Color(0.82, 0.96, 0.82))
+	col.add_child(name_lbl)
+
+	var level_lbl := Label.new()
+	level_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	level_lbl.add_theme_font_size_override("font_size", 11)
+	level_lbl.add_theme_color_override("font_color", Color(0.72, 0.88, 0.78))
+	col.add_child(level_lbl)
+
+	var exp_lbl := Label.new()
+	exp_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	exp_lbl.add_theme_font_size_override("font_size", 11)
+	exp_lbl.add_theme_color_override("font_color", Color(0.68, 0.82, 0.9))
+	col.add_child(exp_lbl)
+
+	var stats_lbl := Label.new()
+	stats_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stats_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stats_lbl.add_theme_font_size_override("font_size", 10)
+	stats_lbl.add_theme_color_override("font_color", Color(0.78, 0.86, 0.74))
+	col.add_child(stats_lbl)
+
+	return {
+		"preview": preview_anim,
+		"name": name_lbl,
+		"level": level_lbl,
+		"exp": exp_lbl,
+		"stats": stats_lbl,
+		"slot_index": slot_index,
+	}
+
+
+func _close_house_summons_dialog() -> void:
+	if _house_summons_dialog != null and is_instance_valid(_house_summons_dialog):
+		_house_summons_dialog.queue_free()
+	_house_summons_dialog = null
+	_house_status_label = null
+	_house_summon_desc_label = null
+	_house_summon_slot_ui.clear()
+	_house_suppress_ui = false
+
+
+func _open_house_pinball_bg_dialog() -> void:
+	if _house_dialog == null or _house_pinball_bg_dialog != null \
+			or _house_appearance_dialog != null or _house_favorites_dialog != null \
+			or _house_summons_dialog != null:
+		return
+	if _house_player_slot != "p1":
+		return
+	_house_ui_bg_context_idx = 0
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	_house_pinball_bg_dialog = CanvasLayer.new()
+	_house_pinball_bg_dialog.layer = 241
+	_house_pinball_bg_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_house_pinball_bg_dialog)
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_house_pinball_bg_dialog.add_child(root)
+
+	_add_modal_dim_bg(root, HOUSE_SUB_DIALOG_DIM_ALPHA)
+
+	var panel := PanelContainer.new()
+	var panel_w: float = min(560.0, vp.x - 32.0)
+	var panel_h: float = min(520.0, vp.y - 32.0)
+	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
+	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
+	root.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = tr("P1_HOUSE_PINBALL_BG_DIALOG_TITLE")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.55))
+	vbox.add_child(title)
+
+	var intro := Label.new()
+	intro.text = tr("P1_HOUSE_PINBALL_BG_INTRO")
+	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(intro)
+
+	var hint := Label.new()
+	hint.text = tr("P1_HOUSE_PINBALL_BG_HINT")
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_color_override("font_color", Color(0.75, 0.82, 0.95))
+	hint.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(hint)
+
+	var cat_nav := HBoxContainer.new()
+	cat_nav.alignment = BoxContainer.ALIGNMENT_CENTER
+	cat_nav.add_theme_constant_override("separation", 10)
+	vbox.add_child(cat_nav)
+
+	var cat_prev := Button.new()
+	cat_prev.custom_minimum_size = Vector2(36, 36)
+	GameData.apply_icon_button(cat_prev, GameData.UI_ICON_ARROW_LEFT, "<")
+	cat_prev.pressed.connect(_on_house_ui_bg_category_prev)
+	cat_nav.add_child(cat_prev)
+
+	_house_pinball_bg_category_label = Label.new()
+	_house_pinball_bg_category_label.custom_minimum_size = Vector2(240, 0)
+	_house_pinball_bg_category_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_house_pinball_bg_category_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_house_pinball_bg_category_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_house_pinball_bg_category_label.add_theme_font_size_override("font_size", 15)
+	_house_pinball_bg_category_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.62))
+	cat_nav.add_child(_house_pinball_bg_category_label)
+
+	var cat_next := Button.new()
+	cat_next.custom_minimum_size = Vector2(36, 36)
+	GameData.apply_icon_button(cat_next, GameData.UI_ICON_ARROW_RIGHT, ">")
+	cat_next.pressed.connect(_on_house_ui_bg_category_next)
+	cat_nav.add_child(cat_next)
+
+	var preview_frame := Panel.new()
+	preview_frame.custom_minimum_size = Vector2(0, 220)
+	var preview_sb := StyleBoxFlat.new()
+	preview_sb.bg_color = Color(0.04, 0.05, 0.12, 1.0)
+	preview_sb.border_color = Color(0.95, 0.65, 0.18, 0.95)
+	preview_sb.border_width_left = 3
+	preview_sb.border_width_right = 3
+	preview_sb.border_width_top = 3
+	preview_sb.border_width_bottom = 3
+	preview_sb.corner_radius_top_left = 8
+	preview_sb.corner_radius_top_right = 8
+	preview_sb.corner_radius_bottom_left = 8
+	preview_sb.corner_radius_bottom_right = 8
+	preview_frame.add_theme_stylebox_override("panel", preview_sb)
+	vbox.add_child(preview_frame)
+
+	var preview_margin := MarginContainer.new()
+	preview_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	preview_margin.add_theme_constant_override("margin_left", 14)
+	preview_margin.add_theme_constant_override("margin_right", 14)
+	preview_margin.add_theme_constant_override("margin_top", 14)
+	preview_margin.add_theme_constant_override("margin_bottom", 14)
+	preview_frame.add_child(preview_margin)
+
+	var preview_center := CenterContainer.new()
+	preview_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	preview_margin.add_child(preview_center)
+
+	_house_pinball_bg_preview = PinballPatternPreviewT.new()
+	_house_pinball_bg_preview.custom_minimum_size = Vector2(180, 180)
+	_house_pinball_bg_preview.size = Vector2(180, 180)
+	preview_center.add_child(_house_pinball_bg_preview)
+
+	var nav := HBoxContainer.new()
+	nav.alignment = BoxContainer.ALIGNMENT_CENTER
+	nav.add_theme_constant_override("separation", 12)
+	vbox.add_child(nav)
+
+	var prev_btn := Button.new()
+	prev_btn.custom_minimum_size = Vector2(44, 44)
+	GameData.apply_icon_button(prev_btn, GameData.UI_ICON_ARROW_LEFT, tr("P1_HOUSE_CHAR_PREV_FALLBACK"))
+	prev_btn.pressed.connect(_on_house_pinball_bg_prev)
+	nav.add_child(prev_btn)
+
+	_house_pinball_bg_name_label = Label.new()
+	_house_pinball_bg_name_label.custom_minimum_size = Vector2(220, 0)
+	_house_pinball_bg_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_house_pinball_bg_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_house_pinball_bg_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_house_pinball_bg_name_label.add_theme_font_size_override("font_size", 16)
+	_house_pinball_bg_name_label.add_theme_color_override("font_color", Color(0.88, 0.94, 1.0))
+	nav.add_child(_house_pinball_bg_name_label)
+
+	var next_btn := Button.new()
+	next_btn.custom_minimum_size = Vector2(44, 44)
+	GameData.apply_icon_button(next_btn, GameData.UI_ICON_ARROW_RIGHT, tr("P1_HOUSE_CHAR_NEXT_FALLBACK"))
+	next_btn.pressed.connect(_on_house_pinball_bg_next)
+	nav.add_child(next_btn)
+
+	_house_pinball_bg_status_label = Label.new()
+	_house_pinball_bg_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_house_pinball_bg_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_house_pinball_bg_status_label.add_theme_font_size_override("font_size", 13)
+	_house_pinball_bg_status_label.add_theme_color_override("font_color", Color(0.78, 0.92, 0.72))
+	vbox.add_child(_house_pinball_bg_status_label)
+
+	var back_btn := Button.new()
+	back_btn.text = tr("P1_HOUSE_PINBALL_BG_BACK")
+	back_btn.pressed.connect(_close_house_pinball_bg_dialog)
+	vbox.add_child(back_btn)
+
+	_refresh_house_pinball_bg_panel("")
+
+
+func _house_ui_bg_context() -> String:
+	var order: Array[String] = GameData.UI_BG_CONTEXT_ORDER
+	if order.is_empty():
+		return GameData.UI_BG_CTX_PANEL
+	return order[_house_ui_bg_context_idx % order.size()]
+
+
+func _refresh_house_pinball_bg_panel(status: String) -> void:
+	var context: String = _house_ui_bg_context()
+	var pattern_id: String = GameState.get_ui_bg_pattern(context)
+	if _house_pinball_bg_category_label != null:
+		_house_pinball_bg_category_label.text = tr("P1_HOUSE_UI_BG_CATEGORY_FMT") % \
+			GameData.tr_ui_bg_context_name(context)
+	if _house_pinball_bg_preview != null:
+		_house_pinball_bg_preview.setup(pattern_id, 3)
+	if _house_pinball_bg_name_label != null:
+		_house_pinball_bg_name_label.text = GameData.tr_pinball_bg_pattern_name(pattern_id)
+	if _house_pinball_bg_status_label != null:
+		if status != "":
+			_house_pinball_bg_status_label.text = status
+		else:
+			_house_pinball_bg_status_label.text = tr("P1_HOUSE_UI_BG_CURRENT_FMT") % [
+				GameData.tr_ui_bg_context_name(context),
+				GameData.tr_pinball_bg_pattern_name(pattern_id),
+			]
+
+
+func _cycle_house_ui_bg_category(direction: int) -> void:
+	var n: int = GameData.UI_BG_CONTEXT_ORDER.size()
+	if n <= 0:
+		return
+	_house_ui_bg_context_idx = (_house_ui_bg_context_idx + direction + n) % n
+	_refresh_house_pinball_bg_panel("")
+
+
+func _cycle_house_pinball_bg(direction: int) -> void:
+	var ids: Array[String] = GameData.pinball_bg_pattern_ids()
+	if ids.is_empty():
+		return
+	var context: String = _house_ui_bg_context()
+	var current: String = GameState.get_ui_bg_pattern(context)
+	var idx: int = ids.find(current)
+	if idx < 0:
+		idx = 0
+	var next_idx: int = (idx + direction + ids.size()) % ids.size()
+	if not GameState.set_ui_bg_pattern(context, "p1", ids[next_idx]):
+		return
+	_refresh_house_pinball_bg_panel(tr("P1_HOUSE_PINBALL_BG_SAVED"))
+	SettingsOverlay._notify_current_scene_account_changed()
+
+
+func _on_house_ui_bg_category_prev() -> void:
+	_cycle_house_ui_bg_category(-1)
+
+
+func _on_house_ui_bg_category_next() -> void:
+	_cycle_house_ui_bg_category(1)
+
+
+func _on_house_pinball_bg_prev() -> void:
+	_cycle_house_pinball_bg(-1)
+
+
+func _on_house_pinball_bg_next() -> void:
+	_cycle_house_pinball_bg(1)
+
+
+func _close_house_pinball_bg_dialog() -> void:
+	if _house_pinball_bg_dialog != null and is_instance_valid(_house_pinball_bg_dialog):
+		_house_pinball_bg_dialog.queue_free()
+	_house_pinball_bg_dialog = null
+	_house_pinball_bg_preview = null
+	_house_pinball_bg_name_label = null
+	_house_pinball_bg_status_label = null
+	_house_pinball_bg_category_label = null
+	_house_ui_bg_context_idx = 0
+
+
+func _refresh_house_summons_panel(status: String) -> void:
+	var char_id: String = _house_dialog_current_char_id()
+	for slot_ui in _house_summon_slot_ui:
+		var slot_index: int = int(slot_ui.get("slot_index", 0))
+		_refresh_house_summon_slot_ui(slot_ui, char_id, slot_index)
+	_update_house_summon_desc_label(char_id)
+	if _house_status_label != null:
+		_house_status_label.text = status
+
+
+func _refresh_house_summon_slot_ui(slot_ui: Dictionary, char_id: String, slot_index: int) -> void:
+	var preview: HousePreviewAnimT = slot_ui.get("preview") as HousePreviewAnimT
+	var name_lbl: Label = slot_ui.get("name") as Label
+	var level_lbl: Label = slot_ui.get("level") as Label
+	var exp_lbl: Label = slot_ui.get("exp") as Label
+	var stats_lbl: Label = slot_ui.get("stats") as Label
+	var slots: Array[String] = GameState.get_house_summons(_house_player_slot, char_id)
+	var summon_id: String = "none"
+	if slot_index >= 0 and slot_index < slots.size():
+		summon_id = slots[slot_index]
+	if preview != null:
+		preview.setup_summon(summon_id, _house_player_slot)
+	var level: int = GameData.SUMMON_MIN_LEVEL
+	var exp: int = 0
+	if summon_id != "" and summon_id != "none":
+		var prog: Dictionary = GameState.get_summon_progress(_house_player_slot, summon_id)
+		level = int(prog.get("level", GameData.SUMMON_MIN_LEVEL))
+		exp = int(prog.get("exp", 0))
+	if name_lbl != null:
+		if summon_id == "" or summon_id == "none":
+			name_lbl.text = tr("CSEL_NONE")
+		else:
+			var sdef: Dictionary = GameData.get_summon_def(summon_id)
+			name_lbl.text = "%s\n(%s)" % [
+				GameData.tr_summon_display_name(summon_id, level),
+				GameData.tr_summon_type(sdef)]
+	if summon_id == "" or summon_id == "none":
+		if level_lbl != null:
+			level_lbl.text = tr("SUMMON_SLOT_EMPTY_STAT")
+		if exp_lbl != null:
+			exp_lbl.text = ""
+		if stats_lbl != null:
+			stats_lbl.text = ""
+		return
+	if level_lbl != null:
+		level_lbl.text = GameData.format_summon_level_text(level)
+	if exp_lbl != null:
+		exp_lbl.text = GameData.format_summon_exp_text(level, exp)
+	if stats_lbl != null:
+		stats_lbl.text = GameData.format_summon_stats_text(summon_id, level) \
+			+ "\n" + GameData.format_summon_evolve_text(level)
+
+
+func _update_house_summon_desc_label(char_id: String) -> void:
+	if _house_summon_desc_label == null:
+		return
+	var slot_index: int = clampi(_house_summon_focus_slot, 0, GameData.P1_HOUSE_SUMMON_SLOTS - 1)
+	var slots: Array[String] = GameState.get_house_summons(_house_player_slot, char_id)
+	var summon_id: String = "none"
+	if slot_index >= 0 and slot_index < slots.size():
+		summon_id = slots[slot_index]
+	var slot_title: String = tr("P1_HOUSE_SUMMON_SLOT_FMT") % (slot_index + 1)
+	if summon_id == "" or summon_id == "none":
+		_house_summon_desc_label.text = "[b]%s[/b]\n%s" % [
+			slot_title, tr("SUMMON_NONE_DETAIL")]
+		return
+	var prog: Dictionary = GameState.get_summon_progress(_house_player_slot, summon_id)
+	var level: int = int(prog.get("level", GameData.SUMMON_MIN_LEVEL))
+	var exp: int = int(prog.get("exp", 0))
+	_house_summon_desc_label.text = "[b]%s[/b]\n%s" % [
+		slot_title,
+		GameData.format_summon_house_detail_text(summon_id, level, exp)]
+
+
+func _on_house_summon_prev(slot_index: int) -> void:
+	_cycle_house_summon_slot(slot_index, -1)
+
+
+func _on_house_summon_next(slot_index: int) -> void:
+	_cycle_house_summon_slot(slot_index, 1)
+
+
+func _cycle_house_summon_slot(slot_index: int, direction: int) -> void:
+	if slot_index < 0 or slot_index >= GameData.P1_HOUSE_SUMMON_SLOTS:
+		return
+	var char_id: String = _house_dialog_current_char_id()
+	var choices: Array[String] = GameState.house_summon_choices(
+		_house_player_slot, char_id, slot_index)
+	if choices.size() <= 1:
+		return
+	var slots: Array[String] = GameState.get_house_summons(_house_player_slot, char_id)
+	var current: String = slots[slot_index] if slot_index < slots.size() else "none"
+	var cur_idx: int = choices.find(current)
+	if cur_idx < 0:
+		cur_idx = 0
+	var next_idx: int = (cur_idx + direction + choices.size()) % choices.size()
+	var next_id: String = choices[next_idx]
+	if not GameState.set_house_summon_slot(_house_player_slot, char_id, slot_index, next_id):
+		_refresh_house_summons_panel(tr("P1_HOUSE_SUMMON_DUPLICATE"))
+		return
+	_house_summon_focus_slot = slot_index
+	_refresh_house_summons_panel(tr("P1_HOUSE_SUMMON_SAVED"))
+	_refresh_village_summon_followers()
+
+
+func _house_weapon_preview_label(weapon_id: String, wdef: Dictionary) -> String:
+	var skin_id: String = GameState.get_weapon_visual_skin(_house_player_slot, weapon_id)
+	if skin_id != "default":
+		return GameData.get_weapon_visual_skin_label(weapon_id, skin_id)
+	if weapon_id == "bow":
+		return GameData.get_weapon_visual_skin_label(weapon_id, "default")
+	if not wdef.is_empty():
+		return GameData.tr_weapon_name(weapon_id)
+	return weapon_id
+
+
+func _house_dialog_weapon_ids() -> Array[String]:
+	return GameData.house_weapon_visual_skin_weapon_ids()
+
+
+func _house_dialog_start_weapon_index() -> int:
+	var ids: Array[String] = _house_dialog_weapon_ids()
+	if ids.is_empty():
+		return 0
+	return 0
+
+
+func _house_dialog_current_weapon_id() -> String:
+	var ids: Array[String] = _house_dialog_weapon_ids()
+	if ids.is_empty():
+		return "bow"
+	return ids[clampi(_house_weapon_index, 0, ids.size() - 1)]
+
+
+func _on_house_weapon_prev() -> void:
+	var ids: Array[String] = _house_dialog_weapon_ids()
+	if ids.size() <= 1:
+		return
+	_house_weapon_index = (_house_weapon_index - 1 + ids.size()) % ids.size()
+	_refresh_house_main_panel()
+
+
+func _on_house_weapon_next() -> void:
+	var ids: Array[String] = _house_dialog_weapon_ids()
+	if ids.size() <= 1:
+		return
+	_house_weapon_index = (_house_weapon_index + 1) % ids.size()
+	_refresh_house_main_panel()
+
+
+func _refresh_house_main_panel() -> void:
+	var char_id: String = _house_dialog_current_char_id()
+	var cdef: Dictionary = GameData.get_character_def(char_id)
+	if _house_char_name_label != null:
+		_house_char_name_label.text = GameData.tr_name(cdef) if not cdef.is_empty() else char_id
+	_house_update_character_preview(char_id)
+	var weapon_id: String = _house_dialog_current_weapon_id()
+	var wdef: Dictionary = GameData.get_weapon_def(weapon_id)
+	if _house_weapon_name_label != null:
+		_house_weapon_name_label.text = _house_weapon_preview_label(weapon_id, wdef)
+	if _house_weapon_preview != null:
+		_house_weapon_preview.setup_weapon(weapon_id, _house_player_slot)
+
+
+func _refresh_house_appearance_previews() -> void:
+	var char_id: String = _house_dialog_current_char_id()
+	var cdef: Dictionary = GameData.get_character_def(char_id)
+	if _house_appearance_char_name_label != null:
+		_house_appearance_char_name_label.text = GameData.tr_name(cdef) if not cdef.is_empty() else char_id
+	var skin_id: String = GameState.get_house_character_skin(_house_player_slot, char_id)
+	var visual: Dictionary = GameData.resolve_character_visual_def(char_id, skin_id)
+	if visual.is_empty():
+		visual = cdef
+	if _house_appearance_char_idle_preview != null:
+		_house_appearance_char_idle_preview.setup_character_anim(visual, "idle")
+	if _house_appearance_char_walk_preview != null:
+		_house_appearance_char_walk_preview.setup_character_anim(visual, "walk")
+	if _house_appearance_char_attack_preview != null:
+		_house_appearance_char_attack_preview.setup_character_anim(visual, "attack")
+	var weapon_id: String = _house_dialog_current_weapon_id()
+	var wdef: Dictionary = GameData.get_weapon_def(weapon_id)
+	if _house_appearance_weapon_name_label != null:
+		_house_appearance_weapon_name_label.text = _house_weapon_preview_label(weapon_id, wdef)
+	var weapon_skin_id: String = GameState.get_weapon_visual_skin(_house_player_slot, weapon_id)
+	var slots: Dictionary = GameData.resolve_weapon_house_preview_slots(weapon_id, weapon_skin_id)
+	if _house_appearance_weapon_hit_preview != null:
+		_house_appearance_weapon_hit_preview.setup_preview(slots.get("hit", {}))
+	if _house_appearance_weapon_projectile_preview != null:
+		_house_appearance_weapon_projectile_preview.setup_preview(slots.get("projectile", {}))
+	if _house_appearance_weapon_extra_preview != null:
+		_house_appearance_weapon_extra_preview.setup_preview(slots.get("extra", {}))
+
+
+func _refresh_house_appearance_panel(status: String) -> void:
+	var char_id: String = _house_dialog_current_char_id()
+	_house_suppress_ui = true
+	if _house_skin_option != null:
+		_house_skin_option.set_block_signals(true)
+		_populate_house_skin_option(char_id)
+		_house_skin_option.set_block_signals(false)
+	_refresh_house_weapon_visual_section()
+	_refresh_house_appearance_previews()
+	_house_suppress_ui = false
+	_update_house_status_label(status, char_id, false)
+
+
+func _refresh_house_favorites_panel(status: String) -> void:
+	_refresh_house_favorite_title()
+	var char_id: String = _house_dialog_current_char_id()
+	_house_suppress_ui = true
+	var cap: int = GameState.get_house_favorite_unlocked_slot_count()
+	for i in _house_favorite_option_buttons.size():
+		if i < cap:
+			var opt: OptionButton = _house_favorite_option_buttons[i]
+			opt.set_block_signals(true)
+			_populate_house_favorite_option(opt, char_id, i)
+			opt.set_block_signals(false)
+	_house_suppress_ui = false
+	_update_house_status_label(status, char_id, true)
+
+
+func _refresh_house_weapon_visual_section() -> void:
+	if _house_weapon_visual_section == null:
+		return
+	var weapon_id: String = _house_dialog_current_weapon_id()
+	var show: bool = GameData.weapon_supports_house_visual_preview(weapon_id)
+	_house_weapon_visual_section.visible = show
+	if not show:
+		return
+	if _house_weapon_skin_lbl != null:
+		_house_weapon_skin_lbl.text = tr("P1_HOUSE_WEAPON_SKIN_LBL") % GameData.tr_weapon_name(weapon_id)
+	_refresh_house_weapon_skin_options()
 
 
 func _refresh_house_favorite_title() -> void:
@@ -3138,7 +4311,13 @@ func _on_p1_house_char_prev() -> void:
 	if ids.size() <= 1:
 		return
 	_house_char_index = (_house_char_index - 1 + ids.size()) % ids.size()
-	_refresh_house_character_panel("")
+	_refresh_house_main_panel()
+	if _house_appearance_dialog != null:
+		_refresh_house_appearance_panel("")
+	if _house_favorites_dialog != null:
+		_refresh_house_favorites_panel("")
+	if _house_summons_dialog != null:
+		_refresh_house_summons_panel("")
 	_apply_house_char_to_village_player()
 
 
@@ -3147,7 +4326,13 @@ func _on_p1_house_char_next() -> void:
 	if ids.size() <= 1:
 		return
 	_house_char_index = (_house_char_index + 1) % ids.size()
-	_refresh_house_character_panel("")
+	_refresh_house_main_panel()
+	if _house_appearance_dialog != null:
+		_refresh_house_appearance_panel("")
+	if _house_favorites_dialog != null:
+		_refresh_house_favorites_panel("")
+	if _house_summons_dialog != null:
+		_refresh_house_summons_panel("")
 	_apply_house_char_to_village_player()
 
 
@@ -3167,29 +4352,7 @@ func _apply_house_char_to_village_player() -> void:
 			if p != null and is_instance_valid(p) and String(p.input_prefix) == "p2":
 				p.setup_from_character(char_id)
 				break
-
-
-func _refresh_house_character_panel(status: String) -> void:
-	_refresh_house_favorite_title()
-	var char_id: String = _house_dialog_current_char_id()
-	var cdef: Dictionary = GameData.get_character_def(char_id)
-	if _house_char_name_label != null:
-		_house_char_name_label.text = GameData.tr_name(cdef) if not cdef.is_empty() else char_id
-	_house_update_character_preview(char_id)
-	_house_suppress_ui = true
-	if _house_skin_option != null:
-		_house_skin_option.set_block_signals(true)
-		_populate_house_skin_option(char_id)
-		_house_skin_option.set_block_signals(false)
-	var cap: int = GameState.get_house_favorite_unlocked_slot_count()
-	for i in _house_favorite_option_buttons.size():
-		if i < cap:
-			var opt: OptionButton = _house_favorite_option_buttons[i]
-			opt.set_block_signals(true)
-			_populate_house_favorite_option(opt, char_id, i)
-			opt.set_block_signals(false)
-	_house_suppress_ui = false
-	_update_house_status_label(status, char_id)
+	_refresh_village_summon_followers()
 
 
 func _populate_house_skin_option(char_id: String) -> void:
@@ -3217,8 +4380,45 @@ func _on_p1_house_skin_selected(index: int) -> void:
 	var sid: String = String(skin_opts[index].get("id", "default"))
 	GameState.set_house_character_skin(_house_player_slot, char_id, sid)
 	_house_update_character_preview(char_id)
-	_update_house_status_label(tr("P1_HOUSE_SKIN_SAVED_FMT") % GameData.tr_character_name(char_id), char_id)
+	_refresh_house_appearance_previews()
+	_update_house_status_label(tr("P1_HOUSE_SKIN_SAVED_FMT") % GameData.tr_character_name(char_id), char_id, false)
 	_apply_house_skins_to_village_players()
+	_refresh_house_main_panel()
+
+
+func _refresh_house_weapon_skin_options() -> void:
+	if _house_bow_skin_option == null:
+		return
+	var weapon_id: String = _house_dialog_current_weapon_id()
+	_house_bow_skin_option.set_block_signals(true)
+	_house_bow_skin_option.clear()
+	var skin_opts: Array = GameData.weapon_visual_skin_options(weapon_id)
+	var current_skin: String = GameState.get_weapon_visual_skin(_house_player_slot, weapon_id)
+	var pick_skin: int = 0
+	for i in skin_opts.size():
+		var sid: String = String(skin_opts[i].get("id", ""))
+		_house_bow_skin_option.add_item(String(skin_opts[i].get("label", sid)), i)
+		if sid == current_skin:
+			pick_skin = i
+	_house_bow_skin_option.select(pick_skin)
+	_house_bow_skin_option.set_block_signals(false)
+
+
+func _on_house_weapon_skin_selected(index: int) -> void:
+	if _house_suppress_ui:
+		return
+	var weapon_id: String = _house_dialog_current_weapon_id()
+	var skin_opts: Array = GameData.weapon_visual_skin_options(weapon_id)
+	if index < 0 or index >= skin_opts.size():
+		return
+	var sid: String = String(skin_opts[index].get("id", "default"))
+	GameState.set_weapon_visual_skin(_house_player_slot, weapon_id, sid)
+	_update_house_status_label(
+		tr("P1_HOUSE_WEAPON_SKIN_SAVED") % GameData.tr_weapon_name(weapon_id),
+		_house_dialog_current_char_id(),
+		false)
+	_refresh_house_main_panel()
+	_refresh_house_appearance_previews()
 
 
 func _make_p1_house_favorite_row(slot_index: int) -> Control:
@@ -3293,8 +4493,11 @@ func _on_house_favorite_selected(slot_index: int, index: int) -> void:
 	_house_suppress_ui = false
 
 
-func _update_house_status_label(status: String, char_id: String) -> void:
+func _update_house_status_label(status: String, char_id: String, show_bonus: bool = true) -> void:
 	if _house_status_label == null or not is_instance_valid(_house_status_label):
+		return
+	if not show_bonus:
+		_house_status_label.text = status
 		return
 	var stats: Dictionary = GameData.sum_armament_flat_stats(
 		GameState.house_favorite_armament_ids_for_battle(_house_player_slot, char_id))
@@ -3313,19 +4516,7 @@ func _house_update_character_preview(char_id: String) -> void:
 	var visual: Dictionary = GameData.resolve_character_visual_def(char_id, skin_id)
 	if visual.is_empty():
 		visual = GameData.get_character_def(char_id)
-	GameData.apply_character_preview_to_rect(_house_preview, visual)
-	if _house_preview.visible:
-		call_deferred("_relayout_house_preview", char_id)
-
-
-func _relayout_house_preview(char_id: String) -> void:
-	if _house_preview == null or _house_dialog == null:
-		return
-	var skin_id: String = GameState.get_house_character_skin(_house_player_slot, char_id)
-	var visual: Dictionary = GameData.resolve_character_visual_def(char_id, skin_id)
-	if visual.is_empty():
-		visual = GameData.get_character_def(char_id)
-	GameData.apply_character_preview_to_rect(_house_preview, visual)
+	_house_preview.setup_character(visual)
 
 
 func _house_first_frame_path(entry) -> String:
@@ -3369,16 +4560,27 @@ func _on_rest_until(phase: String) -> void:
 
 
 func _close_house_dialog() -> void:
+	_close_house_favorites_dialog()
+	_close_house_appearance_dialog()
+	_close_house_summons_dialog()
+	_close_house_pinball_bg_dialog()
 	if _house_dialog != null and is_instance_valid(_house_dialog):
 		_house_dialog.queue_free()
 	_house_dialog = null
 	_house_status_label = null
 	_house_preview = null
+	_house_weapon_preview = null
 	_house_char_name_label = null
+	_house_weapon_name_label = null
 	_house_skin_option = null
+	_house_weapon_skin_lbl = null
+	_house_bow_skin_option = null
+	_house_weapon_visual_section = null
 	_house_fav_title = null
 	_house_fav_grid = null
 	_house_favorite_option_buttons.clear()
+	_house_summon_slot_ui.clear()
+	_house_summon_desc_label = null
 	_house_suppress_ui = false
 	get_tree().paused = false
 
@@ -3419,6 +4621,7 @@ func _open_blacksmith_dialog() -> void:
 	var panel_h: float = min(520.0, vp.y - 40.0)
 	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
 	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
 	root.add_child(panel)
 	_smith_resource_tip = _make_resource_tip_label()
 	panel.add_child(_smith_resource_tip)
@@ -3841,6 +5044,7 @@ func _open_merchant_dialog() -> void:
 	var panel_h: float = min(560.0, vp.y - 40.0)
 	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
 	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
 	root.add_child(panel)
 
 	var margin := MarginContainer.new()
@@ -4026,6 +5230,7 @@ func _open_rune_master_dialog() -> void:
 	var panel_h: float = min(420.0, vp.y - 40.0)
 	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
 	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
 	root.add_child(panel)
 
 	var margin := MarginContainer.new()
@@ -4158,6 +5363,31 @@ func _spawn_players() -> void:
 		p2.setup_from_character(GameState.p2_character)
 		p2.position = Vector2(feet_x + 30.0, floor_y - p2.body_radius)
 		players.append(p2)
+
+
+func _clear_village_summon_followers() -> void:
+	for f in _summon_followers:
+		if f != null and is_instance_valid(f):
+			f.queue_free()
+	_summon_followers.clear()
+
+
+func _refresh_village_summon_followers() -> void:
+	_clear_village_summon_followers()
+	for p in players:
+		if p == null or not is_instance_valid(p):
+			continue
+		var prefix: String = String(p.input_prefix)
+		var char_id: String = String(p.character_id)
+		if char_id == "":
+			continue
+		var summon_ids: Array[String] = GameState.village_summon_ids_for_follow(prefix, char_id)
+		var count: int = summon_ids.size()
+		for i in count:
+			var follower = VillageSummonFollowerT.new()
+			add_child(follower)
+			follower.setup(p, summon_ids[i], prefix, i, count)
+			_summon_followers.append(follower)
 
 
 func _position_camera() -> void:

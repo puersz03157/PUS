@@ -80,6 +80,10 @@ var firearm_mode_prompt: String = ""
 var firearm_mode_kind: String = ""
 var firearm_mode_prompt_timer: float = 0.0
 var boxing_combo_display: int = 0
+var _boxing_combo: int = 0
+var _boxing_combo_timer: float = 0.0
+var _boxing_combo_progress: float = 0.0
+var _boxing_stun_cd: float = 0.0
 const AMMO_PACK_SCENE: PackedScene = preload("res://scenes/AmmoPackOrb.tscn")
 ## 野性衝動：付費施放後 5 秒內可再免費衝刺的剩餘次數
 var wild_impulse_window: float = 0.0
@@ -177,6 +181,7 @@ var _walk_anim_over_attack: bool = false
 ## 攻擊動畫播滿一輪才結束；播放中再觸發攻擊不會從第 1 格重播（Puersz 等）
 var _attack_anim_play_once: bool = false
 var _sprite_feet_fine_offset_y: float = 0.0
+var _sprite_base_offset_y: float = 0.0
 var _village_feet_extra_y: float = 0.0
 ## 戰鬥 HUD 血條／名牌基準 Y（愈小愈高；原 -28）
 const BATTLE_HUD_TOP_Y := -40.0
@@ -217,6 +222,7 @@ func setup_from_character(cid: String) -> void:
 	_sprite_frame_anims.clear()
 	_sprite_frame_anims_4dir.clear()
 	_sprite_feet_fine_offset_y = 0.0
+	_sprite_base_offset_y = 0.0
 	_village_feet_extra_y = 0.0
 	_start_transform_pending = false
 	_start_transform_done = false
@@ -286,6 +292,7 @@ func setup_from_character(cid: String) -> void:
 			char_sprite.vframes = 1
 			char_sprite.frame = 0
 			char_sprite.scale = Vector2.ONE * float(visual.get("scale", 1.0))
+			_sprite_base_offset_y = float(visual.get("offset_y", 0))
 			_sprite_feet_fine_offset_y = float(visual.get("sprite_feet_fine", 0))
 			char_sprite.modulate = c.get("tint", visual.get("tint", Color.WHITE))
 			char_sprite.visible = true
@@ -413,7 +420,7 @@ func _sync_char_sprite_feet_offset() -> void:
 	var fine_y: float = _sprite_feet_fine_offset_y
 	if village_mode:
 		fine_y += _village_feet_extra_y
-	char_sprite.offset.y = GameData.sprite_feet_offset_y(
+	char_sprite.offset.y = _sprite_base_offset_y + GameData.sprite_feet_offset_y(
 		char_sprite.texture, body_radius, sc, fine_y)
 
 
@@ -486,6 +493,7 @@ func _physics_process(delta: float) -> void:
 	passive_meter_fill_cd = max(0.0, passive_meter_fill_cd - delta)
 	_update_breakthrough_trackers(delta)
 	_update_firearm_trackers(delta)
+	_update_boxing_combo(delta)
 	_try_fighting_spirit_meter()
 	_try_quick_step_meter()
 	if wild_impulse_window > 0.0:
@@ -1033,7 +1041,7 @@ func _load_sprite_frame_dirs(entry: Variant) -> Dictionary:
 		return {}
 	var raw: Dictionary = entry
 	var out: Dictionary = {}
-	for dk in GameData.PUERSZ_DIR_ROWS:
+	for dk in GameData.SHEET_HOUSE_SKIN_DIR_ROWS:
 		if not raw.has(dk):
 			continue
 		var row_raw: Variant = raw[dk]
@@ -1472,7 +1480,7 @@ func _apply_passive() -> void:
 	firearm_mode_prompt = ""
 	firearm_mode_kind = ""
 	firearm_mode_prompt_timer = 0.0
-	boxing_combo_display = 0
+	_clear_boxing_combo()
 	wild_impulse_window = 0.0
 	wild_impulse_charges_left = 0
 	skill_meter = 0.0
@@ -1598,6 +1606,7 @@ func on_weapon_hit(_e: Node, _weapon: Node) -> void:
 	if passive_id == "breakthrough" and skill_id != "none":
 		_breakthrough_on_weapon_hit(_e, _weapon)
 	_firearm_on_weapon_hit(_e, _weapon)
+	_register_boxing_combo_hit(_weapon)
 	if passive_id == "bloodlust" and skill_id != "none" and _e != null \
 			and is_instance_valid(_e) and _e.has_method("is_status_bleeding"):
 		if _e.is_status_bleeding():
@@ -1784,6 +1793,89 @@ func set_boxing_combo_display(combo: int) -> void:
 		return
 	boxing_combo_display = c
 	queue_redraw()
+
+
+func has_boxing_weapon() -> bool:
+	for ww in weapons:
+		if String(ww.get("id", "")) == "boxing":
+			return true
+	return false
+
+
+func is_boxing_weapon_maxed() -> bool:
+	for ww in weapons:
+		if String(ww.get("id", "")) == "boxing":
+			return GameData.is_weapon_upgrades_maxed(ww.get("upgrades", {}))
+	return false
+
+
+func get_boxing_combo() -> int:
+	return _boxing_combo
+
+
+func _register_boxing_combo_hit(weapon: Node) -> void:
+	if not has_boxing_weapon() or weapon == null or not is_instance_valid(weapon):
+		return
+	if not weapon.get("def"):
+		return
+	var kind: String = String(weapon.def.get("kind", ""))
+	if kind == "":
+		return
+	_boxing_combo_progress += GameData.boxing_combo_progress_per_hit(kind)
+	while _boxing_combo_progress >= 1.0 and _boxing_combo < GameData.BOXING_COMBO_MAX:
+		_boxing_combo_progress -= 1.0
+		_boxing_combo += 1
+	if _boxing_combo >= GameData.BOXING_COMBO_MAX:
+		_boxing_combo = GameData.BOXING_COMBO_MAX
+		_boxing_combo_progress = 0.0
+	if _boxing_combo > 0:
+		_boxing_combo_timer = GameData.BOXING_COMBO_WINDOW
+	set_boxing_combo_display(_boxing_combo)
+
+
+func _update_boxing_combo(delta: float) -> void:
+	if not has_boxing_weapon():
+		if _boxing_combo > 0 or _boxing_combo_progress > 0.0:
+			_clear_boxing_combo()
+		return
+	_boxing_stun_cd = maxf(0.0, _boxing_stun_cd - delta)
+	if _boxing_combo <= 0:
+		return
+	_boxing_combo_timer -= delta
+	if _boxing_combo_timer <= 0.0:
+		_break_boxing_combo()
+
+
+func _break_boxing_combo() -> void:
+	var lost: int = _boxing_combo
+	_boxing_combo = 0
+	_boxing_combo_progress = 0.0
+	_boxing_combo_timer = 0.0
+	set_boxing_combo_display(0)
+	if lost <= 0:
+		return
+	var heal: float = GameData.boxing_combo_break_heal(
+		float(max_hp), lost, is_boxing_weapon_maxed())
+	if heal > 0.0:
+		_heal(heal)
+
+
+func _clear_boxing_combo() -> void:
+	_boxing_combo = 0
+	_boxing_combo_progress = 0.0
+	_boxing_combo_timer = 0.0
+	_boxing_stun_cd = 0.0
+	set_boxing_combo_display(0)
+
+
+func try_boxing_stun(e: Node) -> void:
+	if not is_boxing_weapon_maxed() or _boxing_stun_cd > 0.0:
+		return
+	if randf() >= GameData.BOXING_STUN_CHANCE:
+		return
+	if e != null and is_instance_valid(e) and e.has_method("apply_stun"):
+		e.apply_stun(GameData.BOXING_STUN_DURATION)
+		_boxing_stun_cd = GameData.BOXING_STUN_CD
 
 
 func show_firearm_mode_indicator(mode: String) -> void:

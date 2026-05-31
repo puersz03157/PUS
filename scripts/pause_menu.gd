@@ -37,6 +37,8 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _transitioning:
 		return
+	if game_ref and bool(game_ref.get("stage_completed")):
+		return
 	for k in RESPONSE_KEYS:
 		if Input.is_action_just_pressed(k):
 			# 彈珠台進行中時不處理（彈珠台自己會在升級流程結束時關閉）
@@ -75,7 +77,7 @@ func _build_ui() -> void:
 
 	panel = Panel.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.08, 0.18, 1.0)
+	sb.bg_color = Color(0.06, 0.08, 0.18, 0.08)
 	sb.border_color = Color(0.95, 0.65, 0.18)
 	sb.border_width_left = 4
 	sb.border_width_right = 4
@@ -86,7 +88,10 @@ func _build_ui() -> void:
 	sb.corner_radius_bottom_left = 10
 	sb.corner_radius_bottom_right = 10
 	panel.add_theme_stylebox_override("panel", sb)
+	panel.clip_contents = true
 	add_child(panel)
+	GameData.attach_ui_pattern_to_panel(
+		panel, GameData.UI_PATTERN_STYLE_PANEL, GameData.UI_BG_CTX_PANEL)
 
 	title_label = Label.new()
 	title_label.text = tr("PAUSE_TITLE")

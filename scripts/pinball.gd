@@ -36,6 +36,7 @@ var done_count: int = 0
 
 var background: ColorRect
 var board_panel: Panel
+var _board_bg_ctrl: Control = null
 var title_label: Label
 var instructions_label: Label
 var slot_labels: Array = []
@@ -52,6 +53,7 @@ var slots_node: DrawerNode2D
 
 # 技能圖示面板 — 每位升級玩家一個（使用共用 SkillIcon widget）
 const SKILL_ICON_SCRIPT := preload("res://scripts/skill_icon.gd")
+const UiPatternBackgroundT = preload("res://scripts/ui/ui_pattern_background.gd")
 var skill_icons: Array = []
 
 # 觸控介面：每位玩家一組「發球 / 技能」按鈕（與 player_balls 對齊）
@@ -118,7 +120,7 @@ func _build_ui() -> void:
 	board_panel.position = Vector2(bx, by)
 	board_panel.size = Vector2(board_w, board_h)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.08, 0.18, 1.0)
+	sb.bg_color = Color(0.06, 0.08, 0.18, 0.0)
 	sb.border_color = Color(0.95, 0.65, 0.18)
 	sb.border_width_left = 4
 	sb.border_width_right = 4
@@ -130,6 +132,8 @@ func _build_ui() -> void:
 	sb.corner_radius_bottom_right = 8
 	board_panel.add_theme_stylebox_override("panel", sb)
 	add_child(board_panel)
+
+	_build_board_background()
 
 	title_label = Label.new()
 	title_label.text = tr("PINBALL_TITLE")
@@ -157,6 +161,24 @@ func _build_ui() -> void:
 	slots_node = DrawerNode2D.new()
 	slots_node.fn = Callable(self, "_draw_slots")
 	add_child(slots_node)
+
+
+func _build_board_background() -> void:
+	if _board_bg_ctrl != null and is_instance_valid(_board_bg_ctrl):
+		_board_bg_ctrl.queue_free()
+		_board_bg_ctrl = null
+	board_panel.clip_contents = true
+	var inset: float = 4.0
+	var inner_w: float = maxf(1.0, board_panel.size.x - inset * 2.0)
+	var inner_h: float = maxf(1.0, board_panel.size.y - inset * 2.0)
+	var bg: Control = UiPatternBackgroundT.new()
+	bg.position = Vector2(inset, inset)
+	bg.size = Vector2(inner_w, inner_h)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.setup(GameData.UI_PATTERN_STYLE_PANEL, GameData.UI_BG_CTX_PINBALL)
+	_board_bg_ctrl = bg
+	board_panel.add_child(_board_bg_ctrl)
+	board_panel.move_child(_board_bg_ctrl, 0)
 
 
 func _update_instructions() -> void:

@@ -50,7 +50,7 @@ static func present(tree: SceneTree, use_dismiss_hint: bool = false) -> CanvasLa
 	var panel_h: float = minf(620.0, vp_size.y - 48.0)
 	var panel := Panel.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.08, 0.18, 0.98)
+	sb.bg_color = Color(0.06, 0.08, 0.18, 0.08)
 	sb.border_color = Color(0.95, 0.65, 0.18)
 	sb.border_width_left = 4
 	sb.border_width_right = 4
@@ -64,7 +64,10 @@ static func present(tree: SceneTree, use_dismiss_hint: bool = false) -> CanvasLa
 	panel.position = Vector2((vp_size.x - panel_w) * 0.5, (vp_size.y - panel_h) * 0.5)
 	panel.size = Vector2(panel_w, panel_h)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.clip_contents = true
 	root.add_child(panel)
+	GameData.attach_ui_pattern_to_panel(
+		panel, GameData.UI_PATTERN_STYLE_PANEL, GameData.UI_BG_CTX_PANEL)
 
 	var title := Label.new()
 	title.text = String(data.get("title", ""))

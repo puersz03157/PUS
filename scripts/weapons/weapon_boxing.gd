@@ -1,25 +1,11 @@
 extends "res://scripts/weapons/weapon_base.gd"
-## 拳擊：外圓弧柱近戰；Combo 增傷，逾時中斷依 Combo 回血；滿級機率暈眩（5 秒 CD）。
-
-var _combo: int = 0
-var _combo_timer: float = 0.0
-var _stun_cd: float = 0.0
+## 拳擊：外圓弧柱近戰；Combo 增傷（玩家共用 Combo），逾時中斷回血；滿級機率暈眩（5 秒 CD）。
 
 
 func _exit_tree() -> void:
 	if owner_player != null and is_instance_valid(owner_player) \
-			and owner_player.has_method("set_boxing_combo_display"):
-		owner_player.set_boxing_combo_display(0)
-
-
-func _process(delta: float) -> void:
-	_stun_cd = maxf(0.0, _stun_cd - delta)
-	if _combo > 0:
-		_combo_timer -= delta
-		if _combo_timer <= 0.0:
-			_break_combo()
-	_sync_combo_ui()
-	super._process(delta)
+			and owner_player.has_method("_clear_boxing_combo"):
+		owner_player._clear_boxing_combo()
 
 
 func fire() -> bool:
@@ -54,34 +40,15 @@ func _swing() -> void:
 
 
 func _hit_enemy(e: Node) -> void:
-	var dmg_mult: float = GameData.boxing_combo_damage_mult(_combo, weapon_upgrades_maxed())
+	var combo: int = 0
+	if owner_player != null and owner_player.has_method("get_boxing_combo"):
+		combo = int(owner_player.get_boxing_combo())
+	var maxed: bool = owner_player != null and owner_player.has_method("is_boxing_weapon_maxed") \
+		and owner_player.is_boxing_weapon_maxed()
+	var dmg_mult: float = GameData.boxing_combo_hit_damage_mult(combo, maxed, "boxing")
 	damage_enemy(e, dmg_mult)
-	_combo = mini(_combo + 1, GameData.BOXING_COMBO_MAX)
-	_combo_timer = GameData.BOXING_COMBO_WINDOW
-	_try_stun(e)
-
-
-func _break_combo() -> void:
-	var lost: int = _combo
-	_combo = 0
-	_combo_timer = 0.0
-	if lost <= 0 or owner_player == null or not is_instance_valid(owner_player):
-		return
-	if owner_player.has_method("_heal"):
-		var heal: float = GameData.boxing_combo_break_heal(
-			float(owner_player.max_hp), lost, weapon_upgrades_maxed())
-		if heal > 0.0:
-			owner_player._heal(heal)
-
-
-func _try_stun(e: Node) -> void:
-	if not weapon_upgrades_maxed() or _stun_cd > 0.0:
-		return
-	if randf() >= GameData.BOXING_STUN_CHANCE:
-		return
-	if e.has_method("apply_stun"):
-		e.apply_stun(GameData.BOXING_STUN_DURATION)
-		_stun_cd = GameData.BOXING_STUN_CD
+	if owner_player != null and owner_player.has_method("try_boxing_stun"):
+		owner_player.try_boxing_stun(e)
 
 
 const PILLAR_SLOT_FILL := 0.48
@@ -156,12 +123,6 @@ func _spawn_arc_visual(
 		var tw_p := pillar.create_tween()
 		tw_p.tween_property(pillar, "modulate:a", 0.0, 0.14)
 		tw_p.tween_callback(pillar.queue_free)
-
-
-func _sync_combo_ui() -> void:
-	if owner_player != null and is_instance_valid(owner_player) \
-			and owner_player.has_method("set_boxing_combo_display"):
-		owner_player.set_boxing_combo_display(_combo)
 
 
 func _aim_dir() -> Vector2:

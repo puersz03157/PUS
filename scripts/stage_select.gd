@@ -34,8 +34,19 @@ func _ready() -> void:
 			_index = i
 			break
 	_build_ui()
+	_setup_ui_pattern_background()
 	_apply_layout()
 	_refresh()
+
+
+func _setup_ui_pattern_background() -> void:
+	var solid_bg: ColorRect = $Background
+	if solid_bg:
+		solid_bg.color = Color(0.05, 0.07, 0.13, 0.0)
+	var bg: Control = GameData.attach_ui_pattern_bg(
+		self, GameData.UI_PATTERN_STYLE_FULL, GameData.UI_BG_CTX_MAIN, 0)
+	if size.x > 1.0 and size.y > 1.0:
+		GameData.finalize_pattern_bg_size(bg, size)
 
 
 func _process(delta: float) -> void:
@@ -67,6 +78,7 @@ func _notification(what: int) -> void:
 	# 這時 _build_ui() 尚未執行，UI 節點都還是 null；先過濾掉。
 	if what == NOTIFICATION_RESIZED and title_label != null:
 		_apply_layout()
+		GameData.refresh_ui_pattern_backgrounds(self)
 
 
 # ============================================================================

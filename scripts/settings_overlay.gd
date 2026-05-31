@@ -5,7 +5,7 @@ extends CanvasLayer
 ## - 目前設定項：觸控操作、全角色解鎖、武器解鎖、重置帳號
 
 const PANEL_W := 480.0
-const PANEL_H := 592.0
+const PANEL_H := 640.0
 const ACHIEVEMENTS_PANEL_W := 620.0
 const ACHIEVEMENTS_PANEL_H := 480.0
 const ITEMS_PANEL_W := 640.0
@@ -22,6 +22,8 @@ const CREDIT_ENTRY_KEYS: Array[String] = [
 	"CREDITS_ENTRY_VILLAGE",
 	"CREDITS_ENTRY_NPC_PACK",
 	"CREDITS_ENTRY_MONSTERS",
+	"CREDITS_ENTRY_DANS_MONSTERS_PACK01",
+	"CREDITS_ENTRY_ELVGAMES",
 	"CREDITS_ENTRY_MATTZ_ART",
 	"CREDITS_ENTRY_ANSIMUZ",
 	"CREDITS_ENTRY_CLEMBOD",
@@ -31,6 +33,7 @@ const CREDIT_ENTRY_KEYS: Array[String] = [
 	"CREDITS_ENTRY_SAGAK_HITFX",
 	"CREDITS_ENTRY_ELTHEN_STATUS",
 	"CREDITS_ENTRY_UNTIEDGAMES",
+	"CREDITS_ENTRY_PATTERNMIX",
 ]
 ## 各感謝條目作者名稱對應的 itch.io 商店／素材頁（點擊金色作者名開啟）
 const CREDIT_ENTRY_URLS: Dictionary = {
@@ -39,6 +42,8 @@ const CREDIT_ENTRY_URLS: Dictionary = {
 	"CREDITS_ENTRY_VILLAGE": "https://szadiart.itch.io/sidescroll-worlds-village-pack1",
 	"CREDITS_ENTRY_NPC_PACK": "https://gandalfhardcore.itch.io/pixel-art-characters-npc-pack",
 	"CREDITS_ENTRY_MONSTERS": "https://lyaseek.itch.io/",
+	"CREDITS_ENTRY_DANS_MONSTERS_PACK01": "https://danieruart.itch.io/dans-monsters-pack01",
+	"CREDITS_ENTRY_ELVGAMES": "https://elvgames.itch.io/",
 	"CREDITS_ENTRY_MATTZ_ART": "https://itch.io/profile/xzany",
 	"CREDITS_ENTRY_ANSIMUZ": "https://ansimuz.itch.io/",
 	"CREDITS_ENTRY_CLEMBOD": "https://clembod.itch.io/bounty-h",
@@ -48,6 +53,7 @@ const CREDIT_ENTRY_URLS: Dictionary = {
 	"CREDITS_ENTRY_SAGAK_HITFX": "https://sagak-art-pururu.itch.io/hitfx",
 	"CREDITS_ENTRY_ELTHEN_STATUS": "https://elthen.itch.io/",
 	"CREDITS_ENTRY_UNTIEDGAMES": "https://untiedgames.itch.io/super-pixel-projectiles-pack-1",
+	"CREDITS_ENTRY_PATTERNMIX": "https://pixel-boy.itch.io/patternmix",
 }
 const CREDITS_AUTHOR_COLOR_OPEN := "[color=#ffd978]"
 const CREDITS_AUTHOR_COLOR_CLOSE := "[/color]"
@@ -78,6 +84,10 @@ var title_label: Label
 var touch_check: CheckButton
 var touch_label: Label
 var touch_hint: Label
+var ui_bg_dim_label: Label
+var ui_bg_dim_slider: HSlider
+var ui_bg_dim_value_label: Label
+var ui_bg_dim_hint: Label
 var account_label: Label
 var unlock_all_button: Button
 var unlock_weapons_button: Button
@@ -86,6 +96,7 @@ var unlock_monsters_button: Button
 var unlock_village_button: Button
 var add_gold_button: Button
 var max_team_weapons_button: Button
+var max_summons_button: Button
 var reset_account_button: Button
 var credits_button: Button
 var close_button: Button
@@ -305,17 +316,58 @@ func _build_ui() -> void:
 	touch_hint.add_theme_color_override("font_color", Color(0.7, 0.8, 0.95))
 	panel.add_child(touch_hint)
 
+	var dim_row := HBoxContainer.new()
+	dim_row.position = Vector2(28, 200)
+	dim_row.size = Vector2(PANEL_W - 56, 36)
+	dim_row.add_theme_constant_override("separation", 10)
+	panel.add_child(dim_row)
+
+	ui_bg_dim_label = Label.new()
+	ui_bg_dim_label.text = tr("SETTINGS_UI_BG_DIM")
+	ui_bg_dim_label.custom_minimum_size = Vector2(108, 0)
+	ui_bg_dim_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	ui_bg_dim_label.add_theme_font_size_override("font_size", 16)
+	ui_bg_dim_label.add_theme_color_override("font_color", Color(0.95, 0.95, 1))
+	dim_row.add_child(ui_bg_dim_label)
+
+	ui_bg_dim_slider = HSlider.new()
+	ui_bg_dim_slider.min_value = 0.0
+	ui_bg_dim_slider.max_value = 100.0
+	ui_bg_dim_slider.step = 1.0
+	ui_bg_dim_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui_bg_dim_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ui_bg_dim_slider.process_mode = Node.PROCESS_MODE_ALWAYS
+	ui_bg_dim_slider.value_changed.connect(_on_ui_bg_dim_changed)
+	dim_row.add_child(ui_bg_dim_slider)
+
+	ui_bg_dim_value_label = Label.new()
+	ui_bg_dim_value_label.custom_minimum_size = Vector2(44, 0)
+	ui_bg_dim_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	ui_bg_dim_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	ui_bg_dim_value_label.add_theme_font_size_override("font_size", 15)
+	ui_bg_dim_value_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.45))
+	dim_row.add_child(ui_bg_dim_value_label)
+
+	ui_bg_dim_hint = Label.new()
+	ui_bg_dim_hint.text = tr("SETTINGS_UI_BG_DIM_HINT")
+	ui_bg_dim_hint.position = Vector2(28, 236)
+	ui_bg_dim_hint.size = Vector2(PANEL_W - 56, 34)
+	ui_bg_dim_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ui_bg_dim_hint.add_theme_font_size_override("font_size", 12)
+	ui_bg_dim_hint.add_theme_color_override("font_color", Color(0.68, 0.78, 0.92))
+	panel.add_child(ui_bg_dim_hint)
+
 	# 帳號 / 開發測試操作 — 用 VBoxContainer 讓高度自動排，每列兩按鈕
 	account_label = Label.new()
 	account_label.text = tr("SETTINGS_ACCOUNT_TITLE")
-	account_label.position = Vector2(28, 218)
+	account_label.position = Vector2(28, 276)
 	account_label.size = Vector2(PANEL_W - 56, 28)
 	account_label.add_theme_font_size_override("font_size", 16)
 	account_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
 	panel.add_child(account_label)
 
 	var acct_vbox := VBoxContainer.new()
-	acct_vbox.position = Vector2(28, 252)
+	acct_vbox.position = Vector2(28, 310)
 	acct_vbox.size = Vector2(PANEL_W - 56, 0)
 	acct_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	acct_vbox.add_theme_constant_override("separation", 8)
@@ -409,6 +461,21 @@ func _build_ui() -> void:
 	max_team_weapons_button.pressed.connect(_on_max_team_weapons_pressed)
 	row3.add_child(max_team_weapons_button)
 
+	# 列 3b：御五家召喚獸滿級
+	var row3b := HBoxContainer.new()
+	row3b.add_theme_constant_override("separation", 8)
+	acct_vbox.add_child(row3b)
+
+	max_summons_button = Button.new()
+	max_summons_button.text = tr("SETTINGS_SUMMON_EVOLVE_CYCLE")
+	max_summons_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	max_summons_button.custom_minimum_size = Vector2(0, 40)
+	max_summons_button.add_theme_font_size_override("font_size", 14)
+	max_summons_button.add_theme_color_override("font_color", Color(0.72, 0.92, 0.88))
+	max_summons_button.process_mode = Node.PROCESS_MODE_ALWAYS
+	max_summons_button.pressed.connect(_on_max_summons_pressed)
+	row3b.add_child(max_summons_button)
+
 	# 列 4：重置帳號（單獨一列，紅色警示）
 	var row4 := HBoxContainer.new()
 	acct_vbox.add_child(row4)
@@ -448,6 +515,26 @@ func _build_ui() -> void:
 	_build_codex_panel()
 	_build_quests_panel()
 	_build_credits_panel()
+	_setup_ui_pattern_backgrounds()
+
+
+func _setup_ui_pattern_backgrounds() -> void:
+	_apply_ui_pattern_to_overlay_panel(panel)
+	_apply_ui_pattern_to_overlay_panel(achievements_panel)
+	_apply_ui_pattern_to_overlay_panel(items_panel)
+	_apply_ui_pattern_to_overlay_panel(codex_panel)
+	_apply_ui_pattern_to_overlay_panel(quests_panel)
+	_apply_ui_pattern_to_overlay_panel(credits_panel)
+
+
+func _apply_ui_pattern_to_overlay_panel(p: Panel) -> void:
+	if p == null:
+		return
+	var sb := p.get_theme_stylebox("panel")
+	if sb is StyleBoxFlat:
+		GameData.stylebox_transparent_for_pattern(sb as StyleBoxFlat, true, 0.06)
+	GameData.attach_ui_pattern_to_panel(
+		p, GameData.UI_PATTERN_STYLE_PANEL, GameData.UI_BG_CTX_PANEL)
 
 
 func _build_credits_panel() -> void:
@@ -824,10 +911,17 @@ func _apply_layout() -> void:
 func _refresh_from_state() -> void:
 	if is_instance_valid(GameState):
 		touch_check.set_pressed_no_signal(bool(GameState.touch_controls_enabled))
+		if ui_bg_dim_slider != null:
+			ui_bg_dim_slider.set_value_no_signal(GameState.get_ui_bg_pattern_dim() * 100.0)
+		_refresh_ui_bg_dim_value_label()
 	# 場景切換後再翻一次（語系若中途改變也會反映）
 	title_label.text = tr("SETTINGS_TITLE")
 	touch_label.text = tr("SETTINGS_TOUCH_CONTROLS")
 	touch_hint.text = tr("SETTINGS_TOUCH_HINT")
+	if ui_bg_dim_label != null:
+		ui_bg_dim_label.text = tr("SETTINGS_UI_BG_DIM")
+	if ui_bg_dim_hint != null:
+		ui_bg_dim_hint.text = tr("SETTINGS_UI_BG_DIM_HINT")
 	account_label.text = tr("SETTINGS_ACCOUNT_TITLE")
 	unlock_all_button.text = tr("SETTINGS_UNLOCK_ALL")
 	unlock_weapons_button.text = tr("SETTINGS_UNLOCK_WEAPONS")
@@ -839,6 +933,8 @@ func _refresh_from_state() -> void:
 		unlock_village_button.text = tr("SETTINGS_UNLOCK_VILLAGE")
 	add_gold_button.text = tr("SETTINGS_ADD_GOLD")
 	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS")
+	if max_summons_button != null:
+		max_summons_button.text = tr("SETTINGS_SUMMON_EVOLVE_CYCLE")
 	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT_CONFIRM") \
 		if _reset_confirm_armed else tr("SETTINGS_RESET_ACCOUNT")
 	close_button.text = tr("SETTINGS_CLOSE")
@@ -863,9 +959,14 @@ func _close() -> void:
 	_set_open(false)
 
 
+func _any_overlay_open() -> bool:
+	return _open or _achievements_open or _items_open or _codex_open or _quests_open or _credits_open
+
+
 func _set_open(v: bool) -> void:
-	_open = v
 	if v:
+		var already_open := _any_overlay_open()
+		_open = true
 		_achievements_open = false
 		_items_open = false
 		_codex_open = false
@@ -876,20 +977,23 @@ func _set_open(v: bool) -> void:
 		codex_panel.visible = false
 		quests_panel.visible = false
 		credits_panel.visible = false
-	dim.visible = v
-	panel.visible = v
-	if v:
+		dim.visible = true
+		panel.visible = true
 		_reset_confirm_armed = false
 		_refresh_from_state()
-		_was_paused = get_tree().paused
+		if not already_open:
+			_was_paused = get_tree().paused
 		get_tree().paused = true
 		close_button.grab_focus()
 	else:
+		_open = false
 		achievements_panel.visible = false
 		items_panel.visible = false
 		codex_panel.visible = false
 		quests_panel.visible = false
 		credits_panel.visible = false
+		dim.visible = false
+		panel.visible = false
 		# 還原原本的暫停狀態（避免和 PauseMenu / Pinball 互踩）
 		get_tree().paused = _was_paused
 	_refresh_floating_button_visibility()
@@ -904,8 +1008,9 @@ func _close_credits() -> void:
 
 
 func _set_credits_open(v: bool) -> void:
-	_credits_open = v
 	if v:
+		var already_open := _any_overlay_open()
+		_credits_open = true
 		_open = false
 		_achievements_open = false
 		_items_open = false
@@ -918,10 +1023,12 @@ func _set_credits_open(v: bool) -> void:
 		quests_panel.visible = false
 		_reset_confirm_armed = false
 		_refresh_credits_panel()
-		_was_paused = get_tree().paused
+		if not already_open:
+			_was_paused = get_tree().paused
 		get_tree().paused = true
 		credits_close_button.grab_focus()
 	else:
+		_credits_open = false
 		get_tree().paused = _was_paused
 	dim.visible = v
 	credits_panel.visible = v
@@ -983,8 +1090,9 @@ func _close_achievements() -> void:
 
 
 func _set_achievements_open(v: bool) -> void:
-	_achievements_open = v
 	if v:
+		var already_open := _any_overlay_open()
+		_achievements_open = true
 		_open = false
 		_items_open = false
 		_codex_open = false
@@ -997,10 +1105,12 @@ func _set_achievements_open(v: bool) -> void:
 		credits_panel.visible = false
 		_reset_confirm_armed = false
 		_refresh_achievements_panel()
-		_was_paused = get_tree().paused
+		if not already_open:
+			_was_paused = get_tree().paused
 		get_tree().paused = true
 		achievements_close_button.grab_focus()
 	else:
+		_achievements_open = false
 		get_tree().paused = _was_paused
 	dim.visible = v
 	achievements_panel.visible = v
@@ -1017,8 +1127,9 @@ func _close_items() -> void:
 
 
 func _set_items_open(v: bool) -> void:
-	_items_open = v
 	if v:
+		var already_open := _any_overlay_open()
+		_items_open = true
 		_open = false
 		_achievements_open = false
 		_codex_open = false
@@ -1031,10 +1142,12 @@ func _set_items_open(v: bool) -> void:
 		credits_panel.visible = false
 		_reset_confirm_armed = false
 		_refresh_items_panel()
-		_was_paused = get_tree().paused
+		if not already_open:
+			_was_paused = get_tree().paused
 		get_tree().paused = true
 		items_close_button.grab_focus()
 	else:
+		_items_open = false
 		get_tree().paused = _was_paused
 	dim.visible = v
 	items_panel.visible = v
@@ -1050,8 +1163,9 @@ func _close_codex() -> void:
 
 
 func _set_codex_open(v: bool) -> void:
-	_codex_open = v
 	if v:
+		var already_open := _any_overlay_open()
+		_codex_open = true
 		_open = false
 		_achievements_open = false
 		_items_open = false
@@ -1064,10 +1178,12 @@ func _set_codex_open(v: bool) -> void:
 		credits_panel.visible = false
 		_reset_confirm_armed = false
 		_refresh_codex_panel()
-		_was_paused = get_tree().paused
+		if not already_open:
+			_was_paused = get_tree().paused
 		get_tree().paused = true
 		codex_close_button.grab_focus()
 	else:
+		_codex_open = false
 		get_tree().paused = _was_paused
 	dim.visible = v
 	codex_panel.visible = v
@@ -1083,8 +1199,9 @@ func _close_quests() -> void:
 
 
 func _set_quests_open(v: bool) -> void:
-	_quests_open = v
 	if v:
+		var already_open := _any_overlay_open()
+		_quests_open = true
 		_open = false
 		_achievements_open = false
 		_items_open = false
@@ -1097,10 +1214,12 @@ func _set_quests_open(v: bool) -> void:
 		credits_panel.visible = false
 		_reset_confirm_armed = false
 		_refresh_quests_panel()
-		_was_paused = get_tree().paused
+		if not already_open:
+			_was_paused = get_tree().paused
 		get_tree().paused = true
 		quests_close_button.grab_focus()
 	else:
+		_quests_open = false
 		get_tree().paused = _was_paused
 	dim.visible = v
 	quests_panel.visible = v
@@ -1958,6 +2077,20 @@ func _on_touch_toggled(pressed: bool) -> void:
 		GameState.set_touch_controls_enabled(pressed)
 
 
+func _refresh_ui_bg_dim_value_label() -> void:
+	if ui_bg_dim_value_label == null or ui_bg_dim_slider == null:
+		return
+	ui_bg_dim_value_label.text = "%d%%" % int(round(ui_bg_dim_slider.value))
+
+
+func _on_ui_bg_dim_changed(value: float) -> void:
+	if not is_instance_valid(GameState):
+		return
+	GameState.set_ui_bg_pattern_dim(value / 100.0)
+	_refresh_ui_bg_dim_value_label()
+	_notify_current_scene_account_changed()
+
+
 func _reset_all_debug_button_texts() -> void:
 	unlock_all_button.text = tr("SETTINGS_UNLOCK_ALL")
 	unlock_weapons_button.text = tr("SETTINGS_UNLOCK_WEAPONS")
@@ -1969,6 +2102,8 @@ func _reset_all_debug_button_texts() -> void:
 		unlock_village_button.text = tr("SETTINGS_UNLOCK_VILLAGE")
 	add_gold_button.text = tr("SETTINGS_ADD_GOLD")
 	max_team_weapons_button.text = tr("SETTINGS_MAX_TEAM_WEAPONS")
+	if max_summons_button != null:
+		max_summons_button.text = tr("SETTINGS_SUMMON_EVOLVE_CYCLE")
 	reset_account_button.text = tr("SETTINGS_RESET_ACCOUNT")
 
 
@@ -2060,6 +2195,22 @@ func _on_max_team_weapons_pressed() -> void:
 	_notify_current_scene_account_changed()
 
 
+func _on_max_summons_pressed() -> void:
+	if not is_instance_valid(GameState):
+		return
+	_reset_confirm_armed = false
+	_reset_all_debug_button_texts()
+	if not GameState.has_any_unlocked_summon():
+		GameState.unlock_all_summons_for_test()
+		if max_summons_button != null:
+			max_summons_button.text = tr("SETTINGS_SUMMON_UNLOCK_ALL_DONE")
+	else:
+		var lv: int = GameState.cycle_all_summon_test_levels()
+		if max_summons_button != null:
+			max_summons_button.text = tr("SETTINGS_SUMMON_EVOLVE_CYCLE_FMT") % lv
+	_notify_current_scene_account_changed()
+
+
 func _weapon_upgrade_total(upgrades: Dictionary) -> int:
 	var total: int = 0
 	for u in GameData.WEAPON_UPGRADES:
@@ -2082,6 +2233,9 @@ func _on_reset_account_pressed() -> void:
 
 func _notify_current_scene_account_changed() -> void:
 	var scene: Node = get_tree().current_scene
+	if scene != null:
+		GameData.refresh_ui_pattern_backgrounds(scene)
+	GameData.refresh_ui_pattern_backgrounds(self)
 	if scene == null:
 		return
 	if scene.has_method("_refresh_meta"):

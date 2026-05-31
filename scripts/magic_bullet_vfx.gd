@@ -120,6 +120,9 @@ static func create_projectile_sprite(cfg: Dictionary, tint: Color) -> AnimatedSp
 		minf(1.2, tint.g * 1.08),
 		minf(1.2, tint.b * 1.08),
 		1.0)
+	var scale_mul: float = float(cfg.get("visual_scale_mult", 1.0))
+	if absf(scale_mul - 1.0) > 0.001:
+		spr.scale = Vector2.ONE * scale_mul
 	spr.z_index = int(cfg.get("z_index", 56))
 	spr.position = sprite_display_offset(cfg)
 	spr.play(&"fly")

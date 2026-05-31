@@ -93,6 +93,7 @@ func damage_enemy(e: Node, mult: float = 1.0, hit_ctx: Dictionary = {}) -> void:
 	if wid0 == "spear" and weapon_upgrades_maxed():
 		var n_p: int = _count_alive_enemies_near(owner_player.global_position, eff_range * 1.2)
 		hit_mult *= GameData.weapon_max_spear_damage_mult(n_p)
+	hit_mult *= _boxing_combo_hit_mult()
 	var dealt: float = eff_damage * hit_mult
 	var is_crit: bool = false
 	var crit_chance_total: float = owner_player.crit_chance + float(def.get("crit_chance", 0.0))
@@ -111,6 +112,24 @@ func damage_enemy(e: Node, mult: float = 1.0, hit_ctx: Dictionary = {}) -> void:
 			and owner_player and owner_player.has_method("_heal"):
 		owner_player._heal(dealt * GameData.ENEMY_STATUS_CLAW_BLEED_LIFESTEAL_RATIO)
 	_apply_on_hit_status_effects(e, hit_mult)
+
+
+func _boxing_combo_hit_mult() -> float:
+	if owner_player == null or not owner_player.has_method("has_boxing_weapon"):
+		return 1.0
+	if not owner_player.has_boxing_weapon():
+		return 1.0
+	var kind: String = String(def.get("kind", ""))
+	if kind == "boxing":
+		return 1.0
+	if not owner_player.has_method("is_boxing_weapon_maxed") or not owner_player.is_boxing_weapon_maxed():
+		return 1.0
+	var combo: int = 0
+	if owner_player.has_method("get_boxing_combo"):
+		combo = int(owner_player.get_boxing_combo())
+	if combo <= 0:
+		return 1.0
+	return GameData.boxing_combo_hit_damage_mult(combo, true, kind)
 
 
 func _spawn_hit_vfx(e: Node, hit_ctx: Dictionary) -> void:
