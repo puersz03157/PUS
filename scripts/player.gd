@@ -191,6 +191,7 @@ var _attack_anim_play_once: bool = false
 var _sprite_feet_fine_offset_y: float = 0.0
 var _sprite_base_offset_y: float = 0.0
 var _village_feet_extra_y: float = 0.0
+var _strip_feet_sync_tex: Texture2D = null
 ## 戰鬥 HUD 血條／名牌基準 Y（愈小愈高；原 -28）
 const BATTLE_HUD_TOP_Y := -40.0
 const STATUS_OVERLAY_SCRIPT := preload("res://scripts/status_effect_overlay.gd")
@@ -232,6 +233,7 @@ func setup_from_character(cid: String) -> void:
 	_sprite_feet_fine_offset_y = 0.0
 	_sprite_base_offset_y = 0.0
 	_village_feet_extra_y = 0.0
+	_strip_feet_sync_tex = null
 	_start_transform_pending = false
 	_start_transform_done = false
 	var skin_id: String = "default"
@@ -343,7 +345,8 @@ func setup_from_character(cid: String) -> void:
 			char_sprite.hframes = _hframes_for_strip_key("idle")
 			char_sprite.vframes = 1
 			char_sprite.scale = Vector2.ONE * float(visual.get("scale", 1.8))
-			char_sprite.offset = Vector2(0, float(visual.get("offset_y", 0)))
+			_sprite_base_offset_y = float(visual.get("offset_y", 0))
+			_sprite_feet_fine_offset_y = float(visual.get("sprite_feet_fine", 0))
 			char_sprite.frame = 0
 			char_sprite.modulate = c.get("tint", visual.get("tint", Color.WHITE))
 			char_sprite.visible = true
@@ -373,6 +376,7 @@ func setup_from_character(cid: String) -> void:
 					char_sprite.frame = 0
 			frames_per_row = []
 			has_sprite = true
+			_sync_strip_sprite_feet_offset(0)
 	if not has_sprite and char_sprite and visual.has("sprite") and String(visual["sprite"]) != "":
 		var tex: Texture2D = GameData.resolve_frame_texture(visual["sprite"])
 		if tex:
@@ -380,7 +384,8 @@ func setup_from_character(cid: String) -> void:
 			char_sprite.hframes = int(visual.get("hframes", 1))
 			char_sprite.vframes = int(visual.get("vframes", 1))
 			char_sprite.scale = Vector2.ONE * float(visual.get("scale", 1.8))
-			char_sprite.offset = Vector2(0, float(visual.get("offset_y", 0)))
+			_sprite_base_offset_y = float(visual.get("offset_y", 0))
+			char_sprite.offset = Vector2(0, _character_sprite_offset_y(_sprite_base_offset_y))
 			char_sprite.frame = 0
 			char_sprite.modulate = c.get("tint", visual.get("tint", Color.WHITE))
 			char_sprite.visible = true
@@ -419,6 +424,50 @@ func setup_from_character(cid: String) -> void:
 		_apply_house_favorite_bonuses()
 
 
+func _character_sprite_offset_y(base_y: float) -> float:
+	var y: float = base_y
+	if village_mode and _village_feet_extra_y != 0.0:
+		y += _village_feet_extra_y * GameData.VILLAGE_CHARACTER_SCALE_MULT
+	return y
+
+
+func _strip_sprite_fine_offset_y() -> float:
+	var fine_y: float = _sprite_feet_fine_offset_y
+	if village_mode and _village_feet_extra_y != 0.0:
+		fine_y += _village_feet_extra_y * GameData.VILLAGE_CHARACTER_SCALE_MULT
+	return fine_y
+
+
+func _sync_strip_sprite_feet_offset(frame_index: int = 0) -> void:
+	if char_sprite == null or not char_sprite.visible or char_sprite.texture == null:
+		return
+	if not _use_sprite_strips:
+		return
+	var sc: float = char_sprite.scale.y
+	var vf: int = maxi(1, char_sprite.vframes)
+	var fh: int = maxi(1, char_sprite.hframes)
+	var frame_h: float = float(maxi(1, char_sprite.texture.get_height())) / float(vf)
+	var target_height: float = frame_h * sc
+	char_sprite.offset.y = GameData.sprite_strip_feet_offset_y(
+		char_sprite.texture,
+		fh,
+		target_height,
+		body_radius,
+		frame_index,
+		_strip_sprite_fine_offset_y(),
+		vf,
+		0,
+	)
+
+
+func _maybe_sync_strip_feet_on_anim(frame_index: int) -> void:
+	if char_sprite == null or char_sprite.texture == null:
+		return
+	if char_sprite.texture != _strip_feet_sync_tex:
+		_strip_feet_sync_tex = char_sprite.texture
+		_sync_strip_sprite_feet_offset(frame_index)
+
+
 func _sync_char_sprite_feet_offset() -> void:
 	if char_sprite == null or not char_sprite.visible or char_sprite.texture == null:
 		return
@@ -426,8 +475,8 @@ func _sync_char_sprite_feet_offset() -> void:
 		return
 	var sc: float = char_sprite.scale.y
 	var fine_y: float = _sprite_feet_fine_offset_y
-	if village_mode:
-		fine_y += _village_feet_extra_y
+	if village_mode and _village_feet_extra_y != 0.0:
+		fine_y += _village_feet_extra_y * GameData.VILLAGE_CHARACTER_SCALE_MULT
 	char_sprite.offset.y = _sprite_base_offset_y + GameData.sprite_feet_offset_y(
 		char_sprite.texture, body_radius, sc, fine_y)
 
@@ -439,7 +488,12 @@ func _apply_village_character_visual_scale() -> void:
 	if char_sprite and char_sprite.visible:
 		if not is_equal_approx(sm, 1.0):
 			char_sprite.scale *= sm
-		_sync_char_sprite_feet_offset()
+		if _use_sprite_frames:
+			_sync_char_sprite_feet_offset()
+		elif _use_sprite_strips:
+			_sync_strip_sprite_feet_offset(char_sprite.frame)
+		else:
+			char_sprite.offset = Vector2(0, _character_sprite_offset_y(_sprite_base_offset_y))
 
 
 func _apply_house_favorite_bonuses() -> void:
@@ -965,6 +1019,7 @@ func _update_char_anim_strips(delta: float) -> void:
 		var f: int = int(anim_time * anim_fps)
 		f_in_row = mini(f, fc - 1)
 	char_sprite.frame = f_in_row
+	_maybe_sync_strip_feet_on_anim(f_in_row)
 
 	if _sprite_faces_left:
 		if face_dir.x < -0.05:

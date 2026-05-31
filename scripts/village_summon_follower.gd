@@ -5,7 +5,6 @@ const DISPLAY_HEIGHT := 44.0
 const FOLLOW_BASE_DIST := 36.0
 const FOLLOW_SPREAD_X := 24.0
 const FOLLOW_DEPTH_STEP := 12.0
-const FLOAT_BASE_Y := -16.0
 const BOB_AMPLITUDE := 5.0
 const BOB_SPEED := 2.3
 const FOLLOW_LERP_SPEED := 9.0
@@ -104,7 +103,8 @@ func _compute_target_position(bob_t: float) -> Vector2:
 	var depth: float = FOLLOW_BASE_DIST + float(_formation_index) * FOLLOW_DEPTH_STEP * 0.4
 	var lat: float = _formation_lateral_offset()
 	var bob_y: float = sin(bob_t + float(_formation_index) * 0.85) * BOB_AMPLITUDE
-	var off: Vector2 = back * depth + lateral * lat + Vector2(0.0, FLOAT_BASE_Y + bob_y)
+	var off: Vector2 = back * depth + lateral * lat + Vector2(
+		0.0, GameData.SUMMON_VILLAGE_FLOAT_OFFSET_Y + bob_y)
 	return _owner.global_position + off
 
 

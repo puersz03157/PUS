@@ -432,6 +432,8 @@ const WEAPONS: Array[Dictionary] = [
 			"color": Color(0.82, 0.86, 0.95),
 		},
 		"max_effect": "機率散射或貫穿；彈藥包八向齊射", "max_effect_key": "WEAPON_FIREARM_MAX",
+		"craft_gold": 180,
+		"craft_materials": {"gunpowder": 4, "iron": 5},
 	},
 	{
 		"id": "melody",
@@ -444,6 +446,8 @@ const WEAPONS: Array[Dictionary] = [
 		"range": 190.0,
 		"params": {"speed": 280.0, "count": 3, "wave": true, "color": Color(0.6, 0.9, 1.0)},
 		"max_effect": "命中附加破綻", "max_effect_key": "WEAPON_MELODY_MAX",
+		"craft_gold": 120,
+		"craft_materials": {"copper": 3, "iron": 2},
 	},
 	{
 		"id": "claw",
@@ -456,6 +460,8 @@ const WEAPONS: Array[Dictionary] = [
 		"range": 110.0,
 		"params": {"angle_deg": 180.0, "double_hit": true, "color": Color(1.0, 0.6, 0.4)},
 		"max_effect": "擊中敵人附加流血", "max_effect_key": "WEAPON_CLAW_MAX",
+		"craft_gold": 140,
+		"craft_materials": {"bone": 4, "rag": 3},
 	},
 	{
 		"id": "boxing",
@@ -473,6 +479,8 @@ const WEAPONS: Array[Dictionary] = [
 			"color": Color(1.0, 0.78, 0.52),
 		},
 		"max_effect": "機率暈眩；全武器 Combo 增傷；中斷回血提升", "max_effect_key": "WEAPON_BOXING_MAX",
+		"craft_gold": 170,
+		"craft_materials": {"rag": 5, "bone": 4},
 	},
 	{
 		"id": "shard",
@@ -501,6 +509,8 @@ const WEAPONS: Array[Dictionary] = [
 			},
 		},
 		"max_effect": "環繞速度增加", "max_effect_key": "WEAPON_SHARD_MAX",
+		"craft_gold": 180,
+		"craft_materials": {"silver": 4, "iron": 5},
 	},
 	{
 		"id": "flame",
@@ -591,6 +601,8 @@ const WEAPONS: Array[Dictionary] = [
 			"count": 1,             # 一次丟幾灘（吃 w_count 升級）
 		},
 		"max_effect": "中毒敵人降低攻擊力", "max_effect_key": "WEAPON_POISON_MAX",
+		"craft_gold": 160,
+		"craft_materials": {"bone": 3, "rag": 4, "copper": 2},
 	},
 	{
 		"id": "holy",
@@ -603,6 +615,8 @@ const WEAPONS: Array[Dictionary] = [
 		"range": 75.0,
 		"params": {"color": Color(1.0, 0.95, 0.6), "heal": 1.0},
 		"max_effect": "回血效果支援隊友", "max_effect_key": "WEAPON_HOLY_MAX",
+		"craft_gold": 180,
+		"craft_materials": {"sacred_wood": 3, "glow_dust": 2},
 	},
 	{
 		"id": "whip",
@@ -616,8 +630,8 @@ const WEAPONS: Array[Dictionary] = [
 		"params": {},
 		"max_effect": "召喚物繼承召喚者能力比例提升", "max_effect_key": "WEAPON_WHIP_MAX",
 		"icon": "res://assets/icons/weapons/Whip.png",
-		"craft_gold": 110,
-		"craft_materials": {"wood": 5, "iron": 3},
+		"craft_gold": 160,
+		"craft_materials": {"tree_sap": 3, "wood": 5},
 	},
 ]
 
@@ -821,6 +835,7 @@ const CHARACTERS: Array[Dictionary] = [
 		"walk_anim_over_attack": true,
 		"scale": 1,
 		"sprite_feet_fine": 3,
+		"village_sprite_feet_fine": 8,
 		"body_radius": 16,
 		"offset_y": -7,
 		"skill_options": ["none", "whirl_slash"],
@@ -839,6 +854,7 @@ const CHARACTERS: Array[Dictionary] = [
 		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
 		"scale": 1,
+		"village_sprite_feet_fine": 5,
 		"body_radius": 16,
 		"offset_y": -7,
 		"skill_options": ["none", "agile_tactics"],
@@ -859,6 +875,7 @@ const CHARACTERS: Array[Dictionary] = [
 		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
 		"scale": 1,
+		"village_sprite_feet_fine": 5,
 		"body_radius": 16,
 		"offset_y": -7,
 	},
@@ -879,7 +896,7 @@ const CHARACTERS: Array[Dictionary] = [
 		"scale": 1,
 		"body_radius": 16,
 		"offset_y": -7,
-		"village_sprite_feet_fine": 2,
+		"village_sprite_feet_fine": 5,
 		"skill_options": ["none", "heavenly_judgment"],
 		"passive_options": ["none", "breakthrough"],
 	},
@@ -914,6 +931,7 @@ const CHARACTERS: Array[Dictionary] = [
 		"anim_fps": 14.0,
 		"walk_anim_over_attack": true,
 		"scale": 1,
+		"village_sprite_feet_fine": 5,
 		"body_radius": 16,
 		"offset_y": -7,
 		"skill_options": ["none", "mirror_moon"],
@@ -954,6 +972,7 @@ const CHARACTERS: Array[Dictionary] = [
 		"scale": 0.72,
 		"body_radius": 28,
 		"offset_y": -10,
+		"village_sprite_feet_fine": -4,
 		"skill_options": ["none", "wild_impulse"],
 		"passive_options": ["none", "bloodlust"],
 	},
@@ -987,6 +1006,7 @@ const CHARACTERS: Array[Dictionary] = [
 		"scale": 1,
 		"body_radius": 16,
 		"offset_y": -7,
+		"village_sprite_feet_fine": -2,
 		"skill_options": ["none", "mushin"],
 		"passive_options": ["none", "blade_aura"],
 	},
@@ -1050,6 +1070,7 @@ const CHARACTERS: Array[Dictionary] = [
 		"strip_fps": {"attack": 16.0},
 		"walk_anim_over_attack": true,
 		"scale": 1.0,
+		"village_sprite_feet_fine": 10,
 		"body_radius": 16,
 		"offset_y": -7,
 		"skill_options": ["none"],
@@ -2244,6 +2265,15 @@ const SUMMON_EVOLVE_LEVEL := 5
 const SUMMON_TEST_LEVELS: Array[int] = [0, 1, 5, 10]
 const SUMMON_LEVEL_STAT_MULT := 0.08
 const SUMMON_EGG_PREVIEW_SCALE := 0.65
+## 召喚獸在村莊跟隨、戰鬥跟隨、小屋預覽等的整體縮放
+const SUMMON_DISPLAY_SIZE_MULT := 0.88
+const SUMMON_VILLAGE_AMBIENT_MAX := 4
+const SUMMON_VILLAGE_AMBIENT_SPAWN_TRIES := 36
+const SUMMON_VILLAGE_AMBIENT_MARGIN_X := 140.0
+const SUMMON_VILLAGE_AMBIENT_MIN_SPACING := 80.0
+const SUMMON_VILLAGE_AMBIENT_PLAYER_CLEARANCE := 110.0
+## 村莊召喚獸相對 floor_y 的上浮（負值＝往上）
+const SUMMON_VILLAGE_FLOAT_OFFSET_Y := -24.0
 const SUMMON_EVOLVE_STAT_MULT := 1.18
 const SUMMON_SHARDS_PER_EGG := 5
 const SUMMON_EGG_DROP_BASE_CHANCE := 0.004
@@ -2373,6 +2403,7 @@ const SUMMONS: Array[Dictionary] = [
 		"evolve_name": "白雲浪客龍", "evolve_name_key": "SUMMON_FRCLOUDY_EVOLVE_NAME",
 		"desc": "御五家速度型。近戰追擊，命中附帶緩速。", "desc_key": "SUMMON_FRCLOUDY_DESC",
 		"type": "speed", "type_key": "SUMMON_TYPE_SPEED",
+		"starter_pick": true,
 		"texture": PET_ASSET_ROOT + "Frcloudy.png",
 		"evolve_texture": PET_ASSET_ROOT + "Nimbusabre.png",
 		"egg_texture": PET_ASSET_ROOT + "Frcloudy_egg.png",
@@ -2387,6 +2418,7 @@ const SUMMONS: Array[Dictionary] = [
 		"evolve_name": "翠羽刺甲獸", "evolve_name_key": "SUMMON_HERBARMOR_EVOLVE_NAME",
 		"desc": "御五家防禦型。近戰護航，有機率嘲諷附近敵人。", "desc_key": "SUMMON_HERBARMOR_DESC",
 		"type": "defense", "type_key": "SUMMON_TYPE_DEFENSE",
+		"starter_pick": true,
 		"texture": PET_ASSET_ROOT + "Herbarmor.png",
 		"evolve_texture": PET_ASSET_ROOT + "Verdarmor.png",
 		"egg_texture": PET_ASSET_ROOT + "Herbarmor_061_egg.png",
@@ -2401,6 +2433,7 @@ const SUMMONS: Array[Dictionary] = [
 		"evolve_name": "赤焰巾絨熊", "evolve_name_key": "SUMMON_SCARFNER_EVOLVE_NAME",
 		"desc": "御五家射擊型。遠程輸出，命中有機率施加燃燒。", "desc_key": "SUMMON_SCARFNER_DESC",
 		"type": "ranged", "type_key": "SUMMON_TYPE_RANGED",
+		"starter_pick": true,
 		"texture": PET_ASSET_ROOT + "Scarfner.png",
 		"evolve_texture": PET_ASSET_ROOT + "Pyroscarf.png",
 		"egg_texture": PET_ASSET_ROOT + "Scarfner_egg.png",
@@ -2415,6 +2448,7 @@ const SUMMONS: Array[Dictionary] = [
 		"evolve_name": "花冠妖精蝶", "evolve_name_key": "SUMMON_MOSSIS_EVOLVE_NAME",
 		"desc": "御五家輔助型。散布蘑菇強化主人，紫菇對敵爆炸易傷。", "desc_key": "SUMMON_MOSSIS_DESC",
 		"type": "support", "type_key": "SUMMON_TYPE_SUPPORT",
+		"starter_pick": true,
 		"texture": PET_ASSET_ROOT + "Mossis.png",
 		"evolve_texture": PET_ASSET_ROOT + "Florafaie.png",
 		"egg_texture": PET_ASSET_ROOT + "Mossis_068_egg.png",
@@ -2429,6 +2463,7 @@ const SUMMONS: Array[Dictionary] = [
 		"evolve_name": "剛咚咚鬥士", "evolve_name_key": "SUMMON_BRAWNO_EVOLVE_NAME",
 		"desc": "御五家攻擊型。近身輸出，有機率暴擊與範圍濺射。", "desc_key": "SUMMON_BRAWNO_DESC",
 		"type": "attack", "type_key": "SUMMON_TYPE_ATTACK",
+		"starter_pick": true,
 		"texture": PET_ASSET_ROOT + "Bampam.png",
 		"evolve_texture": PET_ASSET_ROOT + "Brawno.png",
 		"egg_texture": PET_ASSET_ROOT + "Bampam_egg.png",
@@ -2436,6 +2471,63 @@ const SUMMONS: Array[Dictionary] = [
 		"preview_scale": 1.0,
 		"preview_min_fill": 0.0,
 		"base_stats": {"atk": 14.0, "def": 6.0, "spd": 7.0, "hp": 80.0, "sup": 3.0},
+	},
+	{
+		"id": "windcut",
+		"name": "斬風螳", "name_key": "SUMMON_WINDCUT_NAME",
+		"evolve_name": "碧影疾風螳", "evolve_name_key": "SUMMON_WINDCUT_EVOLVE_NAME",
+		"desc": "進階速度型召喚獸。素質略優於御五家，詳細戰鬥方式與取得途徑待實裝。",
+		"desc_key": "SUMMON_WINDCUT_DESC",
+		"type": "speed", "type_key": "SUMMON_TYPE_SPEED",
+		"codex_group": "advanced",
+		"codex_combat_tbd": true,
+		"codex_ability_tbd": true,
+		"codex_acquisition_tbd": true,
+		"texture": PET_ASSET_ROOT + "Windcut.png",
+		"evolve_texture": PET_ASSET_ROOT + "Zephyrblade.png",
+		"egg_texture": PET_ASSET_ROOT + "Windcut_egg.png",
+		"egg_name": "斬風螳蛋", "egg_name_key": "SUMMON_WINDCUT_EGG_NAME",
+		"preview_scale": 1.0,
+		"preview_min_fill": 0.0,
+		"base_stats": {"atk": 7.0, "def": 7.0, "spd": 16.0, "hp": 70.0, "sup": 4.0},
+	},
+	{
+		"id": "duskbird",
+		"name": "墨羽鴉", "name_key": "SUMMON_DUSKBIRD_NAME",
+		"evolve_name": "幽冥鎮魂鴉", "evolve_name_key": "SUMMON_DUSKBIRD_EVOLVE_NAME",
+		"desc": "進階射擊型召喚獸。素質略優於御五家，詳細戰鬥方式與取得途徑待實裝。",
+		"desc_key": "SUMMON_DUSKBIRD_DESC",
+		"type": "ranged", "type_key": "SUMMON_TYPE_RANGED",
+		"codex_group": "advanced",
+		"codex_combat_tbd": true,
+		"codex_ability_tbd": true,
+		"codex_acquisition_tbd": true,
+		"texture": PET_ASSET_ROOT + "Duskbird.png",
+		"evolve_texture": PET_ASSET_ROOT + "Nightstalker.png",
+		"egg_texture": PET_ASSET_ROOT + "Duskbird_egg.png",
+		"egg_name": "墨羽鴉蛋", "egg_name_key": "SUMMON_DUSKBIRD_EGG_NAME",
+		"preview_scale": 1.0,
+		"preview_min_fill": 0.0,
+		"base_stats": {"atk": 14.0, "def": 8.0, "spd": 9.0, "hp": 75.0, "sup": 4.0},
+	},
+	{
+		"id": "sparkpup",
+		"name": "閃電犬", "name_key": "SUMMON_SPARKPUP_NAME",
+		"evolve_name": "迅雷極光犬", "evolve_name_key": "SUMMON_SPARKPUP_EVOLVE_NAME",
+		"desc": "進階攻擊型召喚獸。素質略優於御五家，詳細戰鬥方式與取得途徑待實裝。",
+		"desc_key": "SUMMON_SPARKPUP_DESC",
+		"type": "attack", "type_key": "SUMMON_TYPE_ATTACK",
+		"codex_group": "advanced",
+		"codex_combat_tbd": true,
+		"codex_ability_tbd": true,
+		"codex_acquisition_tbd": true,
+		"texture": PET_ASSET_ROOT + "Sparkpup.png",
+		"evolve_texture": PET_ASSET_ROOT + "Volthound.png",
+		"egg_texture": PET_ASSET_ROOT + "Sparkpup_egg.png",
+		"egg_name": "閃電犬蛋", "egg_name_key": "SUMMON_SPARKPUP_EGG_NAME",
+		"preview_scale": 1.0,
+		"preview_min_fill": 0.0,
+		"base_stats": {"atk": 16.0, "def": 7.0, "spd": 8.0, "hp": 88.0, "sup": 3.0},
 	},
 ]
 
@@ -2455,6 +2547,15 @@ func house_summon_choice_ids() -> Array[String]:
 	var out: Array[String] = []
 	for s in SUMMONS:
 		out.append(String(s.get("id", "")))
+	return out
+
+
+func starter_summon_ids() -> Array[String]:
+	var out: Array[String] = []
+	for s in SUMMONS:
+		var sid: String = String(s.get("id", ""))
+		if sid != "" and sid != "none" and bool(s.get("starter_pick", false)):
+			out.append(sid)
 	return out
 
 
@@ -2720,6 +2821,7 @@ func resolve_summon_house_preview(summon_id: String, level: int = 1) -> Dictiona
 	var scale_mul: float = float(sdef.get("preview_scale", 1.0))
 	if summon_is_egg(lv):
 		scale_mul *= float(sdef.get("egg_preview_scale", SUMMON_EGG_PREVIEW_SCALE))
+	scale_mul *= SUMMON_DISPLAY_SIZE_MULT
 	return {
 		"kind": "static_tex",
 		"texture": tex,
@@ -2782,6 +2884,110 @@ func format_summon_house_detail_text(
 	lines.append(tr_summon_desc(summon_id))
 	lines.append(tr("SUMMON_GROWTH_PLAN_HINT"))
 	return "\n".join(lines)
+
+
+func format_summon_codex_evolution_path(summon_id: String) -> String:
+	return tr("CODEX_SUMMON_EVOLUTION_FMT") % [
+		tr_summon_egg_name(summon_id),
+		tr_summon_name(summon_id),
+		SUMMON_EVOLVE_LEVEL,
+		tr_summon_evolve_name(summon_id),
+		SUMMON_MAX_LEVEL,
+	]
+
+
+func format_summon_codex_combat_style(summon_id: String) -> String:
+	var sdef: Dictionary = get_summon_def(summon_id)
+	if bool(sdef.get("codex_combat_tbd", false)):
+		return tr("CODEX_SUMMON_STYLE_NONE")
+	match String(get_summon_combat_profile(summon_id).get("style", "")):
+		"melee":
+			return tr("CODEX_SUMMON_STYLE_MELEE")
+		"ranged":
+			return tr("CODEX_SUMMON_STYLE_RANGED")
+		"support":
+			return tr("CODEX_SUMMON_STYLE_SUPPORT")
+		_:
+			return tr("CODEX_SUMMON_STYLE_NONE")
+
+
+func format_summon_codex_reference_stats(summon_id: String) -> String:
+	var lines: PackedStringArray = PackedStringArray()
+	for lv in [1, SUMMON_EVOLVE_LEVEL, SUMMON_MAX_LEVEL]:
+		lines.append(tr("CODEX_SUMMON_STAGE_STATS_FMT") % [
+			lv, format_summon_stats_text(summon_id, lv)])
+	return "\n".join(lines)
+
+
+func format_summon_codex_acquisition(summon_id: String) -> String:
+	var sdef: Dictionary = get_summon_def(summon_id)
+	if bool(sdef.get("codex_acquisition_tbd", false)):
+		return tr("SUMMON_CODEX_ACQUISITION_TBD")
+	if bool(sdef.get("starter_pick", false)):
+		return tr("SUMMON_CODEX_ACQUISITION_STARTER")
+	var key: String = String(sdef.get("codex_acquisition_key", ""))
+	if key != "":
+		return tr(key)
+	return tr("CODEX_SUMMON_STYLE_NONE")
+
+
+func format_summon_codex_special_ability(summon_id: String) -> String:
+	var sdef: Dictionary = get_summon_def(summon_id)
+	if bool(sdef.get("codex_ability_tbd", false)):
+		return ""
+	var stats: Dictionary = summon_computed_stats(summon_id, SUMMON_MAX_LEVEL)
+	var sup: int = int(stats.get("sup", 0))
+	var ab: Dictionary = build_summon_abilities(summon_id, sup)
+	match summon_id:
+		"frcloudy":
+			var slow_pct: int = int(round(
+				(1.0 - float(ab.get("slow_factor", ENEMY_STATUS_ICE_SLOW_FACTOR))) * 100.0))
+			return tr("CODEX_SUMMON_AB_FRCLOUDY_FMT") % [
+				float(ab.get("slow_duration", 0.0)), slow_pct]
+		"herbarmor":
+			return tr("CODEX_SUMMON_AB_HERBARMOR_FMT") % [
+				int(round(float(ab.get("taunt_chance", 0.0)) * 100.0)),
+				float(ab.get("taunt_duration", 0.0)),
+				float(ab.get("taunt_cd", 0.0)),
+			]
+		"brawno":
+			return tr("CODEX_SUMMON_AB_BRAWNO_FMT") % [
+				int(round(float(ab.get("crit_chance", 0.0)) * 100.0)),
+				float(ab.get("crit_mult", SUMMON_AB_BRAWNO_CRIT_MULT)),
+				int(round(float(ab.get("aoe_chance", 0.0)) * 100.0)),
+			]
+		"scarfner":
+			return tr("CODEX_SUMMON_AB_SCARFNER_FMT") % [
+				int(round(float(ab.get("burn_chance", 0.0)) * 100.0)),
+				float(ab.get("burn_duration", ENEMY_STATUS_FLAME_BURN_DURATION)),
+			]
+		"mossis":
+			return tr("CODEX_SUMMON_AB_MOSSIS_FMT") % [
+				int(round(float(ab.get("spawn_chance", 0.0)) * 100.0)),
+				float(ab.get("spawn_interval", 0.0)),
+			]
+		_:
+			return ""
+
+
+func format_summon_codex_shard_progress(summon_id: String, shard_count: int) -> String:
+	return tr("CODEX_SUMMON_SHARD_FMT") % [
+		shard_count, SUMMON_SHARDS_PER_EGG]
+
+
+func playable_summon_defs_for_codex() -> Array[Dictionary]:
+	var starter: Array[Dictionary] = []
+	var advanced: Array[Dictionary] = []
+	for sid in playable_summon_ids():
+		var sdef: Dictionary = get_summon_def(sid)
+		if sdef.is_empty():
+			continue
+		if String(sdef.get("codex_group", "starter")) == "advanced":
+			advanced.append(sdef)
+		else:
+			starter.append(sdef)
+	starter.append_array(advanced)
+	return starter
 
 
 ## 房屋可選造型：預設、角色專屬（烈焰騎士／翠葉遊俠）、本機通用（Puersz／Shiang）

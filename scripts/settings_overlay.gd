@@ -809,6 +809,7 @@ func _build_codex_panel() -> void:
 	_add_codex_tab_button("abilities", "CODEX_TAB_ABILITIES")
 	_add_codex_tab_button("armaments", "CODEX_TAB_ARMAMENTS")
 	_add_codex_tab_button("monsters", "CODEX_TAB_MONSTERS")
+	_add_codex_tab_button("summons", "CODEX_TAB_SUMMONS")
 
 	codex_list = RichTextLabel.new()
 	codex_list.position = Vector2(30, 124)
@@ -870,7 +871,7 @@ func _add_codex_tab_button(tab_id: String, label_key: String) -> void:
 	var btn := Button.new()
 	btn.name = "CodexTab_" + tab_id
 	btn.text = tr(label_key)
-	btn.custom_minimum_size = Vector2(130, 38)
+	btn.custom_minimum_size = Vector2(112, 38)
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -1528,6 +1529,11 @@ func _refresh_codex_panel() -> void:
 			if codex_monsters_host:
 				codex_monsters_host.visible = true
 			_populate_codex_monsters_ui()
+		"summons":
+			codex_list.visible = false
+			if codex_monsters_host:
+				codex_monsters_host.visible = true
+			_populate_codex_summons_ui()
 		_:
 			_codex_tab = "characters"
 			if codex_monsters_host:
@@ -1543,6 +1549,7 @@ func _refresh_codex_tab_buttons() -> void:
 		"abilities": "CODEX_TAB_ABILITIES",
 		"armaments": "CODEX_TAB_ARMAMENTS",
 		"monsters": "CODEX_TAB_MONSTERS",
+		"summons": "CODEX_TAB_SUMMONS",
 	}
 	for tab_id in tab_keys.keys():
 		var btn: Button = codex_tab_buttons.get(tab_id, null)
@@ -1597,9 +1604,11 @@ func _codex_weapons_text() -> String:
 		tr("CODEX_WEAPON_UPGRADE_HINT"),
 		"",
 	]
-	for w in GameData.WEAPONS:
-		var wid: String = String(w.get("id", ""))
+	for wid in GameState.weapon_codex_display_order():
 		var wdef: Dictionary = GameData.get_weapon_def(wid)
+		if wdef.is_empty():
+			continue
+		var w: Dictionary = wdef
 		var unlocked: bool = GameState.is_weapon_unlocked(wid)
 		var title_color: String = "#7dff9d" if unlocked else "#8f96aa"
 		var status: String = tr("CODEX_STATUS_UNLOCKED") if unlocked else tr("CODEX_STATUS_LOCKED")
@@ -1735,8 +1744,110 @@ func _on_codex_monster_item_clicked(index: int, _at_pos: Vector2, mouse_button_i
 		return
 	if codex_monsters_item_list == null:
 		return
-	var eid: String = String(codex_monsters_item_list.get_item_metadata(index))
-	_show_codex_monster_detail(GameData.get_enemy_def(eid))
+	var meta: String = String(codex_monsters_item_list.get_item_metadata(index))
+	if _codex_tab == "summons":
+		_show_codex_summon_detail(meta)
+		return
+	_show_codex_monster_detail(GameData.get_enemy_def(meta))
+
+
+func _populate_codex_summons_ui() -> void:
+	if codex_monsters_item_list == null or codex_monsters_summary == null:
+		return
+	codex_monsters_item_list.clear()
+	codex_monsters_summary.clear()
+	var defs: Array[Dictionary] = GameData.playable_summon_defs_for_codex()
+	var unlocked_n: int = 0
+	for d in defs:
+		if GameState.is_summon_unlocked(String(d.get("id", ""))):
+			unlocked_n += 1
+	codex_monsters_summary.append_text("[b]%s[/b]\n" % (
+		tr("CODEX_SUMMONS_SUMMARY_FMT") % [unlocked_n, defs.size()]))
+	codex_monsters_summary.append_text("%s" % tr("CODEX_SUMMONS_HINT"))
+	for d in defs:
+		var sid: String = String(d.get("id", ""))
+		if sid == "":
+			continue
+		var unlocked: bool = GameState.is_summon_unlocked(sid)
+		var portrait: Texture2D = _codex_summon_portrait_texture(sid, unlocked)
+		var title: String = GameData.tr_summon_name(sid) if unlocked else "???"
+		var line2: String
+		if not unlocked:
+			var shards: int = GameState.get_summon_shard_count(sid)
+			if shards > 0:
+				line2 = GameData.format_summon_codex_shard_progress(sid, shards)
+			else:
+				line2 = tr("CODEX_SUMMON_LOCKED_SHORT")
+		else:
+			var prog: Dictionary = GameState.get_best_summon_progress(sid)
+			var lv: int = int(prog.get("level", GameData.SUMMON_MIN_LEVEL))
+			line2 = "%s｜%s" % [GameData.tr_summon_type(d), GameData.format_summon_level_text(lv)]
+		var idx: int = codex_monsters_item_list.add_item("%s\n%s" % [title, line2], portrait)
+		codex_monsters_item_list.set_item_metadata(idx, sid)
+		if not unlocked:
+			codex_monsters_item_list.set_item_icon_modulate(idx, Color(0.42, 0.45, 0.52, 1.0))
+
+
+func _codex_summon_portrait_texture(summon_id: String, unlocked: bool) -> Texture2D:
+	var lv: int = GameData.SUMMON_MIN_LEVEL
+	if unlocked:
+		lv = int(GameState.get_best_summon_progress(summon_id).get(
+			"level", GameData.SUMMON_MIN_LEVEL))
+	var preview: Dictionary = GameData.resolve_summon_house_preview(summon_id, lv)
+	return preview.get("texture") as Texture2D
+
+
+func _show_codex_summon_detail(summon_id: String) -> void:
+	if summon_id == "" or codex_detail_dialog == null:
+		return
+	var sdef: Dictionary = GameData.get_summon_def(summon_id)
+	if sdef.is_empty():
+		return
+	var unlocked: bool = GameState.is_summon_unlocked(summon_id)
+	codex_detail_dialog.title = "%s：%s" % [
+		tr("CODEX_TAB_SUMMONS"),
+		GameData.tr_summon_name(summon_id) if unlocked else "???",
+	]
+	if not unlocked:
+		var shard_lines: Array[String] = [tr("CODEX_LOCKED_SUMMON_HINT"), ""]
+		shard_lines.append(GameData.format_summon_codex_evolution_path(summon_id))
+		shard_lines.append(tr("CODEX_SUMMON_DETAIL_ACQUISITION_FMT") % \
+			GameData.format_summon_codex_acquisition(summon_id))
+		var shards: int = GameState.get_summon_shard_count(summon_id)
+		if shards > 0:
+			shard_lines.append(GameData.format_summon_codex_shard_progress(summon_id, shards))
+		else:
+			shard_lines.append(tr("CODEX_SUMMON_SHARD_NONE"))
+		codex_detail_dialog.dialog_text = "\n".join(shard_lines)
+		codex_detail_dialog.popup_centered()
+		return
+	var prog: Dictionary = GameState.get_best_summon_progress(summon_id)
+	var lv: int = int(prog.get("level", GameData.SUMMON_MIN_LEVEL))
+	var exp: int = int(prog.get("exp", 0))
+	var lines: Array[String] = []
+	lines.append(GameData.tr_summon_desc(summon_id))
+	lines.append("")
+	lines.append(tr("CODEX_SUMMON_DETAIL_TYPE_FMT") % GameData.tr_summon_type(sdef))
+	lines.append(tr("CODEX_SUMMON_DETAIL_STYLE_FMT") % GameData.format_summon_codex_combat_style(summon_id))
+	lines.append(tr("CODEX_SUMMON_DETAIL_ACQUISITION_FMT") % \
+		GameData.format_summon_codex_acquisition(summon_id))
+	lines.append(GameData.format_summon_codex_evolution_path(summon_id))
+	lines.append("")
+	lines.append(tr("CODEX_SUMMON_DETAIL_PROGRESS_TITLE"))
+	lines.append(GameData.format_summon_level_text(lv))
+	lines.append(GameData.format_summon_exp_text(lv, exp))
+	lines.append(GameData.format_summon_evolve_text(lv))
+	lines.append(GameData.format_summon_stats_text(summon_id, lv))
+	lines.append("")
+	lines.append(tr("CODEX_SUMMON_DETAIL_REFERENCE_TITLE"))
+	lines.append(GameData.format_summon_codex_reference_stats(summon_id))
+	var ability: String = GameData.format_summon_codex_special_ability(summon_id)
+	if ability != "":
+		lines.append("")
+		lines.append(tr("CODEX_SUMMON_DETAIL_ABILITY_TITLE"))
+		lines.append(ability)
+	codex_detail_dialog.dialog_text = "\n".join(lines)
+	codex_detail_dialog.popup_centered()
 
 
 func _codex_monster_tags(def: Dictionary) -> String:

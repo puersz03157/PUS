@@ -43,6 +43,7 @@ const VILLAGE_TIME_CYCLE := 480.0             # 完整循環 8 分鐘
 const Coop := preload("res://scripts/coop_pair_follow.gd")
 const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
 const VillageSummonFollowerT := preload("res://scripts/village_summon_follower.gd")
+const VillageSummonAmbientT := preload("res://scripts/village_summon_ambient.gd")
 const InputPrompt := preload("res://scripts/input_prompt.gd")
 const BlockingNotice := preload("res://scripts/blocking_notice.gd")
 
@@ -186,6 +187,7 @@ var _summon_milestone_layer: CanvasLayer = null
 # 所有「只在白天出現」的功能性 NPC 節點（傍晚/夜晚隱藏且無法互動）
 var _timed_npc_nodes: Array = []
 var _summon_followers: Array = []
+var _summon_ambients: Array = []
 
 
 func _ready() -> void:
@@ -1023,6 +1025,7 @@ func _enter_tavern() -> void:
 		feet_x = (enter_slot as Node2D).global_position.x - 40.0
 	_teleport_players_to_feet_x(feet_x)
 	_transitioning = false
+	_refresh_village_summon_followers()
 
 
 func _exit_tavern() -> void:
@@ -1041,6 +1044,7 @@ func _exit_tavern() -> void:
 		feet_x = (door_slot as Node2D).global_position.x
 	_teleport_players_to_feet_x(feet_x)
 	_transitioning = false
+	_refresh_village_summon_followers()
 
 
 # 找一個群組節點底下所有 Sprite2D 視覺底部 Y 的最大值（=最低位置）
@@ -2319,7 +2323,7 @@ func _open_headman_dialog(entry: Dictionary) -> void:
 func _open_headman_starter_summon_dialog(_entry: Dictionary) -> void:
 	if GameState.quest_headman_starter_summon_done or _headman_starter_dialog != null:
 		return
-	var ids: Array[String] = GameData.playable_summon_ids()
+	var ids: Array[String] = GameData.starter_summon_ids()
 	if ids.is_empty():
 		return
 	get_tree().paused = true
@@ -2416,7 +2420,7 @@ func _open_headman_starter_summon_dialog(_entry: Dictionary) -> void:
 
 
 func _cycle_headman_starter_summon(direction: int) -> void:
-	var ids: Array[String] = GameData.playable_summon_ids()
+	var ids: Array[String] = GameData.starter_summon_ids()
 	if ids.is_empty():
 		return
 	_headman_starter_idx = (_headman_starter_idx + direction + ids.size()) % ids.size()
@@ -2424,7 +2428,7 @@ func _cycle_headman_starter_summon(direction: int) -> void:
 
 
 func _refresh_headman_starter_summon_panel() -> void:
-	var ids: Array[String] = GameData.playable_summon_ids()
+	var ids: Array[String] = GameData.starter_summon_ids()
 	if ids.is_empty():
 		return
 	var sid: String = ids[_headman_starter_idx % ids.size()]
@@ -2439,7 +2443,7 @@ func _refresh_headman_starter_summon_panel() -> void:
 
 
 func _confirm_headman_starter_summon() -> void:
-	var ids: Array[String] = GameData.playable_summon_ids()
+	var ids: Array[String] = GameData.starter_summon_ids()
 	if ids.is_empty():
 		return
 	var sid: String = ids[_headman_starter_idx % ids.size()]
@@ -5057,17 +5061,19 @@ func _add_blacksmith_goods(goods: VBoxContainer) -> void:
 	fav_slot_btn.name = "FavoriteSlotButton"
 	fav_slot_btn.pressed.connect(_buy_blacksmith_favorite_slot)
 	goods.add_child(fav_slot_btn)
-	var weapon_btn := _make_blacksmith_shop_button()
-	weapon_btn.name = "WeaponKindButton"
-	weapon_btn.pressed.connect(_buy_blacksmith_weapon_kind)
-	goods.add_child(weapon_btn)
-	# ── 武器製作 ──
-	goods.add_child(_make_blacksmith_section_label(tr("BLACKSMITH_SECTION_WEAPONS")))
-	for weapon_id in GameState.BLACKSMITH_CRAFT_WEAPON_IDS:
+	# ── 武器解鎖（金幣＋素材，依序） ──
+	goods.add_child(_make_blacksmith_section_label(tr("BLACKSMITH_SECTION_WEAPONS_TIER1")))
+	for weapon_id in GameState.BLACKSMITH_TIER1_WEAPON_IDS:
 		var weapon_craft_btn := _make_blacksmith_shop_button()
 		weapon_craft_btn.name = "WeaponCraft_" + weapon_id
 		weapon_craft_btn.pressed.connect(_craft_blacksmith_weapon_kind.bind(weapon_id))
 		goods.add_child(weapon_craft_btn)
+	goods.add_child(_make_blacksmith_section_label(tr("BLACKSMITH_SECTION_WEAPONS_TIER2")))
+	for weapon_id in GameState.BLACKSMITH_TIER2_WEAPON_IDS:
+		var weapon_craft_btn2 := _make_blacksmith_shop_button()
+		weapon_craft_btn2.name = "WeaponCraft_" + weapon_id
+		weapon_craft_btn2.pressed.connect(_craft_blacksmith_weapon_kind.bind(weapon_id))
+		goods.add_child(weapon_craft_btn2)
 	# ── 武裝製作 ──
 	goods.add_child(_make_blacksmith_section_label(tr("BLACKSMITH_SECTION_ARMAMENTS")))
 	for arm_id in GameData.blacksmith_armament_ids():
@@ -5123,31 +5129,27 @@ func _refresh_blacksmith_dialog(status: String) -> void:
 						tr("BLACKSMITH_BUY_FAVORITE_SLOT_DONE") if fc < 0 \
 						else tr("BLACKSMITH_BUY_FAVORITE_SLOT_FMT") % [
 							nxt, GameData.format_gold_cost_bbcode(fc)])
-			"WeaponKindButton":
-				var wid: String = GameState.next_locked_weapon_id()
-				var tier2_wid: String = GameState.next_locked_weapon_id_tier2()
-				if wid == "" and tier2_wid != "":
-					btn.disabled = true
-					_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_TIER2_LOCKED"))
-				else:
-					btn.disabled = wid == "" or GameState.gold < GameState.BLACKSMITH_WEAPON_KIND_COST
-					_set_blacksmith_button_bbcode(btn,
-						tr("BLACKSMITH_BUY_WEAPON_DONE") if wid == "" \
-						else tr("BLACKSMITH_BUY_WEAPON_FMT") % [
-							GameData.tr_weapon_name(wid),
-							GameData.format_gold_cost_bbcode(GameState.BLACKSMITH_WEAPON_KIND_COST)])
 			_:
 				if String(btn.name).begins_with("WeaponCraft_"):
 					var craft_weapon_id: String = String(btn.name).replace("WeaponCraft_", "")
 					var wdef: Dictionary = GameData.get_weapon_def(craft_weapon_id)
 					var weapon_owned: bool = GameState.is_weapon_unlocked(craft_weapon_id)
-					# 已製作：隱藏
 					btn.visible = not weapon_owned
 					if not weapon_owned:
-						var weapon_cost_text: String = _format_weapon_craft_cost(craft_weapon_id)
-						btn.disabled = not GameState.can_craft_weapon_kind(craft_weapon_id)
-						_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_CRAFT_WEAPON_FMT") % [
-							GameData.tr_name(wdef), weapon_cost_text])
+						var next_id: String = GameState.next_blacksmith_weapon_unlock_id()
+						var is_tier2_weapon: bool = GameState.BLACKSMITH_TIER2_WEAPON_IDS.has(craft_weapon_id)
+						if is_tier2_weapon and not GameState.blacksmith_tier2_unlocked:
+							btn.disabled = true
+							_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_TIER2_LOCKED"))
+						elif craft_weapon_id != next_id:
+							btn.disabled = true
+							_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_CRAFT_WEAPON_LOCKED_ORDER_FMT") % [
+								GameData.tr_name(wdef)])
+						else:
+							var weapon_cost_text: String = _format_weapon_craft_cost(craft_weapon_id)
+							btn.disabled = not GameState.can_craft_weapon_kind(craft_weapon_id)
+							_set_blacksmith_button_bbcode(btn, tr("BLACKSMITH_CRAFT_WEAPON_FMT") % [
+								GameData.tr_name(wdef), weapon_cost_text])
 				elif String(btn.name).begins_with("Armament_"):
 					var arm_id: String = String(btn.name).replace("Armament_", "")
 					var adef: Dictionary = GameData.get_armament_def(arm_id)
@@ -5206,17 +5208,9 @@ func _buy_blacksmith_favorite_slot() -> void:
 		_refresh_blacksmith_dialog(tr("BLACKSMITH_NOT_ENOUGH_GOLD"))
 
 
-func _buy_blacksmith_weapon_kind() -> void:
-	var wid: String = GameState.buy_next_weapon_kind()
-	if wid != "":
-		_refresh_blacksmith_dialog(tr("BLACKSMITH_BOUGHT_WEAPON_FMT") % GameData.tr_weapon_name(wid))
-	else:
-		_refresh_blacksmith_dialog(tr("BLACKSMITH_NOT_ENOUGH_GOLD"))
-
-
 func _craft_blacksmith_weapon_kind(weapon_id: String) -> void:
 	if GameState.craft_weapon_kind(weapon_id):
-		_refresh_blacksmith_dialog(tr("BLACKSMITH_CRAFTED_WEAPON_FMT") % GameData.tr_weapon_name(weapon_id))
+		_refresh_blacksmith_dialog(tr("BLACKSMITH_UNLOCKED_WEAPON_FMT") % GameData.tr_weapon_name(weapon_id))
 	else:
 		_refresh_blacksmith_dialog(tr("BLACKSMITH_NOT_ENOUGH_RESOURCES"))
 
@@ -5594,6 +5588,76 @@ func _clear_village_summon_followers() -> void:
 	_summon_followers.clear()
 
 
+func _clear_village_summon_ambients() -> void:
+	for a in _summon_ambients:
+		if a != null and is_instance_valid(a):
+			a.queue_free()
+	_summon_ambients.clear()
+
+
+func _refresh_village_summon_ambients() -> void:
+	_clear_village_summon_ambients()
+	if _is_in_tavern():
+		return
+	var candidates: Array[String] = GameState.village_ambient_summon_ids()
+	if candidates.is_empty():
+		return
+	candidates.shuffle()
+	var spawn_n: int = mini(candidates.size(), GameData.SUMMON_VILLAGE_AMBIENT_MAX)
+	var positions: Array[Vector2] = _pick_ambient_summon_spawn_positions(spawn_n)
+	for i in spawn_n:
+		var sid: String = candidates[i]
+		var amb = VillageSummonAmbientT.new()
+		add_child(amb)
+		amb.setup(self, sid, positions[i])
+		_summon_ambients.append(amb)
+
+
+func _pick_ambient_summon_spawn_positions(count: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if count <= 0:
+		return out
+	var margin: float = GameData.SUMMON_VILLAGE_AMBIENT_MARGIN_X
+	var min_x: float = margin
+	var max_x: float = maxf(margin + 1.0, _map_size.x - margin)
+	var base_y: float = floor_y + GameData.SUMMON_VILLAGE_FLOAT_OFFSET_Y
+	var tries_per: int = maxi(1, GameData.SUMMON_VILLAGE_AMBIENT_SPAWN_TRIES / count)
+	for _n in count:
+		var placed: bool = false
+		for _try in tries_per:
+			var pos: Vector2 = Vector2(randf_range(min_x, max_x), base_y)
+			if is_world_blocked_at(pos, 16.0):
+				continue
+			if _ambient_spawn_too_close(pos, out):
+				continue
+			if _ambient_spawn_too_close_to_players(pos):
+				continue
+			out.append(pos)
+			placed = true
+			break
+		if not placed:
+			out.append(Vector2(randf_range(min_x, max_x), base_y))
+	return out
+
+
+func _ambient_spawn_too_close(pos: Vector2, existing: Array[Vector2]) -> bool:
+	var min_d: float = GameData.SUMMON_VILLAGE_AMBIENT_MIN_SPACING
+	for other in existing:
+		if pos.distance_to(other) < min_d:
+			return true
+	return false
+
+
+func _ambient_spawn_too_close_to_players(pos: Vector2) -> bool:
+	var clearance: float = GameData.SUMMON_VILLAGE_AMBIENT_PLAYER_CLEARANCE
+	for p in players:
+		if p == null or not is_instance_valid(p):
+			continue
+		if pos.distance_to(p.global_position) < clearance:
+			return true
+	return false
+
+
 func _refresh_village_summon_followers() -> void:
 	_clear_village_summon_followers()
 	for p in players:
@@ -5610,6 +5674,7 @@ func _refresh_village_summon_followers() -> void:
 			add_child(follower)
 			follower.setup(p, summon_ids[i], prefix, i, count)
 			_summon_followers.append(follower)
+	_refresh_village_summon_ambients()
 
 
 func _position_camera() -> void:

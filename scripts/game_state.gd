@@ -9,16 +9,23 @@ const HOUSE_SUMMON_PROGRESS_CFG_SECTION := "house_summon_progress"
 const DEFAULT_UNLOCKED_CHARACTERS: Array[String] = ["swordsman", "ranger"]
 const MAX_WEAPON_SLOTS := 5
 const DEFAULT_UNLOCKED_WEAPON_SLOTS := 3
-const DEFAULT_LOCKED_WEAPONS: Array[String] = ["melody", "claw", "shard", "poison", "holy"]
-const BLACKSMITH_CRAFT_WEAPON_IDS: Array[String] = ["axe", "magic_bullet"]
-const BLACKSMITH_TIER2_WEAPON_IDS: Array[String] = ["shard", "holy"]
+const BLACKSMITH_WEAPON_UNLOCK_ORDER: Array[String] = [
+	"axe", "magic_bullet", "melody", "claw", "poison",
+	"shard", "holy", "firearm", "boxing", "whip",
+]
+const BLACKSMITH_TIER1_WEAPON_IDS: Array[String] = [
+	"axe", "magic_bullet", "melody", "claw", "poison",
+]
+const BLACKSMITH_TIER2_WEAPON_IDS: Array[String] = [
+	"shard", "holy", "firearm", "boxing", "whip",
+]
 const BLACKSMITH_TIER1_WEAPON_SLOT_MAX := 4
 const BLACKSMITH_TIER1_HOUSE_SLOT_MAX := 3
 const BLACKSMITH_SLOT_COSTS: Dictionary = {4: 200, 5: 350}
 const DEFAULT_UNLOCKED_COMMON_UPGRADE_SLOTS := GameData.COMMON_UPGRADE_SLOT_INITIAL
 ## 喜愛武裝擴充：解鎖「第 3～5 格」所需金幣（1P／2P 同步）
 const BLACKSMITH_HOUSE_FAVORITE_SLOT_COSTS: Dictionary = {3: 130, 4: 240, 5: 400}
-const BLACKSMITH_WEAPON_KIND_COST := 180
+const BLACKSMITH_WEAPON_CRAFT_GOLD_DEFAULT := 120
 const BLACKSMITH_ARMAMENT_COST := 160
 const MERCHANT_MATERIAL_BUY_PRICE := 12
 const MERCHANT_MATERIAL_SELL_PRICE := 4
@@ -179,8 +186,8 @@ var p1_pinball_bg_pattern: String = GameData.PINBALL_BG_PATTERN_DEFAULT
 var p1_ui_bg_main: String = GameData.PINBALL_BG_PATTERN_DEFAULT
 var p1_ui_bg_panel: String = GameData.PINBALL_BG_PATTERN_DEFAULT
 var p1_ui_bg_dialog: String = GameData.PINBALL_BG_PATTERN_DEFAULT
-## UI PatternMix 淡化強度：0=不淡化（圖案最清楚），1=預設淡化。
-var ui_bg_pattern_dim: float = 1.0
+## UI PatternMix 淡化強度：0=不淡化（圖案最清楚），1=最淡；預設 0.5（50%）。
+var ui_bg_pattern_dim: float = 0.5
 ## 喜愛武裝目前可用格數（含 P1／P2 所有角色；上限見 GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS）
 var house_favorite_unlocked_slots: int = 2
 
@@ -490,42 +497,60 @@ func unlock_all_house_favorite_slots() -> void:
 	house_favorite_unlocked_slots = GameData.P1_HOUSE_FAVORITE_ARMAMENT_SLOTS
 
 
-func next_locked_weapon_id() -> String:
-	for wid in DEFAULT_LOCKED_WEAPONS:
+func next_blacksmith_weapon_unlock_id() -> String:
+	for wid in BLACKSMITH_WEAPON_UNLOCK_ORDER:
+		if unlocked_weapons.has(wid):
+			continue
+		if BLACKSMITH_TIER2_WEAPON_IDS.has(wid) and not blacksmith_tier2_unlocked:
+			continue
+		return wid
+	return ""
+
+
+func blacksmith_all_tier1_weapons_unlocked() -> bool:
+	for wid in BLACKSMITH_TIER1_WEAPON_IDS:
 		if not unlocked_weapons.has(wid):
-			if BLACKSMITH_TIER2_WEAPON_IDS.has(wid) and not blacksmith_tier2_unlocked:
-				continue
-			return wid
+			return false
+	return true
+
+
+func is_blacksmith_weapon_unlock(id: String) -> bool:
+	return BLACKSMITH_WEAPON_UNLOCK_ORDER.has(id)
+
+
+## 圖鑑／列表用：開局可用 → 鐵匠 Tier1 → 鐵匠 Tier2（同 BLACKSMITH_WEAPON_UNLOCK_ORDER）
+func weapon_codex_display_order() -> Array[String]:
+	var out: Array[String] = []
 	for w in GameData.WEAPONS:
-		var id: String = String(w.get("id", ""))
-		if id != "" and not unlocked_weapons.has(id) and not BLACKSMITH_CRAFT_WEAPON_IDS.has(id):
-			return id
-	return ""
+		var wid: String = String(w.get("id", ""))
+		if wid != "" and not is_blacksmith_weapon_unlock(wid):
+			out.append(wid)
+	for wid in BLACKSMITH_WEAPON_UNLOCK_ORDER:
+		out.append(wid)
+	return out
 
 
-func next_locked_weapon_id_tier2() -> String:
-	if blacksmith_tier2_unlocked:
-		return ""
-	for wid in BLACKSMITH_TIER2_WEAPON_IDS:
-		if not unlocked_weapons.has(wid):
-			return wid
-	return ""
-
-
-func buy_next_weapon_kind() -> String:
-	var wid: String = next_locked_weapon_id()
-	if wid == "" or not spend_gold(BLACKSMITH_WEAPON_KIND_COST):
-		return ""
-	unlocked_weapons.append(wid)
-	save_to_disk()
-	return wid
+func can_craft_weapon_kind(id: String) -> bool:
+	if id == "" or is_weapon_unlocked(id) or not is_blacksmith_weapon_unlock(id):
+		return false
+	if id != next_blacksmith_weapon_unlock_id():
+		return false
+	if BLACKSMITH_TIER2_WEAPON_IDS.has(id) and not blacksmith_tier2_unlocked:
+		return false
+	if gold < weapon_gold_cost(id):
+		return false
+	var material_costs: Dictionary = weapon_material_costs(id)
+	for material_id in material_costs.keys():
+		if get_material_amount(String(material_id)) < int(material_costs[material_id]):
+			return false
+	return true
 
 
 func weapon_gold_cost(id: String) -> int:
 	var wdef: Dictionary = GameData.get_weapon_def(id)
 	if wdef.is_empty():
-		return BLACKSMITH_WEAPON_KIND_COST
-	return int(wdef.get("craft_gold", BLACKSMITH_WEAPON_KIND_COST))
+		return BLACKSMITH_WEAPON_CRAFT_GOLD_DEFAULT
+	return int(wdef.get("craft_gold", BLACKSMITH_WEAPON_CRAFT_GOLD_DEFAULT))
 
 
 func weapon_material_costs(id: String) -> Dictionary:
@@ -538,23 +563,8 @@ func weapon_material_costs(id: String) -> Dictionary:
 	return costs
 
 
-func can_craft_weapon_kind(id: String) -> bool:
-	if id == "" or is_weapon_unlocked(id) or GameData.get_weapon_def(id).is_empty():
-		return false
-	if gold < weapon_gold_cost(id):
-		return false
-	var material_costs: Dictionary = weapon_material_costs(id)
-	for material_id in material_costs.keys():
-		if get_material_amount(String(material_id)) < int(material_costs[material_id]):
-			return false
-	return true
-
-
 func craft_weapon_kind(id: String) -> bool:
-	if id == "" or is_weapon_unlocked(id):
-		return false
-	var wdef: Dictionary = GameData.get_weapon_def(id)
-	if wdef.is_empty():
+	if not can_craft_weapon_kind(id):
 		return false
 	var gold_cost: int = weapon_gold_cost(id)
 	var material_costs: Dictionary = weapon_material_costs(id)
@@ -1231,6 +1241,27 @@ func village_summon_ids_for_follow(player_slot: String, char_id: String) -> Arra
 	return house_summon_ids_for_battle(player_slot, char_id)
 
 
+func village_ambient_summon_ids() -> Array[String]:
+	var following: Dictionary = {}
+	if two_players:
+		_collect_village_follow_summon_ids(following, "p1", p1_character)
+		_collect_village_follow_summon_ids(following, "p2", p2_character)
+	else:
+		_collect_village_follow_summon_ids(following, "p1", p1_character)
+	var out: Array[String] = []
+	for sid in GameData.playable_summon_ids():
+		if is_summon_unlocked(sid) and not following.has(sid):
+			out.append(sid)
+	return out
+
+
+func _collect_village_follow_summon_ids(into: Dictionary, player_slot: String, char_id: String) -> void:
+	if char_id == "":
+		return
+	for sid in village_summon_ids_for_follow(player_slot, char_id):
+		into[sid] = true
+
+
 func _summon_progress_dict(player_slot: String) -> Dictionary:
 	return p2_summon_progress if player_slot == "p2" else p1_summon_progress
 
@@ -1273,6 +1304,21 @@ func get_summon_progress(player_slot: String, summon_id: String) -> Dictionary:
 		return _default_summon_progress_entry()
 	ensure_summon_progress(player_slot, summon_id)
 	return _normalize_summon_progress_entry(_summon_progress_dict(player_slot).get(summon_id, null))
+
+
+func get_best_summon_progress(summon_id: String) -> Dictionary:
+	if summon_id == "" or summon_id == "none" or not is_summon_unlocked(summon_id):
+		return _default_summon_progress_entry()
+	var best: Dictionary = get_summon_progress("p1", summon_id)
+	if two_players:
+		var p2: Dictionary = get_summon_progress("p2", summon_id)
+		var best_lv: int = int(best.get("level", GameData.SUMMON_MIN_LEVEL))
+		var p2_lv: int = int(p2.get("level", GameData.SUMMON_MIN_LEVEL))
+		if p2_lv > best_lv:
+			best = p2
+		elif p2_lv == best_lv and int(p2.get("exp", 0)) > int(best.get("exp", 0)):
+			best = p2
+	return best
 
 
 func cycle_all_summon_test_levels() -> Dictionary:
@@ -1869,7 +1915,7 @@ func reset_account() -> void:
 	p1_ui_bg_main = GameData.PINBALL_BG_PATTERN_DEFAULT
 	p1_ui_bg_panel = GameData.PINBALL_BG_PATTERN_DEFAULT
 	p1_ui_bg_dialog = GameData.PINBALL_BG_PATTERN_DEFAULT
-	ui_bg_pattern_dim = 1.0
+	ui_bg_pattern_dim = 0.5
 	house_favorite_unlocked_slots = GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL
 	reset_run()
 	save_to_disk()
@@ -2151,7 +2197,7 @@ func load_from_disk() -> void:
 		p1_ui_bg_main = GameData.PINBALL_BG_PATTERN_DEFAULT
 		p1_ui_bg_panel = GameData.PINBALL_BG_PATTERN_DEFAULT
 		p1_ui_bg_dialog = GameData.PINBALL_BG_PATTERN_DEFAULT
-		ui_bg_pattern_dim = 1.0
+		ui_bg_pattern_dim = 0.5
 		house_favorite_unlocked_slots = GameData.HOUSE_FAVORITE_ARMAMENT_SLOTS_INITIAL
 		roll_tavern_traveler_for_new_day()
 		return
@@ -2210,7 +2256,7 @@ func load_from_disk() -> void:
 	else:
 		_ensure_default_weapon_unlocks()
 	if should_save_migration:
-		for wid in BLACKSMITH_CRAFT_WEAPON_IDS:
+		for wid in BLACKSMITH_TIER1_WEAPON_IDS:
 			unlocked_weapons.erase(wid)
 	var saved_armaments: Array = cfg.get_value("meta", "unlocked_armaments", ["none"])
 	unlocked_armaments.clear()
@@ -2465,7 +2511,7 @@ func _load_house_state(cfg: ConfigFile) -> void:
 		"meta", "p1_ui_bg_panel", GameData.PINBALL_BG_PATTERN_DEFAULT))
 	p1_ui_bg_dialog = String(cfg.get_value(
 		"meta", "p1_ui_bg_dialog", GameData.PINBALL_BG_PATTERN_DEFAULT))
-	ui_bg_pattern_dim = float(cfg.get_value("meta", "ui_bg_pattern_dim", 1.0))
+	ui_bg_pattern_dim = float(cfg.get_value("meta", "ui_bg_pattern_dim", 0.5))
 	ui_bg_pattern_dim = clampf(ui_bg_pattern_dim, 0.0, 1.0)
 	if not GameData.is_valid_pinball_bg_pattern(p1_pinball_bg_pattern):
 		p1_pinball_bg_pattern = GameData.PINBALL_BG_PATTERN_DEFAULT
@@ -2665,8 +2711,7 @@ func _default_unlocked_weapons() -> Array[String]:
 	var ids: Array[String] = []
 	for w in GameData.WEAPONS:
 		var wid: String = String(w.get("id", ""))
-		if wid != "" and not DEFAULT_LOCKED_WEAPONS.has(wid) \
-				and not BLACKSMITH_CRAFT_WEAPON_IDS.has(wid):
+		if wid != "" and not is_blacksmith_weapon_unlock(wid):
 			ids.append(wid)
 	return ids
 
