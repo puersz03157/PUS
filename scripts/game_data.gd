@@ -1990,6 +1990,16 @@ const SUMMON_TEST_LEVELS: Array[int] = [0, 1, 5, 10]
 const SUMMON_LEVEL_STAT_MULT := 0.08
 const SUMMON_EGG_PREVIEW_SCALE := 0.65
 const SUMMON_EVOLVE_STAT_MULT := 1.18
+const SUMMON_SHARDS_PER_EGG := 5
+const SUMMON_EGG_DROP_BASE_CHANCE := 0.004
+const SUMMON_EGG_STAGE_DECAY_MULT := 0.5
+const SUMMON_EGG_STAGE_DECAY_MIN := 0.08
+const SUMMON_VICTORY_FEED_WHEN_COMPLETE := 2
+const SUMMON_VICTORY_GOLD_WHEN_COMPLETE := 10
+const PET_FEED_EXP_AMOUNT := 45
+const SUMMON_BATTLE_EXP_VICTORY := 20
+const SUMMON_BATTLE_EXP_PARTIAL := 10
+const SUMMON_BATTLE_PARTIAL_MIN_TIME := 300.0
 const PET_ASSET_ROOT := "res://assets/Pet/"
 
 const SUMMONS: Array[Dictionary] = [
@@ -2086,6 +2096,14 @@ func house_summon_choice_ids() -> Array[String]:
 	var out: Array[String] = []
 	for s in SUMMONS:
 		out.append(String(s.get("id", "")))
+	return out
+
+
+func playable_summon_ids() -> Array[String]:
+	var out: Array[String] = []
+	for sid in house_summon_choice_ids():
+		if sid != "" and sid != "none":
+			out.append(sid)
 	return out
 
 

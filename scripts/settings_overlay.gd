@@ -97,6 +97,7 @@ var unlock_village_button: Button
 var add_gold_button: Button
 var max_team_weapons_button: Button
 var max_summons_button: Button
+var _summon_milestone_test_layer: CanvasLayer = null
 var reset_account_button: Button
 var credits_button: Button
 var close_button: Button
@@ -1298,6 +1299,10 @@ func _refresh_quests_panel() -> void:
 func _active_quest_ids() -> Array[String]:
 	var active: Array[String] = []
 	if GameState.quest_headman_intro_done \
+			and not GameState.quest_headman_starter_summon_done:
+		active.append("headman_starter_summon")
+	if GameState.quest_headman_intro_done \
+			and GameState.quest_headman_starter_summon_done \
 			and not GameState.is_quest_completed("rescue_blacksmith"):
 		active.append("rescue_blacksmith")
 	return active
@@ -2205,10 +2210,27 @@ func _on_max_summons_pressed() -> void:
 		if max_summons_button != null:
 			max_summons_button.text = tr("SETTINGS_SUMMON_UNLOCK_ALL_DONE")
 	else:
-		var lv: int = GameState.cycle_all_summon_test_levels()
+		var cycle_res: Dictionary = GameState.cycle_all_summon_test_levels()
+		var lv: int = int(cycle_res.get("level", GameData.SUMMON_MIN_LEVEL))
+		var milestones: Array = cycle_res.get("milestones", [])
+		if not milestones.is_empty():
+			SummonMilestoneOverlay.queue_milestones(milestones)
+			call_deferred("_present_test_summon_milestones")
 		if max_summons_button != null:
 			max_summons_button.text = tr("SETTINGS_SUMMON_EVOLVE_CYCLE_FMT") % lv
 	_notify_current_scene_account_changed()
+
+
+func _present_test_summon_milestones() -> void:
+	while SummonMilestoneOverlay.has_pending():
+		if _summon_milestone_test_layer != null and is_instance_valid(_summon_milestone_test_layer):
+			_summon_milestone_test_layer.queue_free()
+		_summon_milestone_test_layer = SummonMilestoneOverlay.present_next(get_tree())
+		if _summon_milestone_test_layer == null:
+			break
+		while is_instance_valid(_summon_milestone_test_layer):
+			await get_tree().process_frame
+	_summon_milestone_test_layer = null
 
 
 func _weapon_upgrade_total(upgrades: Dictionary) -> int:

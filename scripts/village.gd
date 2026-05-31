@@ -131,7 +131,13 @@ var _house_fav_grid: GridContainer = null
 var _house_favorite_option_buttons: Array[OptionButton] = []
 var _house_summon_slot_ui: Array[Dictionary] = []
 var _house_summon_desc_label: RichTextLabel = null
+var _house_summon_feed_btn: Button = null
 var _house_summon_focus_slot: int = 0
+var _headman_starter_dialog: CanvasLayer = null
+var _headman_starter_idx: int = 0
+var _headman_starter_name_label: Label = null
+var _headman_starter_desc_label: Label = null
+var _headman_starter_preview: HousePreviewAnimT = null
 var _house_pinball_bg_preview: Control = null
 var _house_pinball_bg_name_label: Label = null
 var _house_pinball_bg_status_label: Label = null
@@ -176,6 +182,7 @@ var _village_time_phase: String = "day"
 var _sky_overlay: ColorRect = null
 var _time_label: Label = null
 var _battle_summary_layer: CanvasLayer = null
+var _summon_milestone_layer: CanvasLayer = null
 # 所有「只在白天出現」的功能性 NPC 節點（傍晚/夜晚隱藏且無法互動）
 var _timed_npc_nodes: Array = []
 var _summon_followers: Array = []
@@ -202,11 +209,37 @@ func _ready() -> void:
 
 
 func _try_show_pending_battle_summary() -> void:
+	if SummonMilestoneOverlay.has_pending():
+		call_deferred("_try_show_pending_summon_milestones")
+		return
 	if not BattleRunSummaryOverlay.has_pending():
 		return
 	if _battle_summary_layer != null and is_instance_valid(_battle_summary_layer):
 		return
 	_battle_summary_layer = BattleRunSummaryOverlay.present(get_tree(), true)
+
+
+func _try_show_pending_summon_milestones() -> void:
+	if not SummonMilestoneOverlay.has_pending():
+		if BattleRunSummaryOverlay.has_pending():
+			call_deferred("_try_show_pending_battle_summary")
+		return
+	if _summon_milestone_layer != null and is_instance_valid(_summon_milestone_layer):
+		return
+	_summon_milestone_layer = SummonMilestoneOverlay.present_next(get_tree())
+	if _summon_milestone_layer == null:
+		_refresh_village_summon_followers()
+		call_deferred("_try_show_pending_summon_milestones")
+		return
+	_watch_summon_milestone_layer()
+
+
+func _watch_summon_milestone_layer() -> void:
+	while _summon_milestone_layer != null and is_instance_valid(_summon_milestone_layer):
+		await get_tree().process_frame
+	_summon_milestone_layer = null
+	_refresh_village_summon_followers()
+	call_deferred("_try_show_pending_summon_milestones")
 
 
 func _dismiss_battle_summary() -> void:
@@ -2262,7 +2295,10 @@ func _open_headman_dialog(entry: Dictionary) -> void:
 			GameState.quest_headman_intro_done = true
 			GameState.save_to_disk()
 			_refresh_quest_markers()
-			SettingsOverlay._refresh_quest_button_label())
+			SettingsOverlay._refresh_quest_button_label()
+			call_deferred("_open_headman_starter_summon_dialog", entry))
+	elif not GameState.quest_headman_starter_summon_done:
+		_open_headman_starter_summon_dialog(entry)
 	elif GameState.blacksmith_rescued and not GameState.quest_blacksmith_rewarded:
 		var pages: Array[String] = [
 			tr("QUEST_HEADMAN_REWARD_PAGE_1"),
@@ -2278,6 +2314,151 @@ func _open_headman_dialog(entry: Dictionary) -> void:
 			SettingsOverlay._refresh_quest_button_label())
 	else:
 		_open_npc_random_talk(entry)
+
+
+func _open_headman_starter_summon_dialog(_entry: Dictionary) -> void:
+	if GameState.quest_headman_starter_summon_done or _headman_starter_dialog != null:
+		return
+	var ids: Array[String] = GameData.playable_summon_ids()
+	if ids.is_empty():
+		return
+	get_tree().paused = true
+	_headman_starter_idx = 0
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	_headman_starter_dialog = CanvasLayer.new()
+	_headman_starter_dialog.layer = 245
+	_headman_starter_dialog.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_headman_starter_dialog)
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.process_mode = Node.PROCESS_MODE_ALWAYS
+	_headman_starter_dialog.add_child(root)
+	_add_modal_dim_bg(root, HOUSE_DIALOG_DIM_ALPHA)
+
+	var panel := PanelContainer.new()
+	var panel_w: float = min(640.0, vp.x - 40.0)
+	var panel_h: float = min(460.0, vp.y - 40.0)
+	panel.position = Vector2((vp.x - panel_w) * 0.5, (vp.y - panel_h) * 0.5)
+	panel.custom_minimum_size = Vector2(panel_w, panel_h)
+	_style_house_modal_panel(panel)
+	root.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 18)
+	margin.add_theme_constant_override("margin_bottom", 18)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = tr("QUEST_HEADMAN_STARTER_SUMMON_TITLE")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(1.0, 0.86, 0.45))
+	vbox.add_child(title)
+
+	var intro := Label.new()
+	intro.text = tr("QUEST_HEADMAN_STARTER_SUMMON_INTRO")
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	intro.add_theme_font_size_override("font_size", 14)
+	vbox.add_child(intro)
+
+	var preview_panel := Panel.new()
+	preview_panel.custom_minimum_size = Vector2(0, 160)
+	vbox.add_child(preview_panel)
+	_headman_starter_preview = _make_house_preview_anim(preview_panel, 12.0)
+
+	var nav := HBoxContainer.new()
+	nav.alignment = BoxContainer.ALIGNMENT_CENTER
+	nav.add_theme_constant_override("separation", 12)
+	vbox.add_child(nav)
+
+	var prev_btn := Button.new()
+	prev_btn.custom_minimum_size = Vector2(44, 44)
+	GameData.apply_icon_button(prev_btn, GameData.UI_ICON_ARROW_LEFT, "<")
+	prev_btn.pressed.connect(_cycle_headman_starter_summon.bind(-1))
+	nav.add_child(prev_btn)
+
+	var name_box := VBoxContainer.new()
+	name_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	nav.add_child(name_box)
+	_headman_starter_name_label = Label.new()
+	_headman_starter_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_headman_starter_name_label.add_theme_font_size_override("font_size", 20)
+	_headman_starter_name_label.add_theme_color_override("font_color", Color(0.95, 0.88, 0.55))
+	name_box.add_child(_headman_starter_name_label)
+	_headman_starter_desc_label = Label.new()
+	_headman_starter_desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_headman_starter_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_headman_starter_desc_label.add_theme_font_size_override("font_size", 13)
+	name_box.add_child(_headman_starter_desc_label)
+
+	var next_btn := Button.new()
+	next_btn.custom_minimum_size = Vector2(44, 44)
+	GameData.apply_icon_button(next_btn, GameData.UI_ICON_ARROW_RIGHT, ">")
+	next_btn.pressed.connect(_cycle_headman_starter_summon.bind(1))
+	nav.add_child(next_btn)
+
+	var confirm_btn := Button.new()
+	confirm_btn.text = tr("QUEST_HEADMAN_STARTER_SUMMON_CONFIRM")
+	confirm_btn.pressed.connect(_confirm_headman_starter_summon)
+	vbox.add_child(confirm_btn)
+
+	_refresh_headman_starter_summon_panel()
+
+
+func _cycle_headman_starter_summon(direction: int) -> void:
+	var ids: Array[String] = GameData.playable_summon_ids()
+	if ids.is_empty():
+		return
+	_headman_starter_idx = (_headman_starter_idx + direction + ids.size()) % ids.size()
+	_refresh_headman_starter_summon_panel()
+
+
+func _refresh_headman_starter_summon_panel() -> void:
+	var ids: Array[String] = GameData.playable_summon_ids()
+	if ids.is_empty():
+		return
+	var sid: String = ids[_headman_starter_idx % ids.size()]
+	if _headman_starter_name_label != null:
+		_headman_starter_name_label.text = GameData.tr_summon_egg_name(sid)
+	if _headman_starter_desc_label != null:
+		var sdef: Dictionary = GameData.get_summon_def(sid)
+		_headman_starter_desc_label.text = "%s｜%s" % [
+			GameData.tr_summon_type(sdef), tr(sdef.get("desc_key", ""))]
+	if _headman_starter_preview != null:
+		_headman_starter_preview.setup_summon(sid, "p1")
+
+
+func _confirm_headman_starter_summon() -> void:
+	var ids: Array[String] = GameData.playable_summon_ids()
+	if ids.is_empty():
+		return
+	var sid: String = ids[_headman_starter_idx % ids.size()]
+	if not GameState.grant_summon_starter_egg(sid):
+		return
+	_close_headman_starter_summon_dialog()
+	_refresh_quest_markers()
+	_refresh_village_summon_followers()
+	SettingsOverlay._refresh_quest_button_label()
+
+
+func _close_headman_starter_summon_dialog() -> void:
+	if _headman_starter_dialog != null and is_instance_valid(_headman_starter_dialog):
+		_headman_starter_dialog.queue_free()
+	_headman_starter_dialog = null
+	_headman_starter_name_label = null
+	_headman_starter_desc_label = null
+	_headman_starter_preview = null
+	get_tree().paused = false
 
 
 ## 序列分頁對話（底部條）
@@ -2538,8 +2719,9 @@ func _refresh_quest_markers() -> void:
 	if _is_in_tavern():
 		lbl.visible = false
 		return
-	lbl.visible = (not GameState.quest_headman_intro_done) or \
-		(GameState.blacksmith_rescued and not GameState.quest_blacksmith_rewarded)
+	lbl.visible = (not GameState.quest_headman_intro_done) \
+		or (not GameState.quest_headman_starter_summon_done) \
+		or (GameState.blacksmith_rescued and not GameState.quest_blacksmith_rewarded)
 
 
 func _update_quest_marker_positions() -> void:
@@ -3697,6 +3879,10 @@ func _open_house_summons_dialog() -> void:
 	_house_summon_desc_label.add_theme_color_override("default_color", Color(0.82, 0.92, 0.88))
 	vbox.add_child(_house_summon_desc_label)
 
+	_house_summon_feed_btn = Button.new()
+	_house_summon_feed_btn.pressed.connect(_on_house_use_pet_feed)
+	vbox.add_child(_house_summon_feed_btn)
+
 	_house_status_label = RichTextLabel.new()
 	_house_status_label.bbcode_enabled = true
 	_house_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -4043,6 +4229,20 @@ func _refresh_house_summons_panel(status: String) -> void:
 		var slot_index: int = int(slot_ui.get("slot_index", 0))
 		_refresh_house_summon_slot_ui(slot_ui, char_id, slot_index)
 	_update_house_summon_desc_label(char_id)
+	if _house_summon_feed_btn != null:
+		_house_summon_feed_btn.text = tr("P1_HOUSE_SUMMON_USE_FEED_FMT") % GameState.pet_feed
+		var slot_index: int = clampi(_house_summon_focus_slot, 0, GameData.P1_HOUSE_SUMMON_SLOTS - 1)
+		var slots: Array[String] = GameState.get_house_summons(_house_player_slot, char_id)
+		var summon_id: String = "none"
+		if slot_index >= 0 and slot_index < slots.size():
+			summon_id = slots[slot_index]
+		var can_feed: bool = GameState.pet_feed > 0 \
+			and summon_id != "" and summon_id != "none" \
+			and GameState.is_summon_unlocked(summon_id)
+		if can_feed:
+			var prog: Dictionary = GameState.get_summon_progress(_house_player_slot, summon_id)
+			can_feed = int(prog.get("level", GameData.SUMMON_MIN_LEVEL)) >= 1
+		_house_summon_feed_btn.disabled = not can_feed
 	if _house_status_label != null:
 		_house_status_label.text = status
 
@@ -4106,9 +4306,31 @@ func _update_house_summon_desc_label(char_id: String) -> void:
 	var prog: Dictionary = GameState.get_summon_progress(_house_player_slot, summon_id)
 	var level: int = int(prog.get("level", GameData.SUMMON_MIN_LEVEL))
 	var exp: int = int(prog.get("exp", 0))
-	_house_summon_desc_label.text = "[b]%s[/b]\n%s" % [
-		slot_title,
-		GameData.format_summon_house_detail_text(summon_id, level, exp)]
+	var lines: Array[String] = [
+		"[b]%s[/b]" % slot_title,
+		GameData.format_summon_house_detail_text(summon_id, level, exp),
+	]
+	if not GameState.is_summon_unlocked(summon_id):
+		var shards: int = GameState.get_summon_shard_count(summon_id)
+		if shards > 0:
+			lines.append(tr("P1_HOUSE_SUMMON_SHARD_FMT") % [
+				GameData.tr_summon_egg_name(summon_id), shards, GameData.SUMMON_SHARDS_PER_EGG])
+	if GameState.pet_feed > 0:
+		lines.append(tr("P1_HOUSE_SUMMON_FEED_STOCK_FMT") % GameState.pet_feed)
+	_house_summon_desc_label.text = "\n".join(lines)
+
+
+func _on_house_use_pet_feed() -> void:
+	var char_id: String = _house_dialog_current_char_id()
+	var slot_index: int = clampi(_house_summon_focus_slot, 0, GameData.P1_HOUSE_SUMMON_SLOTS - 1)
+	var slots: Array[String] = GameState.get_house_summons(_house_player_slot, char_id)
+	var summon_id: String = "none"
+	if slot_index >= 0 and slot_index < slots.size():
+		summon_id = slots[slot_index]
+	if GameState.use_pet_feed_on_summon(_house_player_slot, summon_id):
+		_refresh_house_summons_panel(tr("P1_HOUSE_SUMMON_FEED_USED"))
+	else:
+		_refresh_house_summons_panel(tr("P1_HOUSE_SUMMON_FEED_FAIL"))
 
 
 func _on_house_summon_prev(slot_index: int) -> void:

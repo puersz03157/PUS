@@ -17,6 +17,7 @@ const CAMERA_ZOOM := Vector2(2.0, 2.0)
 
 const Coop := preload("res://scripts/coop_pair_follow.gd")
 const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
+const VillageSummonFollowerT := preload("res://scripts/village_summon_follower.gd")
 const BLACKSMITH_RESCUE_RADIUS := 72.0
 const BLACKSMITH_EVENT_MIN_ENEMIES := 5
 const BLACKSMITH_EVENT_MAX_ENEMIES := 10
@@ -76,6 +77,8 @@ var p1_skill_icon: Panel = null
 var p2_skill_icon: Panel = null
 var touch_hud: CanvasLayer = null
 var _coop_pointer_overlay: Control = null
+var _summon_followers: Array = []
+var _summon_milestone_layer: CanvasLayer = null
 
 var players: Array = []
 var run_time: float = 0.0
@@ -128,6 +131,7 @@ func _ready() -> void:
 	camera.make_current()
 	_spawn_map()
 	_spawn_players()
+	_spawn_battle_summon_followers()
 	_spawn_blacksmith_rescue_if_needed()
 	_position_camera()
 	# 雙人模式：團隊 XP 門檻 + 50%（敵人多 60%、不該因此一直升級爆 HP）
@@ -270,6 +274,37 @@ func _spawn_players() -> void:
 		_coop_pointer_overlay = CoopPointerOverlay.new()
 		_coop_pointer_overlay.setup(self)
 		hud.add_child(_coop_pointer_overlay)
+
+
+func _spawn_battle_summon_followers() -> void:
+	_clear_battle_summon_followers()
+	for p in players:
+		if p == null or not is_instance_valid(p):
+			continue
+		var prefix: String = String(p.input_prefix)
+		var char_id: String = String(p.character_id)
+		if char_id == "":
+			continue
+		var summon_ids: Array[String] = GameState.village_summon_ids_for_follow(prefix, char_id)
+		var count: int = summon_ids.size()
+		for i in count:
+			var follower = VillageSummonFollowerT.new()
+			add_child(follower)
+			follower.setup(p, summon_ids[i], prefix, i, count)
+			_summon_followers.append(follower)
+
+
+func _clear_battle_summon_followers() -> void:
+	for f in _summon_followers:
+		if is_instance_valid(f):
+			f.queue_free()
+	_summon_followers.clear()
+
+
+func _refresh_battle_summon_followers() -> void:
+	for f in _summon_followers:
+		if is_instance_valid(f) and f.has_method("refresh_visual"):
+			f.refresh_visual()
 
 
 # 建立浮動搖桿 / 技能 / 暫停的觸控 HUD —— 連接到 P1
@@ -1284,6 +1319,18 @@ func notify_material_drop(id: String, amount: int) -> void:
 	_show_center_notice(tr("MATERIAL_DROP_NOTICE_FMT") % [GameData.tr_material_name(id), amount])
 
 
+func try_enemy_summon_egg_drop() -> void:
+	var stage_id: String = String(stage_def.get("id", ""))
+	var drop: Dictionary = GameState.try_roll_enemy_summon_egg_drop(stage_id)
+	if not bool(drop.get("dropped", false)):
+		return
+	var sid: String = String(drop.get("summon_id", ""))
+	if sid == "":
+		return
+	_show_center_notice(tr("SUMMON_EGG_DROP_NOTICE_FMT") % GameData.tr_summon_egg_name(sid))
+	AudioManager.play_sfx("reward", 0.02, -4.0)
+
+
 func roll_enemy_material_drop(slime_def: Dictionary) -> Dictionary:
 	var enemy_drops: Variant = slime_def.get("material_drops", [])
 	var table: Array = stage_def.get("material_drops", [])
@@ -1394,8 +1441,34 @@ func _game_over(won: bool) -> void:
 			_show_center_notice(tr("VICTORY_BLACKSMITH_TIER2_NOTICE"))
 		GameState.grant_run_gold(reward)
 		_clear_remaining_enemies()
+		GameState.apply_stage_victory_summon_rewards(String(stage_def.get("id", "")))
 		AudioManager.play_sfx("reward", 0.02)
+	var milestones: Array = GameState.apply_run_battle_summon_exp(won, run_time, boss_spawned)
+	if not milestones.is_empty():
+		SummonMilestoneOverlay.queue_milestones(milestones)
+		_refresh_battle_summon_followers()
 	reward = int(GameState.last_result.get("gold_reward", reward))
+	if SummonMilestoneOverlay.has_pending():
+		call_deferred("_present_summon_milestones_then_summary", won, reward)
+		return
+	_show_game_over_summary(won, reward)
+
+
+func _present_summon_milestones_then_summary(won: bool, reward: int) -> void:
+	while SummonMilestoneOverlay.has_pending():
+		if _summon_milestone_layer != null and is_instance_valid(_summon_milestone_layer):
+			_summon_milestone_layer.queue_free()
+		_summon_milestone_layer = SummonMilestoneOverlay.present_next(get_tree())
+		if _summon_milestone_layer == null:
+			break
+		while is_instance_valid(_summon_milestone_layer):
+			await get_tree().process_frame
+	_refresh_battle_summon_followers()
+	_summon_milestone_layer = null
+	_show_game_over_summary(won, reward)
+
+
+func _show_game_over_summary(won: bool, reward: int) -> void:
 	_set_battle_hud_visible(false)
 	gameover_panel.visible = true
 	_populate_summary(won, reward)
@@ -1476,6 +1549,10 @@ func _populate_summary(won: bool, reward: int, early_exit: bool = false) -> void
 	if not resource_lines.is_empty():
 		lines.append(tr("GAME_RUN_RESOURCES_TITLE"))
 		lines.append_array(resource_lines)
+	var summon_lines: Array[String] = _build_run_summon_loot_summary_lines()
+	if not summon_lines.is_empty():
+		lines.append(tr("GAME_RUN_SUMMON_LOOT_TITLE"))
+		lines.append_array(summon_lines)
 	var achievement_unlocks: Array = GameState.last_result.get("achievement_unlocks", [])
 	if not achievement_unlocks.is_empty():
 		var names: Array[String] = []
@@ -1625,6 +1702,10 @@ func _finalize_early_retreat() -> void:
 	GameState.last_result["achievement_unlocks"] = _record_achievement_progress()
 	GameState.last_result["facility_unlocks"] = []
 	_clear_remaining_enemies()
+	var milestones: Array = GameState.apply_run_battle_summon_exp(
+		false, run_time, boss_spawned)
+	if not milestones.is_empty():
+		SummonMilestoneOverlay.queue_milestones(milestones)
 
 
 func retreat_to_village_with_summary() -> void:
@@ -1633,6 +1714,13 @@ func retreat_to_village_with_summary() -> void:
 	if not stage_completed:
 		_finalize_early_retreat()
 		var reward: int = int(GameState.last_result.get("gold_reward", 0))
+		if SummonMilestoneOverlay.has_pending():
+			while SummonMilestoneOverlay.has_pending():
+				var layer: CanvasLayer = SummonMilestoneOverlay.present_next(get_tree())
+				if layer == null:
+					break
+				while is_instance_valid(layer):
+					await get_tree().process_frame
 		_populate_summary(false, reward, true)
 	elif not BattleRunSummaryOverlay.has_pending():
 		_cache_battle_summary_overlay()
@@ -1655,6 +1743,52 @@ func _build_run_resource_summary_lines(icon_size: int = GameData.SUMMARY_ICON_SI
 				else:
 					out.append(tr("GAME_RUN_MATERIAL_LINE_FMT") % [
 						GameData.tr_material_name(mid), qty])
+	return out
+
+
+func _build_run_summon_loot_summary_lines() -> Array[String]:
+	var out: Array[String] = []
+	var loot: Variant = GameState.last_result.get("summon_loot", [])
+	if not (loot is Array):
+		return out
+	for raw in loot as Array:
+		if not (raw is Dictionary):
+			continue
+		var entry: Dictionary = raw as Dictionary
+		var kind: String = String(entry.get("kind", ""))
+		if kind == "complete":
+			var feed_bonus: int = int(entry.get("feed_bonus", 0))
+			var gold_bonus: int = int(entry.get("gold_bonus", 0))
+			if feed_bonus > 0:
+				out.append(tr("SUMMON_VICTORY_COMPLETE_FEED_FMT") % feed_bonus)
+			if gold_bonus > 0:
+				out.append(tr("SUMMON_VICTORY_COMPLETE_GOLD_FMT") % gold_bonus)
+			continue
+		var sid: String = String(entry.get("summon_id", ""))
+		if bool(entry.get("new_unlock", false)) and sid != "":
+			out.append(tr("SUMMON_LOOT_UNLOCK_FMT") % GameData.tr_summon_egg_name(sid))
+			var feed_on_unlock: int = int(entry.get("feed_from_shards", 0))
+			if feed_on_unlock > 0:
+				out.append(tr("SUMMON_LOOT_FEED_CONVERT_FMT") % feed_on_unlock)
+			continue
+		if int(entry.get("shards_added", 0)) > 0 and sid != "":
+			out.append(tr("SUMMON_LOOT_SHARD_FMT") % [
+				GameData.tr_summon_egg_name(sid),
+				int(entry.get("shard_total", 0)),
+				GameData.SUMMON_SHARDS_PER_EGG,
+			])
+			continue
+		if bool(entry.get("dropped", false)) and sid != "":
+			out.append(tr("SUMMON_LOOT_EGG_DROP_FMT") % GameData.tr_summon_egg_name(sid))
+			continue
+		var feed_from: int = int(entry.get("feed_from_shards", 0))
+		if feed_from > 0:
+			out.append(tr("SUMMON_LOOT_FEED_CONVERT_FMT") % feed_from)
+			continue
+		if kind == "battle_exp":
+			var exp_amt: int = int(entry.get("amount", 0))
+			if exp_amt > 0:
+				out.append(tr("SUMMON_LOOT_BATTLE_EXP_FMT") % exp_amt)
 	return out
 
 

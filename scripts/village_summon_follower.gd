@@ -90,6 +90,10 @@ func _apply_visual() -> void:
 	visible = true
 
 
+func refresh_visual() -> void:
+	_apply_visual()
+
+
 func _compute_target_position(bob_t: float) -> Vector2:
 	var face: Vector2 = Vector2(_owner.get("face_dir"))
 	if face.length_squared() < 0.001:

@@ -728,6 +728,7 @@ func _die(source: Node) -> void:
 	get_tree().current_scene.add_child(orb)
 	_try_drop_gold()
 	_try_drop_material()
+	_try_drop_summon_egg()
 	_try_grant_rune_dust()
 	if _has_death_animation():
 		_begin_death_animation()
@@ -770,6 +771,16 @@ func _try_drop_material() -> void:
 	orb.setup(id, amount)
 	orb.global_position = global_position + Vector2(randf_range(-12.0, 12.0), randf_range(-10.0, 10.0))
 	get_tree().current_scene.add_child(orb)
+
+
+func _try_drop_summon_egg() -> void:
+	if bool(slime_def.get("boss", false)):
+		return
+	if special_ai_mode != "":
+		return
+	if game_ref == null or not game_ref.has_method("try_enemy_summon_egg_drop"):
+		return
+	game_ref.try_enemy_summon_egg_drop()
 
 
 func _roll_gold_drop_amount() -> int:

@@ -96,6 +96,7 @@ var p1_last_village_character: String = ""
 const QUEST_BLACKSMITH_GOLD_REWARD := 80
 const QUEST_BLACKSMITH_IRON_REWARD := 3
 var quest_headman_intro_done: bool = false
+var quest_headman_starter_summon_done: bool = false
 var quest_blacksmith_rewarded: bool = false
 var completed_quests: Array[String] = []
 
@@ -161,6 +162,16 @@ var p2_summon_progress: Dictionary = {}
 var _summon_test_level_cycle_idx: int = 0
 ## 已取得的寵物 id（不含 none）；新帳號為空，後續由蛋／獎勵解鎖。
 var unlocked_summons: Array[String] = []
+## 未解鎖物種的蛋碎片（5 片合 1 顆）；解鎖後剩餘片數轉飼料。
+var summon_egg_shards: Dictionary = {}
+## 寵物飼料數量（對 Lv.1+ 召喚獸使用，增加 EXP）。
+var pet_feed: int = 0
+## 各關卡整蛋掉落機率永久衰減（stage_id -> 0~1 倍率）。
+var stage_summon_egg_drop_mult: Dictionary = {}
+## 本場戰鬥是否已掉落過整顆蛋（單局上限 1）。
+var run_summon_egg_dropped: bool = false
+## 戰鬥結束待播的孵化／進化里程碑（不存檔）
+var pending_summon_milestones: Array = []
 ## 弓箭場上資源造型（P1/P2 分開；與武裝數值無關）
 var p1_bow_arrow_skin: String = "default"
 var p2_bow_arrow_skin: String = "default"
@@ -844,16 +855,322 @@ func has_any_unlocked_summon() -> bool:
 	return not unlocked_summons.is_empty()
 
 
-func grant_summon_unlock(summon_id: String, do_save: bool = true) -> bool:
+func has_all_summons_unlocked() -> bool:
+	return unowned_summon_ids().is_empty()
+
+
+func unowned_summon_ids() -> Array[String]:
+	var out: Array[String] = []
+	for sid in GameData.playable_summon_ids():
+		if not is_summon_unlocked(sid):
+			out.append(sid)
+	return out
+
+
+func get_summon_shard_count(summon_id: String) -> int:
+	if summon_id == "" or summon_id == "none":
+		return 0
+	return maxi(0, int(summon_egg_shards.get(summon_id, 0)))
+
+
+func _convert_species_shards_to_feed(summon_id: String) -> int:
+	if summon_id == "" or summon_id == "none":
+		return 0
+	if not summon_egg_shards.has(summon_id):
+		return 0
+	var count: int = maxi(0, int(summon_egg_shards[summon_id]))
+	if count <= 0:
+		return 0
+	summon_egg_shards.erase(summon_id)
+	pet_feed += count
+	return count
+
+
+func unlock_summon_species(summon_id: String) -> Dictionary:
+	var result := {
+		"new_unlock": false,
+		"feed_from_shards": 0,
+		"summon_id": summon_id,
+	}
 	if summon_id == "" or summon_id == "none" or GameData.get_summon_def(summon_id).is_empty():
-		return false
-	if unlocked_summons.has(summon_id):
-		return false
+		return result
+	if is_summon_unlocked(summon_id):
+		result.feed_from_shards = _convert_species_shards_to_feed(summon_id)
+		return result
 	unlocked_summons.append(summon_id)
 	ensure_summon_progress("p1", summon_id)
 	ensure_summon_progress("p2", summon_id)
-	if do_save:
+	result.new_unlock = true
+	result.feed_from_shards = _convert_species_shards_to_feed(summon_id)
+	return result
+
+
+func grant_summon_unlock(summon_id: String, do_save: bool = true) -> bool:
+	var res: Dictionary = unlock_summon_species(summon_id)
+	if do_save and (bool(res.get("new_unlock", false)) or int(res.get("feed_from_shards", 0)) > 0):
 		save_to_disk()
+	return bool(res.get("new_unlock", false))
+
+
+func grant_summon_starter_egg(summon_id: String) -> bool:
+	if quest_headman_starter_summon_done:
+		return false
+	var res: Dictionary = unlock_summon_species(summon_id)
+	if not bool(res.get("new_unlock", false)):
+		return false
+	quest_headman_starter_summon_done = true
+	complete_quest("headman_starter_summon")
+	var char_id: String = resolve_village_p1_character()
+	set_house_summon_slot("p1", char_id, 0, summon_id)
+	save_to_disk()
+	return true
+
+
+func add_summon_shard(summon_id: String, amount: int = 1) -> Dictionary:
+	var result := {
+		"summon_id": summon_id,
+		"shards_added": 0,
+		"shard_total": 0,
+		"new_unlock": false,
+		"feed_from_shards": 0,
+	}
+	if amount <= 0 or summon_id == "" or summon_id == "none":
+		return result
+	if GameData.get_summon_def(summon_id).is_empty():
+		return result
+	if is_summon_unlocked(summon_id):
+		pet_feed += amount
+		result.feed_from_shards = amount
+		return result
+	var total: int = get_summon_shard_count(summon_id) + amount
+	summon_egg_shards[summon_id] = total
+	result.shards_added = amount
+	result.shard_total = total
+	if total >= GameData.SUMMON_SHARDS_PER_EGG:
+		var unlock_res: Dictionary = unlock_summon_species(summon_id)
+		result.new_unlock = bool(unlock_res.get("new_unlock", false))
+		result.feed_from_shards = int(unlock_res.get("feed_from_shards", 0))
+		result.shard_total = get_summon_shard_count(summon_id)
+	return result
+
+
+func grant_random_unowned_summon_shard() -> Dictionary:
+	if has_all_summons_unlocked():
+		return {"kind": "complete", "feed": 0, "gold": 0}
+	var pool: Array[String] = unowned_summon_ids()
+	if pool.is_empty():
+		return {"kind": "none"}
+	var sid: String = pool[randi() % pool.size()]
+	var shard_res: Dictionary = add_summon_shard(sid, 1)
+	shard_res["kind"] = "shard"
+	return shard_res
+
+
+func _stage_egg_drop_multiplier(stage_id: String) -> float:
+	if stage_id == "":
+		return 1.0
+	return clampf(float(stage_summon_egg_drop_mult.get(stage_id, 1.0)), \
+		GameData.SUMMON_EGG_STAGE_DECAY_MIN, 1.0)
+
+
+func _decay_stage_egg_drop_multiplier(stage_id: String) -> void:
+	if stage_id == "":
+		return
+	var cur: float = _stage_egg_drop_multiplier(stage_id)
+	var next: float = maxf(cur * GameData.SUMMON_EGG_STAGE_DECAY_MULT, \
+		GameData.SUMMON_EGG_STAGE_DECAY_MIN)
+	stage_summon_egg_drop_mult[stage_id] = next
+
+
+func try_roll_enemy_summon_egg_drop(stage_id: String) -> Dictionary:
+	var empty := {"dropped": false, "summon_id": ""}
+	if run_summon_egg_dropped or has_all_summons_unlocked():
+		return empty
+	var pool: Array[String] = unowned_summon_ids()
+	if pool.is_empty():
+		return empty
+	var chance: float = GameData.SUMMON_EGG_DROP_BASE_CHANCE * _stage_egg_drop_multiplier(stage_id)
+	if randf() >= chance:
+		return empty
+	var sid: String = pool[randi() % pool.size()]
+	run_summon_egg_dropped = true
+	_decay_stage_egg_drop_multiplier(stage_id)
+	var unlock_res: Dictionary = unlock_summon_species(sid)
+	var loot_entry: Dictionary = unlock_res.duplicate()
+	loot_entry["dropped"] = true
+	_record_run_summon_loot(loot_entry, "enemy_drop")
+	save_to_disk()
+	return {
+		"dropped": true,
+		"summon_id": sid,
+		"new_unlock": bool(unlock_res.get("new_unlock", false)),
+		"feed_from_shards": int(unlock_res.get("feed_from_shards", 0)),
+	}
+
+
+func apply_stage_victory_summon_rewards(stage_id: String) -> Dictionary:
+	var result := {
+		"kind": "",
+		"summon_id": "",
+		"shards_added": 0,
+		"shard_total": 0,
+		"new_unlock": false,
+		"feed_from_shards": 0,
+		"feed_bonus": 0,
+		"gold_bonus": 0,
+	}
+	if has_all_summons_unlocked():
+		result.kind = "complete"
+		result.feed_bonus = GameData.SUMMON_VICTORY_FEED_WHEN_COMPLETE
+		result.gold_bonus = GameData.SUMMON_VICTORY_GOLD_WHEN_COMPLETE
+		pet_feed += result.feed_bonus
+		if result.gold_bonus > 0:
+			grant_run_gold(result.gold_bonus)
+		_record_run_summon_loot(result, "victory_complete")
+		save_to_disk()
+		return result
+	var shard_res: Dictionary = grant_random_unowned_summon_shard()
+	result.kind = String(shard_res.get("kind", "shard"))
+	result.summon_id = String(shard_res.get("summon_id", ""))
+	result.shards_added = int(shard_res.get("shards_added", 0))
+	result.shard_total = int(shard_res.get("shard_total", 0))
+	result.new_unlock = bool(shard_res.get("new_unlock", false))
+	result.feed_from_shards = int(shard_res.get("feed_from_shards", 0))
+	_record_run_summon_loot(result, "victory_shard")
+	save_to_disk()
+	return result
+
+
+func _record_run_summon_loot(payload: Dictionary, source: String) -> void:
+	var loot: Variant = last_result.get("summon_loot", [])
+	var entries: Array = loot if loot is Array else []
+	var entry: Dictionary = payload.duplicate()
+	entry["source"] = source
+	entries.append(entry)
+	last_result["summon_loot"] = entries
+
+
+func add_summon_exp(player_slot: String, summon_id: String, amount: int) -> Dictionary:
+	var result := {
+		"ok": false,
+		"summon_id": summon_id,
+		"player_slot": player_slot,
+		"level_before": GameData.SUMMON_MIN_LEVEL,
+		"level_after": GameData.SUMMON_MIN_LEVEL,
+		"hatched": false,
+		"evolved": false,
+	}
+	if amount <= 0 or not _house_player_slot_valid(player_slot):
+		return result
+	if not is_summon_unlocked(summon_id):
+		return result
+	var prog_dict: Dictionary = _summon_progress_dict(player_slot)
+	var entry: Dictionary = get_summon_progress(player_slot, summon_id)
+	var lv: int = int(entry.get("level", GameData.SUMMON_MIN_LEVEL))
+	var lv_before: int = lv
+	var was_egg: bool = GameData.summon_is_egg(lv_before)
+	var evolved_before: bool = GameData.summon_is_evolved(lv_before)
+	var xp: int = int(entry.get("exp", 0)) + amount
+	while lv < GameData.SUMMON_MAX_LEVEL:
+		var cap: int = GameData.summon_exp_to_next_level(lv)
+		if cap <= 0 or xp < cap:
+			break
+		xp -= cap
+		lv += 1
+	if lv >= GameData.SUMMON_MAX_LEVEL:
+		xp = 0
+	prog_dict[summon_id] = {"level": lv, "exp": xp}
+	result.ok = true
+	result.level_before = lv_before
+	result.level_after = lv
+	result.hatched = was_egg and lv >= 1
+	result.evolved = (not evolved_before) and GameData.summon_is_evolved(lv)
+	return result
+
+
+func _summon_milestone_from_exp_result(exp_res: Dictionary) -> Dictionary:
+	if not bool(exp_res.get("ok", false)):
+		return {}
+	if bool(exp_res.get("hatched", false)):
+		return {
+			"kind": "hatch",
+			"summon_id": String(exp_res.get("summon_id", "")),
+			"player_slot": String(exp_res.get("player_slot", "p1")),
+			"level": int(exp_res.get("level_after", 1)),
+		}
+	if bool(exp_res.get("evolved", false)):
+		return {
+			"kind": "evolve",
+			"summon_id": String(exp_res.get("summon_id", "")),
+			"player_slot": String(exp_res.get("player_slot", "p1")),
+			"level": int(exp_res.get("level_after", GameData.SUMMON_EVOLVE_LEVEL)),
+		}
+	return {}
+
+
+func grant_battle_summon_exp(player_slot: String, char_id: String, amount: int) -> Dictionary:
+	var result := {"milestones": [], "applied": false}
+	if amount <= 0 or char_id == "":
+		return result
+	var milestones: Array = []
+	var changed: bool = false
+	for sid in village_summon_ids_for_follow(player_slot, char_id):
+		var exp_res: Dictionary = add_summon_exp(player_slot, sid, amount)
+		if not bool(exp_res.get("ok", false)):
+			continue
+		changed = true
+		var milestone: Dictionary = _summon_milestone_from_exp_result(exp_res)
+		if not milestone.is_empty():
+			milestones.append(milestone)
+	if changed:
+		save_to_disk()
+	result["milestones"] = milestones
+	result["applied"] = changed
+	return result
+
+
+func apply_run_battle_summon_exp(won: bool, run_time: float, boss_entered: bool) -> Array:
+	var amount: int = 0
+	if won:
+		amount = GameData.SUMMON_BATTLE_EXP_VICTORY
+	elif run_time >= GameData.SUMMON_BATTLE_PARTIAL_MIN_TIME or boss_entered:
+		amount = GameData.SUMMON_BATTLE_EXP_PARTIAL
+	else:
+		return []
+	var all_milestones: Array = []
+	var any_applied: bool = false
+	var res_p1: Dictionary = grant_battle_summon_exp("p1", p1_character, amount)
+	all_milestones.append_array(res_p1.get("milestones", []))
+	any_applied = bool(res_p1.get("applied", false))
+	if two_players:
+		var res_p2: Dictionary = grant_battle_summon_exp("p2", p2_character, amount)
+		all_milestones.append_array(res_p2.get("milestones", []))
+		any_applied = any_applied or bool(res_p2.get("applied", false))
+	if any_applied:
+		var loot: Variant = last_result.get("summon_loot", [])
+		var entries: Array = loot if loot is Array else []
+		entries.append({
+			"kind": "battle_exp",
+			"amount": amount,
+			"won": won,
+		})
+		last_result["summon_loot"] = entries
+	return all_milestones
+
+
+func use_pet_feed_on_summon(player_slot: String, summon_id: String) -> bool:
+	if pet_feed <= 0:
+		return false
+	if not is_summon_unlocked(summon_id):
+		return false
+	var entry: Dictionary = get_summon_progress(player_slot, summon_id)
+	if int(entry.get("level", GameData.SUMMON_MIN_LEVEL)) < 1:
+		return false
+	var exp_res: Dictionary = add_summon_exp(player_slot, summon_id, GameData.PET_FEED_EXP_AMOUNT)
+	if not bool(exp_res.get("ok", false)):
+		return false
+	pet_feed -= 1
+	save_to_disk()
 	return true
 
 
@@ -895,7 +1212,8 @@ func house_summon_ids_for_battle(player_slot: String, char_id: String) -> Array[
 	var arr: Array[String] = get_house_summons(player_slot, char_id)
 	for i in mini(arr.size(), GameData.P1_HOUSE_SUMMON_SLOTS):
 		var sid: String = arr[i]
-		if sid != "none" and not GameData.get_summon_def(sid).is_empty():
+		if sid != "none" and is_summon_unlocked(sid) \
+				and not GameData.get_summon_def(sid).is_empty():
 			out.append(sid)
 	return out
 
@@ -957,12 +1275,20 @@ func get_summon_progress(player_slot: String, summon_id: String) -> Dictionary:
 	return _normalize_summon_progress_entry(_summon_progress_dict(player_slot).get(summon_id, null))
 
 
-func cycle_all_summon_test_levels() -> int:
+func cycle_all_summon_test_levels() -> Dictionary:
+	var result := {
+		"level": GameData.SUMMON_MIN_LEVEL,
+		"milestones": [],
+	}
 	var levels: Array[int] = GameData.SUMMON_TEST_LEVELS
 	if levels.is_empty():
-		return GameData.SUMMON_MIN_LEVEL
+		return result
 	var lv: int = levels[_summon_test_level_cycle_idx % levels.size()]
 	_summon_test_level_cycle_idx = (_summon_test_level_cycle_idx + 1) % levels.size()
+	var demo_sid: String = _test_milestone_demo_summon_id()
+	var demo_lv_before: int = GameData.SUMMON_MIN_LEVEL
+	if demo_sid != "":
+		demo_lv_before = int(get_summon_progress("p1", demo_sid).get("level", GameData.SUMMON_MIN_LEVEL))
 	for player_slot in ["p1", "p2"]:
 		var prog_dict: Dictionary = _summon_progress_dict(player_slot)
 		for sid in unlocked_summons:
@@ -970,8 +1296,39 @@ func cycle_all_summon_test_levels() -> int:
 			if summon_id == "" or summon_id == "none":
 				continue
 			prog_dict[summon_id] = {"level": lv, "exp": 0}
+	if demo_sid != "":
+		var was_egg: bool = GameData.summon_is_egg(demo_lv_before)
+		var evolved_before: bool = GameData.summon_is_evolved(demo_lv_before)
+		if was_egg and lv >= 1:
+			result["milestones"].append({
+				"kind": "hatch",
+				"summon_id": demo_sid,
+				"player_slot": "p1",
+				"level": lv,
+			})
+		elif (not evolved_before) and GameData.summon_is_evolved(lv):
+			result["milestones"].append({
+				"kind": "evolve",
+				"summon_id": demo_sid,
+				"player_slot": "p1",
+				"level": lv,
+			})
+	result["level"] = lv
 	save_to_disk()
-	return lv
+	return result
+
+
+func _test_milestone_demo_summon_id() -> String:
+	if unlocked_summons.is_empty():
+		return ""
+	var char_id: String = resolve_village_p1_character()
+	if char_id != "":
+		var slots: Array[String] = get_house_summons("p1", char_id)
+		if not slots.is_empty():
+			var equipped: String = slots[0]
+			if equipped != "none" and is_summon_unlocked(equipped):
+				return equipped
+	return String(unlocked_summons[0])
 
 
 func _default_p1_house_favorites_array() -> Array[String]:
@@ -1472,6 +1829,7 @@ func reset_account() -> void:
 	farmer_rescued = false
 	blacksmith_tier2_unlocked = false
 	quest_headman_intro_done = false
+	quest_headman_starter_summon_done = false
 	quest_blacksmith_rewarded = false
 	completed_quests.clear()
 	village_facilities_unlocked.clear()
@@ -1502,6 +1860,10 @@ func reset_account() -> void:
 	p1_summon_progress.clear()
 	p2_summon_progress.clear()
 	unlocked_summons.clear()
+	summon_egg_shards.clear()
+	pet_feed = 0
+	stage_summon_egg_drop_mult.clear()
+	run_summon_egg_dropped = false
 	_summon_test_level_cycle_idx = 0
 	p1_pinball_bg_pattern = GameData.PINBALL_BG_PATTERN_DEFAULT
 	p1_ui_bg_main = GameData.PINBALL_BG_PATTERN_DEFAULT
@@ -1514,6 +1876,7 @@ func reset_account() -> void:
 
 
 func reset_run() -> void:
+	run_summon_egg_dropped = false
 	last_result = {
 		"won": false,
 		"time": 0.0,
@@ -1525,7 +1888,9 @@ func reset_run() -> void:
 		"stage_name": "",
 		"achievement_unlocks": [],
 		"facility_unlocks": [],
+		"summon_loot": [],
 	}
+	pending_summon_milestones.clear()
 
 
 func grant_run_gold(amount: int) -> void:
@@ -1686,6 +2051,7 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "farmer_rescued", farmer_rescued)
 	cfg.set_value("meta", "blacksmith_tier2_unlocked", blacksmith_tier2_unlocked)
 	cfg.set_value("meta", "quest_headman_intro_done", quest_headman_intro_done)
+	cfg.set_value("meta", "quest_headman_starter_summon_done", quest_headman_starter_summon_done)
 	cfg.set_value("meta", "quest_blacksmith_rewarded", quest_blacksmith_rewarded)
 	cfg.set_value("meta", "completed_quests", completed_quests)
 	cfg.set_value("meta", "village_facilities_unlocked", village_facilities_unlocked)
@@ -1707,6 +2073,9 @@ func save_to_disk() -> void:
 	cfg.set_value("meta", "p1_ui_bg_dialog", p1_ui_bg_dialog)
 	cfg.set_value("meta", "ui_bg_pattern_dim", ui_bg_pattern_dim)
 	cfg.set_value("meta", "unlocked_summons", unlocked_summons.duplicate())
+	cfg.set_value("meta", "summon_egg_shards", summon_egg_shards.duplicate())
+	cfg.set_value("meta", "pet_feed", pet_feed)
+	cfg.set_value("meta", "stage_summon_egg_drop_mult", stage_summon_egg_drop_mult.duplicate())
 	cfg.set_value("meta", "house_favorite_unlocked_slots", house_favorite_unlocked_slots)
 	_write_house_favorites_cfg(cfg)
 	_write_house_summons_cfg(cfg)
@@ -1771,6 +2140,11 @@ func load_from_disk() -> void:
 		p1_summon_progress.clear()
 		p2_summon_progress.clear()
 		unlocked_summons.clear()
+		summon_egg_shards.clear()
+		pet_feed = 0
+		stage_summon_egg_drop_mult.clear()
+		run_summon_egg_dropped = false
+		quest_headman_starter_summon_done = false
 		p1_bow_arrow_skin = "default"
 		p2_bow_arrow_skin = "default"
 		p1_pinball_bg_pattern = GameData.PINBALL_BG_PATTERN_DEFAULT
@@ -1798,6 +2172,8 @@ func load_from_disk() -> void:
 	farmer_rescued = bool(cfg.get_value("meta", "farmer_rescued", false))
 	blacksmith_tier2_unlocked = bool(cfg.get_value("meta", "blacksmith_tier2_unlocked", false))
 	quest_headman_intro_done = bool(cfg.get_value("meta", "quest_headman_intro_done", false))
+	quest_headman_starter_summon_done = bool(cfg.get_value(
+		"meta", "quest_headman_starter_summon_done", false))
 	quest_blacksmith_rewarded = bool(cfg.get_value("meta", "quest_blacksmith_rewarded", false))
 	completed_quests.clear()
 	for qid in cfg.get_value("meta", "completed_quests", []):
@@ -2002,10 +2378,40 @@ func _load_unlocked_summons(cfg: ConfigFile) -> void:
 			if sid != "" and sid != "none" and GameData.is_valid_summon_id(sid):
 				if not unlocked_summons.has(sid):
 					unlocked_summons.append(sid)
-		return
-	_migrate_unlocked_summons_from_legacy()
-	if not unlocked_summons.is_empty():
-		save_to_disk()
+	else:
+		_migrate_unlocked_summons_from_legacy()
+		if not unlocked_summons.is_empty():
+			save_to_disk()
+	if not quest_headman_starter_summon_done and not unlocked_summons.is_empty():
+		quest_headman_starter_summon_done = true
+		if not is_quest_completed("headman_starter_summon"):
+			complete_quest("headman_starter_summon")
+
+
+func _load_summon_loot_state(cfg: ConfigFile) -> void:
+	summon_egg_shards.clear()
+	pet_feed = maxi(0, int(cfg.get_value("meta", "pet_feed", 0)))
+	stage_summon_egg_drop_mult.clear()
+	var saved_shards: Variant = cfg.get_value("meta", "summon_egg_shards", {})
+	if saved_shards is Dictionary:
+		for raw_sid in (saved_shards as Dictionary).keys():
+			var sid: String = String(raw_sid)
+			if sid == "" or sid == "none" or not GameData.is_valid_summon_id(sid):
+				continue
+			if is_summon_unlocked(sid):
+				continue
+			var count: int = maxi(0, int((saved_shards as Dictionary)[raw_sid]))
+			if count > 0:
+				summon_egg_shards[sid] = count
+	var saved_decay: Variant = cfg.get_value("meta", "stage_summon_egg_drop_mult", {})
+	if saved_decay is Dictionary:
+		for raw_stage in (saved_decay as Dictionary).keys():
+			var stage_id: String = String(raw_stage)
+			if stage_id == "":
+				continue
+			stage_summon_egg_drop_mult[stage_id] = clampf(
+				float((saved_decay as Dictionary)[raw_stage]),
+				GameData.SUMMON_EGG_STAGE_DECAY_MIN, 1.0)
 
 
 func _migrate_unlocked_summons_from_legacy() -> void:
@@ -2125,6 +2531,7 @@ func _load_house_state(cfg: ConfigFile) -> void:
 	_load_house_summons(cfg)
 	_load_house_summon_progress(cfg)
 	_load_unlocked_summons(cfg)
+	_load_summon_loot_state(cfg)
 	_sanitize_house_summons_unlocks()
 	_load_house_favorite_unlocked_slots(cfg)
 	for player_slot in ["p1", "p2"]:
