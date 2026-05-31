@@ -6409,16 +6409,11 @@ func pinball_bg_pattern_ids() -> Array[String]:
 func _ensure_pinball_bg_pattern_ids() -> void:
 	if not _pinball_bg_pattern_ids.is_empty():
 		return
-	var dir := DirAccess.open(PATTERN_MIX_ROOT)
-	if dir == null:
-		return
-	dir.list_dir_begin()
-	var file_name: String = dir.get_next()
-	while file_name != "":
-		if not dir.current_is_dir() and file_name.ends_with(".png"):
-			_pinball_bg_pattern_ids.append(file_name.get_basename())
-		file_name = dir.get_next()
-	dir.list_dir_end()
+	for path in _list_png_paths_in_dir(PATTERN_MIX_ROOT, false):
+		var pid: String = String(path).get_file().get_basename()
+		if pid.is_empty() or _pinball_bg_pattern_ids.has(pid):
+			continue
+		_pinball_bg_pattern_ids.append(pid)
 	_pinball_bg_pattern_ids.sort()
 
 
