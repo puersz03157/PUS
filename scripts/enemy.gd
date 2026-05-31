@@ -66,6 +66,8 @@ var _poison_time: float = 0.0
 var _poison_dps: float = 0.0
 var _poison_source: Node = null
 var _poison_atk_reduce: float = 0.0
+var _taunt_target: Node2D = null
+var _taunt_time: float = 0.0
 var _dot_tick_carry: float = 0.0
 var _health_bar: Node2D = null
 var _status_overlay: StatusEffectOverlay = null
@@ -207,6 +209,37 @@ static func _player_target_pos(player: Node) -> Vector2:
 	return Vector2.ZERO
 
 
+func apply_summon_taunt(target: Node2D, duration: float) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	if duration <= 0.0:
+		return
+	_taunt_target = target
+	_taunt_time = maxf(_taunt_time, duration)
+
+
+func _resolve_chase_target() -> Dictionary:
+	if _taunt_time > 0.0 and is_instance_valid(_taunt_target):
+		var tp: Vector2 = _player_target_pos(_taunt_target)
+		return {
+			"target": _taunt_target,
+			"distance": global_position.distance_to(tp),
+		}
+	var best_node: Node2D = null
+	var best_d: float = 1e9
+	for p in get_tree().get_nodes_in_group("players"):
+		if p.get("hp") != null and float(p.hp) <= 0.0:
+			continue
+		var pp: Node2D = p as Node2D
+		if pp == null:
+			continue
+		var d: float = global_position.distance_to(_player_target_pos(pp))
+		if d < best_d:
+			best_d = d
+			best_node = pp
+	return {"target": best_node, "distance": best_d}
+
+
 func _physics_process(delta: float) -> void:
 	if _dying or hp <= 0.0:
 		return
@@ -226,18 +259,9 @@ func _physics_process(delta: float) -> void:
 		_update_hit_cooldowns(delta)
 		move_and_slide()
 		return
-	var target: Node2D = null
-	var best: float = 1e9
-	for p in get_tree().get_nodes_in_group("players"):
-		if p.hp <= 0:
-			continue
-		var pp: Node2D = p as Node2D
-		if pp == null:
-			continue
-		var d: float = global_position.distance_to(_player_target_pos(pp))
-		if d < best:
-			best = d
-			target = pp
+	var chase: Dictionary = _resolve_chase_target()
+	var target: Node2D = chase.get("target") as Node2D
+	var best: float = float(chase.get("distance", 1e9))
 
 	if target == null:
 		velocity = Vector2.ZERO
@@ -272,12 +296,13 @@ func _physics_process(delta: float) -> void:
 		if special_ai_mode != "flee" and best < radius + 30.0:
 			var k: String = str(target.get_instance_id())
 			if hit_cooldowns.get(k, 0.0) <= 0.0:
-				var deal: float = damage * (1.0 - clampf(_poison_atk_reduce, 0.0, 0.75))
-				target.take_damage(deal)
-				_apply_player_hit_effects(target)
 				hit_cooldowns[k] = 0.6
-				if not melee_aoe_params.is_empty():
-					_apply_melee_aoe_splash(target, deal)
+				if target.is_in_group("players") and target.get("hp") != null and float(target.hp) > 0.0:
+					var deal: float = damage * (1.0 - clampf(_poison_atk_reduce, 0.0, 0.75))
+					target.take_damage(deal)
+					_apply_player_hit_effects(target)
+					if not melee_aoe_params.is_empty():
+						_apply_melee_aoe_splash(target, deal)
 		# 朝向：水平翻轉 sprite
 		if sprite:
 			if dir.x < -0.05:
@@ -620,6 +645,9 @@ func _advance_enemy_status(delta: float) -> void:
 	if _slow_time <= 0.0:
 		_slow_speed_factor = 1.0
 	_stun_time = max(0.0, _stun_time - delta)
+	_taunt_time = max(0.0, _taunt_time - delta)
+	if _taunt_time <= 0.0:
+		_taunt_target = null
 	_vuln_time = max(0.0, _vuln_time - delta)
 	if _vuln_time <= 0.0:
 		_vuln_stacks = 0

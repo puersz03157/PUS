@@ -36,6 +36,54 @@ static func spawn_at(
 	popup.setup(int(round(amount)), is_crit, from_dot)
 
 
+static func spawn_text_at(
+		anchor: Node2D,
+		text: String,
+		color: Color = Color(0.78, 1.0, 0.62, 1.0),
+		font_size: int = 14,
+) -> void:
+	if anchor == null or not is_instance_valid(anchor) or text == "":
+		return
+	var parent: Node = anchor.get_tree().current_scene
+	if parent == null:
+		parent = anchor.get_parent()
+	if parent == null:
+		return
+	var popup: DamagePopup = POPUP_SCENE.instantiate() as DamagePopup
+	if popup == null:
+		return
+	parent.add_child(popup)
+	popup.global_position = anchor.global_position + Vector2(randf_range(-10.0, 10.0), -36.0)
+	popup.setup_text(text, color, font_size)
+
+
+func setup_text(text: String, color: Color, font_size: int = 14) -> void:
+	var label: Label = $Label
+	var outline: Label = $Outline
+	label.text = text
+	outline.text = text
+	label.add_theme_font_size_override("font_size", font_size)
+	outline.add_theme_font_size_override("font_size", font_size)
+	label.modulate = color
+	outline.modulate = Color(0.05, 0.08, 0.05, 0.78)
+	_play_buff_text()
+
+
+func _play_buff_text() -> void:
+	var rise: float = 34.0
+	var drift_x: float = randf_range(-12.0, 12.0)
+	var dur: float = 1.45
+	scale = Vector2(0.85, 0.85)
+	modulate.a = 1.0
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(self, "position", position + Vector2(drift_x, -rise), dur)\
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(self, "scale", Vector2.ONE, 0.12)
+	tw.tween_property(self, "modulate:a", 0.0, 0.85).set_delay(0.95)
+	tw.chain().tween_callback(queue_free)
+
+
 func setup(amount: int, is_crit: bool, from_dot: bool) -> void:
 	var label: Label = $Label
 	var outline: Label = $Outline

@@ -1,0 +1,16 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/summon_mushroom_orb.gd" id="1_msh"]
+
+[sub_resource type="CircleShape2D" id="cs_msh"]
+radius = 10.0
+
+[node name="SummonMushroomOrb" type="Area2D"]
+collision_layer = 64
+collision_mask = 2
+monitorable = true
+monitoring = true
+script = ExtResource("1_msh")
+
+[node name="Shape" type="CollisionShape2D" parent="."]
+shape = SubResource("cs_msh")

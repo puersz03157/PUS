@@ -70,6 +70,7 @@ CREDITS_ENTRY_ELVGAMES,[b]ELV Games[/b]（寵物蛋素材）— 像素美術 [co
 CREDITS_ENTRY_MATTZ_ART,[b]Characters[/b]（狼人、武士）— 像素美術 [color=#ffd978]Mattz Art[/color],[b]Characters[/b] (Werewolf, Samurai) pixel art by [color=#ffd978]Mattz Art[/color],
 CREDITS_ENTRY_ANSIMUZ,[b]Monk[/b] — 像素美術 [color=#ffd978]ansimuz[/color],[b]Monk[/b] pixel art by [color=#ffd978]ansimuz[/color],
 CREDITS_ENTRY_CLEMBOD,[b]The Bounty Hunter[/b] — 像素美術 [color=#ffd978]clembod[/color],[b]The Bounty Hunter[/b] pixel art by [color=#ffd978]clembod[/color],
+CREDITS_ENTRY_POZAC,[b]Dark Castle Interior[/b]（訓獸師）— 像素美術 [color=#ffd978]Pozac[/color],[b]Dark Castle Interior[/b] (Tamer) pixel art by [color=#ffd978]Pozac[/color],
 CREDITS_ENTRY_OTSOGA,[b]NightLord / Salamander Witch[/b] — 像素美術 [color=#ffd978]Otsoga[/color],[b]NightLord / Salamander Witch[/b] pixel art by [color=#ffd978]Otsoga[/color],
 CREDITS_ENTRY_CRAFTPIX,[b]Skill icons[/b] — 像素美術 [color=#ffd978]craftpix[/color],[b]Skill icons[/b] pixel art by [color=#ffd978]craftpix[/color],
 CREDITS_ENTRY_FINALBOSSBLUES,[b]Weapon icons[/b] — 像素美術 [color=#ffd978]finalbossblues[/color],[b]Weapon icons[/b] pixel art by [color=#ffd978]finalbossblues[/color],
@@ -628,23 +629,23 @@ SUMMON_TYPE_ATTACK,攻擊型,,
 SUMMON_FRCLOUDY_NAME,凍雲獸,,Frcloudy
 SUMMON_FRCLOUDY_EGG_NAME,凍雲獸蛋,,Frcloudy Egg
 SUMMON_FRCLOUDY_EVOLVE_NAME,白雲浪客龍,,Nimbusabre
-SUMMON_FRCLOUDY_DESC,御五家速度型。擅長追擊與閃避輔助。,,
+SUMMON_FRCLOUDY_DESC,御五家速度型。近戰追擊，命中附帶緩速。,,
 SUMMON_HERBARMOR_NAME,草殼仔,,Herbarmor
 SUMMON_HERBARMOR_EGG_NAME,草殼仔蛋,,Herbarmor Egg
 SUMMON_HERBARMOR_EVOLVE_NAME,翠羽刺甲獸,,Verdarmor
-SUMMON_HERBARMOR_DESC,御五家防禦型。高血量與減傷，穩定護航。,,
+SUMMON_HERBARMOR_DESC,御五家防禦型。近戰護航，有機率嘲諷附近敵人。,,
 SUMMON_SCARFNER_NAME,絨領熊,,Scarfner
 SUMMON_SCARFNER_EGG_NAME,絨領熊蛋,,Scarfner Egg
 SUMMON_SCARFNER_EVOLVE_NAME,赤焰巾絨熊,,Pyroscarf
-SUMMON_SCARFNER_DESC,御五家射擊型。遠程牽制與輸出。,,
+SUMMON_SCARFNER_DESC,御五家射擊型。遠程輸出，命中有機率施加燃燒。,,
 SUMMON_MOSSIS_NAME,苔蘚蟲,,Mossis
 SUMMON_MOSSIS_EGG_NAME,苔蘚蟲蛋,,Mossis Egg
 SUMMON_MOSSIS_EVOLVE_NAME,花冠妖精蝶,,Florafaie
-SUMMON_MOSSIS_DESC,御五家輔助型。強化隊友與控場支援。,,
+SUMMON_MOSSIS_DESC,御五家輔助型。散布蘑菇強化主人，紫菇對敵爆炸易傷。,,
 SUMMON_BRAWNO_NAME,剛咚咚,,Bampam
 SUMMON_BRAWNO_EGG_NAME,剛咚咚蛋,,Bampam Egg
 SUMMON_BRAWNO_EVOLVE_NAME,剛咚咚鬥士,,Brawno
-SUMMON_BRAWNO_DESC,御五家攻擊型。近身爆發與連段輸出。,,
+SUMMON_BRAWNO_DESC,御五家攻擊型。近身輸出，有機率暴擊與範圍濺射。,,
 P1_HOUSE_WEAPON_PREV_FALLBACK,<,,
 P1_HOUSE_WEAPON_NEXT_FALLBACK,>,,
 P1_HOUSE_SKIN_LBL,造型,,
@@ -829,6 +830,9 @@ WEAPON_ICE_MAX,對緩速敵人增傷,,
 WEAPON_POISON_NAME,毒素,,
 WEAPON_POISON_MAX,中毒敵人降低攻擊力,,
 WEAPON_HOLY_NAME,聖光,,
+WEAPON_WHIP_NAME,鞭,,
+WEAPON_WHIP_MAX,召喚物繼承召喚者能力比例提升,,
+WUP_W_COUNT_SUMMON_FMT,召喚物數量 +%d,,
 WEAPON_HOLY_MAX,回血效果支援隊友,,
 CHAR_SWORDSMAN_NAME,劍士,,
 CHAR_SWORDSMAN_DESC,均衡型：近戰素質標準，血量稍高以支撐近距離戰鬥。,,
@@ -848,6 +852,8 @@ CHAR_MONK_NAME,武僧,,
 CHAR_MONK_DESC,拳勁連打：初始拳擊，以 Combo 越打越強；中斷時依連段回復氣血。被動與技能待擴充。,,
 CHAR_HUNTER_NAME,獵人,,
 CHAR_HUNTER_DESC,遠距獵殺：初始槍械高速射擊，機動走位持續輸出。被動與技能待擴充。,,
+CHAR_TAMER_NAME,訓獸師,,
+CHAR_TAMER_DESC,均衡馭獸：初始鞭子武器，強化並擴充御五家召喚部署，能力分布平均。,,
 CHAR_WARRIOR_NAME,戰士,,
 CHAR_WARRIOR_DESC,猛攻型：較劍士更偏重輸出，以近戰壓制換取略低的生存能力。,,
 CHAR_VAMPIRE_LORD_NAME,吸血鬼領主,,

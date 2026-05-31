@@ -96,7 +96,10 @@ func damage_enemy(e: Node, mult: float = 1.0, hit_ctx: Dictionary = {}) -> void:
 	hit_mult *= _boxing_combo_hit_mult()
 	var dealt: float = eff_damage * hit_mult
 	var is_crit: bool = false
-	var crit_chance_total: float = owner_player.crit_chance + float(def.get("crit_chance", 0.0))
+	var crit_bonus: float = 0.0
+	if owner_player.has_method("get_effective_crit_chance_bonus"):
+		crit_bonus = float(owner_player.get_effective_crit_chance_bonus())
+	var crit_chance_total: float = owner_player.crit_chance + crit_bonus + float(def.get("crit_chance", 0.0))
 	crit_chance_total = clampf(crit_chance_total, 0.0, 0.95)
 	if crit_chance_total > 0.001 and randf() < crit_chance_total:
 		is_crit = true

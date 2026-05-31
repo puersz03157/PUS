@@ -27,6 +27,7 @@ const MATTZ_CHAR_ROOT := "res://assets/characters/Mattz Art/"
 const OTSOGA_CHAR_ROOT := "res://assets/characters/Otsoga/"
 const ANSIMUZ_CHAR_ROOT := "res://assets/characters/ansimuz/"
 const CLEMBOD_CHAR_ROOT := "res://assets/characters/clembod/"
+const POZAC_CHAR_ROOT := "res://assets/characters/pozac/"
 const GANDALF_CHAR_ROOT := "res://assets/characters/GandalfHardcore/"
 const GANDALF_NPC_ROOT := GANDALF_CHAR_ROOT + "NPC/"
 const SAVE_NPC_TEXTURE := GANDALF_CHAR_ROOT + "Save NPC.png"
@@ -167,7 +168,7 @@ const BOW_ARROW_VISUAL_SKINS: Array[Dictionary] = [
 ## 房屋武器造型：至少含「預設」；有額外款式的武器（如 bow）在 weapon_visual_skin_options 擴充
 const HOUSE_WEAPON_VISUAL_SKIN_WEAPON_ORDER: Array[String] = [
 	"bow", "sword", "spear", "magic_bullet", "ice", "lightning", "shard",
-	"boxing", "firearm", "flame", "holy", "axe", "melody", "claw", "poison",
+	"boxing", "firearm", "flame", "holy", "axe", "melody", "claw", "poison", "whip",
 ]
 const SPELL_PROJECTILES_SHEET := "res://assets/Effects/Spell Projectiles Sprite Sheet.png"
 const SPELL_PROJECTILE_FRAME_W := 32
@@ -192,6 +193,10 @@ const GOLD_ICON_FALLBACK_PATH := UI_ICON_ROOT + "Currency.png"
 const RUNE_DUST_ICON_PATH := CURRENCY_ICON_ROOT + "rune_dust.png"
 const XP_ICON_PATH := CURRENCY_ICON_ROOT + "xp.png"
 const AMMO_PACK_ICON_PATH := CURRENCY_ICON_ROOT + "ammo_pack.png"
+const MUSHROOM_RED_ICON_PATH := CURRENCY_ICON_ROOT + "Red mushroom.png"
+const MUSHROOM_BLUE_ICON_PATH := CURRENCY_ICON_ROOT + "Blue mushroom.png"
+const MUSHROOM_GREEN_ICON_PATH := CURRENCY_ICON_ROOT + "Green mushroom.png"
+const MUSHROOM_PURPLE_ICON_PATH := CURRENCY_ICON_ROOT + "Purple mushroom.png"
 ## 素材圖示：res://assets/icons/materials/<material_id>.png
 const MATERIAL_ICON_ROOT := "res://assets/icons/materials/"
 const RESOURCE_ICON_CHIP_SCRIPT := preload("res://scripts/resource_icon_chip.gd")
@@ -226,6 +231,20 @@ const HUNTER_SPRITE_SHEET: Dictionary = {
 		"hurt":   {"rows": [9],  "frames": [3]},
 		"death":  {"rows": [10], "frames": [7]},
 		"attack": {"rows": [15], "frames": [3]},
+	},
+}
+
+## 訓獸師 pozac / Tamer 大圖（800×1120，每格 80×80 px，共 14 列）
+const TAMER_SPRITE_SHEET: Dictionary = {
+	"sheet": POZAC_CHAR_ROOT + "tamer.png",
+	"frame_w": 80,
+	"frame_h": 80,
+	"anims": {
+		"idle":   {"rows": [1],  "frames": [8]},
+		"walk":   {"rows": [4],  "frames": [8]},
+		"attack": {"rows": [11], "frames": [8]},
+		"hurt":   {"rows": [13], "frames": [3]},
+		"death":  {"rows": [14], "frames": [7]},
 	},
 }
 
@@ -584,6 +603,21 @@ const WEAPONS: Array[Dictionary] = [
 		"range": 75.0,
 		"params": {"color": Color(1.0, 0.95, 0.6), "heal": 1.0},
 		"max_effect": "回血效果支援隊友", "max_effect_key": "WEAPON_HOLY_MAX",
+	},
+	{
+		"id": "whip",
+		"name": "鞭", "name_key": "WEAPON_WHIP_NAME",
+		"kind": "whip",
+		"damage": 5.0,
+		"rate": 0.55,
+		"crit_chance": 0.03,
+		"crit_damage_mult": 1.65,
+		"range": 115.0,
+		"params": {},
+		"max_effect": "召喚物繼承召喚者能力比例提升", "max_effect_key": "WEAPON_WHIP_MAX",
+		"icon": "res://assets/icons/weapons/Whip.png",
+		"craft_gold": 110,
+		"craft_materials": {"wood": 5, "iron": 3},
 	},
 ]
 
@@ -1002,6 +1036,26 @@ const CHARACTERS: Array[Dictionary] = [
 		"passive_options": ["none"],
 	},
 	{
+		"id": "tamer",
+		"name": "訓獸師", "name_key": "CHAR_TAMER_NAME",
+		"rarity": "epic",
+		"weapon": "whip", "hp": 120.0, "atk": 12.0, "def": 10.0, "spd": 5.5,
+		"desc": "均衡馭獸：初始鞭子武器，強化並擴充御五家召喚部署，能力分布平均。",
+		"desc_key": "CHAR_TAMER_DESC",
+		"color": Color(0.68, 0.52, 0.92),
+		"sprite": "",
+		"sprite_faces_left": false,
+		"sprite_sheet": "tamer",
+		"anim_fps": 14.0,
+		"strip_fps": {"attack": 16.0},
+		"walk_anim_over_attack": true,
+		"scale": 1.0,
+		"body_radius": 16,
+		"offset_y": -7,
+		"skill_options": ["none"],
+		"passive_options": ["none"],
+	},
+	{
 		"id": "vampire_lord",
 		"name": "吸血鬼領主", "name_key": "CHAR_VAMPIRE_LORD_NAME",
 		"rarity": "legend",
@@ -1132,12 +1186,15 @@ func weapon_entry_has_upgrades(weapon_entry: Dictionary) -> bool:
 	return false
 
 
-func weapon_upgrade_stacked_bonus_text(upgrade_def: Dictionary, level: int) -> String:
+func weapon_upgrade_stacked_bonus_text(
+		upgrade_def: Dictionary, level: int, weapon_id: String = "") -> String:
 	if level <= 0:
 		return ""
 	var id: String = String(upgrade_def.get("id", ""))
 	var value: float = float(upgrade_def.get("value", 0.0))
 	if id == "w_count":
+		if weapon_id == "whip":
+			return tr("WUP_W_COUNT_SUMMON_FMT") % int(value * float(level))
 		return tr("CODEX_UPGRADE_VALUE_FLAT_FMT") % int(value * float(level))
 	return tr("CODEX_UPGRADE_VALUE_PERCENT_FMT") % int(round(value * float(level) * 100.0))
 
@@ -1158,7 +1215,7 @@ func format_weapon_upgrades_tooltip(weapon_entry: Dictionary) -> String:
 			continue
 		lines.append(tr("PAUSE_WEAPON_UPGRADE_LINE_FMT") % [
 			tr_name(u), lv, int(u.get("max", 0)),
-			weapon_upgrade_stacked_bonus_text(u, lv)])
+			weapon_upgrade_stacked_bonus_text(u, lv, wid)])
 	if is_weapon_upgrades_maxed(upgrades):
 		var max_fx: String = tr_max_effect(wdef)
 		if max_fx != "":
@@ -1200,6 +1257,7 @@ const FIREARM_AMMO_PACK_EXPIRE_SEC := 2.2
 const FIREARM_MODE_PROMPT_SEC := 1.6
 
 var _firearm_ammo_pack_spawn_seq: int = 0
+var _summon_mushroom_spawn_seq: int = 0
 
 
 func register_firearm_ammo_pack(orb: Node) -> void:
@@ -1231,6 +1289,203 @@ func _enforce_firearm_ammo_pack_limit(tree: SceneTree) -> void:
 		var old: Node = orbs[i]
 		if old.has_method("begin_expire"):
 			old.begin_expire()
+
+
+func register_summon_mushroom(orb: Node, mushroom_type: String) -> void:
+	if orb == null or mushroom_type == "":
+		return
+	_summon_mushroom_spawn_seq += 1
+	orb.set_meta("mushroom_spawn_seq", _summon_mushroom_spawn_seq)
+	orb.set_meta("mushroom_type", mushroom_type)
+	var tree: SceneTree = orb.get_tree()
+	if tree != null:
+		_enforce_summon_mushroom_limit(tree, mushroom_type)
+
+
+func reset_summon_mushroom_spawn_seq() -> void:
+	_summon_mushroom_spawn_seq = 0
+
+
+func _enforce_summon_mushroom_limit(tree: SceneTree, mushroom_type: String) -> void:
+	var orbs: Array = []
+	for n in tree.get_nodes_in_group("summon_mushroom_orbs"):
+		if n == null or not is_instance_valid(n):
+			continue
+		if String(n.get_meta("mushroom_type", "")) != mushroom_type:
+			continue
+		orbs.append(n)
+	var mossis_count: int = count_active_mossis_spawners(tree)
+	var cap: int = summon_mushroom_max_for_type(mushroom_type, mossis_count)
+	if orbs.size() <= cap:
+		return
+	orbs.sort_custom(func(a, b) -> bool:
+		return int(a.get_meta("mushroom_spawn_seq", 0)) < int(b.get_meta("mushroom_spawn_seq", 0))
+	)
+	var excess: int = orbs.size() - cap
+	for i in range(excess):
+		var old: Node = orbs[i]
+		if old.has_method("begin_expire"):
+			old.begin_expire()
+
+
+func mushroom_icon_path(kind: String) -> String:
+	match kind:
+		"red":
+			return MUSHROOM_RED_ICON_PATH
+		"blue":
+			return MUSHROOM_BLUE_ICON_PATH
+		"green":
+			return MUSHROOM_GREEN_ICON_PATH
+		"purple":
+			return MUSHROOM_PURPLE_ICON_PATH
+		_:
+			return ""
+
+
+func summon_mushroom_kinds() -> Array[String]:
+	return ["red", "blue", "green", "purple"]
+
+
+func summon_mushroom_max_for_type(mushroom_type: String, mossis_count: int = 1) -> int:
+	var base_max: int = SUMMON_MUSHROOM_MAX_PURPLE if mushroom_type == "purple" else SUMMON_MUSHROOM_MAX_PER_TYPE
+	return base_max * maxi(1, mossis_count)
+
+
+func count_active_mossis_spawners(tree: SceneTree) -> int:
+	var count: int = 0
+	for n in tree.get_nodes_in_group("summon_followers"):
+		if n == null or not is_instance_valid(n):
+			continue
+		if n.has_method("is_active_mossis_spawner") and n.is_active_mossis_spawner():
+			count += 1
+	return count
+
+
+func summon_mushroom_pick_kind() -> String:
+	var weights: Dictionary = {
+		"red": 1.0,
+		"blue": 1.0,
+		"green": 1.0,
+		"purple": SUMMON_MUSHROOM_PURPLE_SPAWN_WEIGHT,
+	}
+	var total: float = 0.0
+	for k in weights:
+		total += float(weights[k])
+	var roll: float = randf() * total
+	var acc: float = 0.0
+	for kind in summon_mushroom_kinds():
+		acc += float(weights.get(kind, 1.0))
+		if roll <= acc:
+			return kind
+	return "purple"
+
+
+func summon_mushroom_pickup_message(kind: String, sup: int, heal_amount: float = 0.0) -> String:
+	var dur: float = summon_mushroom_buff_duration(sup)
+	match kind:
+		"red":
+			var dmg_pct: int = int(round(summon_mushroom_red_damage_mult(sup) * 100.0))
+			var crit_pct: int = int(round(summon_mushroom_red_crit_add(sup) * 100.0))
+			return "紅菇 攻擊+%d%% 爆擊+%d%% (%.0fs)" % [dmg_pct, crit_pct, dur]
+		"blue":
+			var spd_pct: int = int(round(summon_mushroom_blue_speed_mult(sup) * 100.0))
+			var rate_pct: int = int(round(summon_mushroom_blue_rate_mult(sup) * 100.0))
+			return "藍菇 移速+%d%% 攻速+%d%% (%.0fs)" % [spd_pct, rate_pct, dur]
+		"green":
+			return "綠菇 回復+%d (%.0fs)" % [int(round(heal_amount)), dur]
+		_:
+			return ""
+
+
+func summon_ability_chance(sup: int, base: float, per_sup: float) -> float:
+	return clampf(base + float(sup) * per_sup, 0.0, 0.95)
+
+
+func summon_ability_value(sup: int, base: float, per_sup: float) -> float:
+	return base + float(sup) * per_sup
+
+
+func build_summon_abilities(summon_id: String, sup: int) -> Dictionary:
+	match summon_id:
+		"frcloudy":
+			return {
+				"slow_duration": summon_ability_value(
+					sup, SUMMON_AB_SLOW_DURATION_BASE, SUMMON_AB_SLOW_DURATION_PER_SUP),
+				"slow_factor": ENEMY_STATUS_ICE_SLOW_FACTOR,
+			}
+		"herbarmor":
+			return {
+				"taunt_chance": summon_ability_chance(
+					sup, SUMMON_AB_TAUNT_CHANCE_BASE, SUMMON_AB_TAUNT_CHANCE_PER_SUP),
+				"taunt_duration": summon_ability_value(
+					sup, SUMMON_AB_TAUNT_DURATION_BASE, SUMMON_AB_TAUNT_DURATION_PER_SUP),
+				"taunt_cd": maxf(
+					SUMMON_AB_TAUNT_CD_MIN,
+					SUMMON_AB_TAUNT_CD_BASE + float(sup) * SUMMON_AB_TAUNT_CD_PER_SUP),
+			}
+		"brawno":
+			return {
+				"crit_chance": summon_ability_chance(
+					sup, SUMMON_AB_BRAWNO_CRIT_BASE, SUMMON_AB_BRAWNO_CRIT_PER_SUP),
+				"crit_mult": SUMMON_AB_BRAWNO_CRIT_MULT,
+				"aoe_chance": summon_ability_chance(
+					sup, SUMMON_AB_BRAWNO_AOE_CHANCE_BASE, SUMMON_AB_BRAWNO_AOE_CHANCE_PER_SUP),
+				"aoe_radius": SUMMON_AB_BRAWNO_AOE_RADIUS,
+				"aoe_damage_mult": SUMMON_AB_BRAWNO_AOE_DAMAGE_MULT,
+			}
+		"scarfner":
+			return {
+				"burn_chance": summon_ability_chance(
+					sup, SUMMON_AB_SCARFNER_BURN_CHANCE_BASE, SUMMON_AB_SCARFNER_BURN_CHANCE_PER_SUP),
+				"burn_duration": ENEMY_STATUS_FLAME_BURN_DURATION,
+				"burn_dps_ratio": ENEMY_STATUS_FLAME_BURN_DPS_RATIO,
+			}
+		"mossis":
+			return {
+				"spawn_chance": summon_ability_chance(
+					sup, SUMMON_AB_MOSSIS_SPAWN_CHANCE_BASE, SUMMON_AB_MOSSIS_SPAWN_CHANCE_PER_SUP),
+				"spawn_interval": maxf(
+					SUMMON_AB_MOSSIS_SPAWN_INTERVAL_MIN,
+					SUMMON_AB_MOSSIS_SPAWN_INTERVAL_BASE + float(sup) * SUMMON_AB_MOSSIS_SPAWN_INTERVAL_PER_SUP),
+				"buff_duration": summon_ability_value(
+					sup, SUMMON_MUSHROOM_BUFF_DURATION_BASE, SUMMON_MUSHROOM_BUFF_DURATION_PER_SUP),
+			}
+	return {}
+
+
+func summon_mushroom_buff_duration(sup: int) -> float:
+	return summon_ability_value(
+		sup, SUMMON_MUSHROOM_BUFF_DURATION_BASE, SUMMON_MUSHROOM_BUFF_DURATION_PER_SUP)
+
+
+func summon_mushroom_red_damage_mult(sup: int) -> float:
+	return summon_ability_value(
+		sup, SUMMON_MUSHROOM_RED_DMG_MULT_BASE, SUMMON_MUSHROOM_RED_DMG_MULT_PER_SUP)
+
+
+func summon_mushroom_red_crit_add(sup: int) -> float:
+	return summon_ability_value(
+		sup, SUMMON_MUSHROOM_RED_CRIT_BASE, SUMMON_MUSHROOM_RED_CRIT_PER_SUP)
+
+
+func summon_mushroom_blue_speed_mult(sup: int) -> float:
+	return summon_ability_value(
+		sup, SUMMON_MUSHROOM_BLUE_SPEED_BASE, SUMMON_MUSHROOM_BLUE_SPEED_PER_SUP)
+
+
+func summon_mushroom_blue_rate_mult(sup: int) -> float:
+	return summon_ability_value(
+		sup, SUMMON_MUSHROOM_BLUE_RATE_BASE, SUMMON_MUSHROOM_BLUE_RATE_PER_SUP)
+
+
+func summon_mushroom_green_heal_ratio(sup: int) -> float:
+	return summon_ability_value(
+		sup, SUMMON_MUSHROOM_GREEN_HEAL_RATIO_BASE, SUMMON_MUSHROOM_GREEN_HEAL_RATIO_PER_SUP)
+
+
+func summon_mushroom_green_regen(sup: int) -> float:
+	return summon_ability_value(
+		sup, SUMMON_MUSHROOM_GREEN_REGEN_BASE, SUMMON_MUSHROOM_GREEN_REGEN_PER_SUP)
 
 
 ## 拳擊：Combo 與滿級暈眩
@@ -1307,7 +1562,7 @@ func boxing_combo_break_heal(max_hp: float, combo: int, maxed: bool) -> float:
 ## 已實裝「滿級額外效果」的武器 id（其餘武器全滿時不彈解鎖視窗，直到實裝為止）
 const WEAPON_MAX_BONUS_IMPLEMENTED: Array[String] = [
 	"sword", "spear", "axe", "magic_bullet", "bow", "firearm", "melody", "claw", "boxing", "shard", "flame",
-	"lightning", "ice", "poison", "holy",
+	"lightning", "ice", "poison", "holy", "whip",
 ]
 
 
@@ -2000,7 +2255,111 @@ const PET_FEED_EXP_AMOUNT := 45
 const SUMMON_BATTLE_EXP_VICTORY := 20
 const SUMMON_BATTLE_EXP_PARTIAL := 10
 const SUMMON_BATTLE_PARTIAL_MIN_TIME := 300.0
+const SUMMON_COMBAT_DAMAGE_SCALE := 0.30
+const SUMMON_COMBAT_PROJECTILE_VISUAL_SCALE := 0.68
+const SUMMON_COMBAT_HIT_VFX_SCALE := 0.78
+const SUMMON_COMBAT_MELEE_RANGE_BASE := 24.0
+const SUMMON_COMBAT_RANGED_RANGE_BASE := 108.0
+const SUMMON_COMBAT_RANGED_RANGE_PER_SPD := 1.6
+const SUMMON_COMBAT_LEASH_RADIUS := 185.0
+const SUMMON_COMBAT_OWNER_SCAN_RADIUS := 205.0
+const SUMMON_COMBAT_RATE_BASE := 0.58
+const SUMMON_COMBAT_RATE_PER_ATK := 0.012
+const SUMMON_COMBAT_RATE_MAX := 1.05
+const SUMMON_COMBAT_MOVE_SPEED_BASE := 28.0
+const SUMMON_COMBAT_MOVE_SPEED_PER_SPD := 2.35
+## 御五家「速度型」追敵移速額外倍率（凍雲獸等）
+const SUMMON_COMBAT_SPEED_TYPE_MOVE_MULT := 1.6
+const SUMMON_COMBAT_PROJECTILE_SPEED := 360.0
+## 御五家差異化能力（SUP 參與縮放）
+const SUMMON_AB_SLOW_DURATION_BASE := 1.6
+const SUMMON_AB_SLOW_DURATION_PER_SUP := 0.14
+const SUMMON_AB_TAUNT_CHANCE_BASE := 0.10
+const SUMMON_AB_TAUNT_CHANCE_PER_SUP := 0.007
+const SUMMON_AB_TAUNT_DURATION_BASE := 1.8
+const SUMMON_AB_TAUNT_DURATION_PER_SUP := 0.16
+const SUMMON_AB_TAUNT_CD_BASE := 9.0
+const SUMMON_AB_TAUNT_CD_PER_SUP := -0.28
+const SUMMON_AB_TAUNT_CD_MIN := 3.5
+const SUMMON_AB_BRAWNO_CRIT_BASE := 0.10
+const SUMMON_AB_BRAWNO_CRIT_PER_SUP := 0.004
+const SUMMON_AB_BRAWNO_CRIT_MULT := 2.0
+const SUMMON_AB_BRAWNO_AOE_CHANCE_BASE := 0.14
+const SUMMON_AB_BRAWNO_AOE_CHANCE_PER_SUP := 0.006
+const SUMMON_AB_BRAWNO_AOE_RADIUS := 54.0
+const SUMMON_AB_BRAWNO_AOE_DAMAGE_MULT := 0.58
+const SUMMON_AB_SCARFNER_BURN_CHANCE_BASE := 0.22
+const SUMMON_AB_SCARFNER_BURN_CHANCE_PER_SUP := 0.009
+const SUMMON_AB_MOSSIS_SPAWN_CHANCE_BASE := 0.26
+const SUMMON_AB_MOSSIS_SPAWN_CHANCE_PER_SUP := 0.007
+const SUMMON_AB_MOSSIS_SPAWN_INTERVAL_BASE := 3.8
+const SUMMON_AB_MOSSIS_SPAWN_INTERVAL_PER_SUP := -0.05
+const SUMMON_AB_MOSSIS_SPAWN_INTERVAL_MIN := 2.2
+const SUMMON_MUSHROOM_MAX_PER_TYPE := 4
+const SUMMON_MUSHROOM_MAX_PURPLE := 7
+const SUMMON_MUSHROOM_PURPLE_SPAWN_WEIGHT := 2.5
+const SUMMON_MUSHROOM_LIFETIME_SEC := 22.0
+const SUMMON_MUSHROOM_EXPIRE_FADE_SEC := 1.4
+const SUMMON_MUSHROOM_BUFF_DURATION_BASE := 5.5
+const SUMMON_MUSHROOM_BUFF_DURATION_PER_SUP := 0.28
+const SUMMON_MUSHROOM_RED_DMG_MULT_BASE := 0.12
+const SUMMON_MUSHROOM_RED_DMG_MULT_PER_SUP := 0.008
+const SUMMON_MUSHROOM_RED_CRIT_BASE := 0.04
+const SUMMON_MUSHROOM_RED_CRIT_PER_SUP := 0.0025
+const SUMMON_MUSHROOM_BLUE_SPEED_BASE := 0.10
+const SUMMON_MUSHROOM_BLUE_SPEED_PER_SUP := 0.006
+const SUMMON_MUSHROOM_BLUE_RATE_BASE := 0.10
+const SUMMON_MUSHROOM_BLUE_RATE_PER_SUP := 0.006
+const SUMMON_MUSHROOM_GREEN_HEAL_RATIO_BASE := 0.06
+const SUMMON_MUSHROOM_GREEN_HEAL_RATIO_PER_SUP := 0.004
+const SUMMON_MUSHROOM_GREEN_REGEN_BASE := 0.6
+const SUMMON_MUSHROOM_GREEN_REGEN_PER_SUP := 0.05
+const SUMMON_MUSHROOM_PURPLE_RADIUS := 44.0
+const SUMMON_MUSHROOM_PURPLE_DMG_SCALE := 1.05
+const SUMMON_MUSHROOM_PURPLE_VULN_DURATION := 3.2
+const SUMMON_MUSHROOM_PURPLE_VULN_STACKS := 2
+const SUMMON_MUSHROOM_SCENE := "res://scenes/SummonMushroomOrb.tscn"
+## 物理層：Enemy = layer 3 → bitmask 4（紫菇偵測怪物用）
+const ENEMY_PHYSICS_LAYER_MASK := 4
+const PLAYER_PHYSICS_LAYER_MASK := 2
+const WHIP_SUMMON_OWNER_STAT_SHARE := 0.42
+const WHIP_SUMMON_OWNER_STAT_SHARE_MAX := 0.62
+const WHIP_SUMMON_ATK_SHARE := 0.035
 const PET_ASSET_ROOT := "res://assets/Pet/"
+
+## 御五家戰鬥配置：style=melee|ranged；蛋（Lv.0）不參戰，僅跟隨
+const SUMMON_COMBAT_PROFILES: Dictionary = {
+	"frcloudy": {
+		"style": "melee",
+		"hit_vfx": "ice",
+		"projectile_row": 2,
+		"projectile_color": Color(0.62, 0.94, 1.0),
+	},
+	"herbarmor": {
+		"style": "melee",
+		"hit_vfx": "boxing",
+		"projectile_row": 3,
+		"projectile_color": Color(0.72, 0.88, 0.55),
+	},
+	"brawno": {
+		"style": "melee",
+		"hit_vfx": "impact_medium",
+		"projectile_row": 1,
+		"projectile_color": Color(1.0, 0.72, 0.45),
+	},
+	"scarfner": {
+		"style": "ranged",
+		"hit_vfx": "flame",
+		"projectile_row": 1,
+		"projectile_color": Color(1.0, 0.58, 0.22),
+	},
+	"mossis": {
+		"style": "support",
+		"hit_vfx": "shard",
+		"projectile_row": 4,
+		"projectile_color": Color(0.62, 0.95, 0.58),
+	},
+}
 
 const SUMMONS: Array[Dictionary] = [
 	{
@@ -2012,7 +2371,7 @@ const SUMMONS: Array[Dictionary] = [
 		"id": "frcloudy",
 		"name": "凍雲獸", "name_key": "SUMMON_FRCLOUDY_NAME",
 		"evolve_name": "白雲浪客龍", "evolve_name_key": "SUMMON_FRCLOUDY_EVOLVE_NAME",
-		"desc": "御五家速度型。擅長追擊與閃避輔助。", "desc_key": "SUMMON_FRCLOUDY_DESC",
+		"desc": "御五家速度型。近戰追擊，命中附帶緩速。", "desc_key": "SUMMON_FRCLOUDY_DESC",
 		"type": "speed", "type_key": "SUMMON_TYPE_SPEED",
 		"texture": PET_ASSET_ROOT + "Frcloudy.png",
 		"evolve_texture": PET_ASSET_ROOT + "Nimbusabre.png",
@@ -2026,7 +2385,7 @@ const SUMMONS: Array[Dictionary] = [
 		"id": "herbarmor",
 		"name": "草殼仔", "name_key": "SUMMON_HERBARMOR_NAME",
 		"evolve_name": "翠羽刺甲獸", "evolve_name_key": "SUMMON_HERBARMOR_EVOLVE_NAME",
-		"desc": "御五家防禦型。高血量與減傷，穩定護航。", "desc_key": "SUMMON_HERBARMOR_DESC",
+		"desc": "御五家防禦型。近戰護航，有機率嘲諷附近敵人。", "desc_key": "SUMMON_HERBARMOR_DESC",
 		"type": "defense", "type_key": "SUMMON_TYPE_DEFENSE",
 		"texture": PET_ASSET_ROOT + "Herbarmor.png",
 		"evolve_texture": PET_ASSET_ROOT + "Verdarmor.png",
@@ -2040,7 +2399,7 @@ const SUMMONS: Array[Dictionary] = [
 		"id": "scarfner",
 		"name": "絨領熊", "name_key": "SUMMON_SCARFNER_NAME",
 		"evolve_name": "赤焰巾絨熊", "evolve_name_key": "SUMMON_SCARFNER_EVOLVE_NAME",
-		"desc": "御五家射擊型。遠程牽制與輸出。", "desc_key": "SUMMON_SCARFNER_DESC",
+		"desc": "御五家射擊型。遠程輸出，命中有機率施加燃燒。", "desc_key": "SUMMON_SCARFNER_DESC",
 		"type": "ranged", "type_key": "SUMMON_TYPE_RANGED",
 		"texture": PET_ASSET_ROOT + "Scarfner.png",
 		"evolve_texture": PET_ASSET_ROOT + "Pyroscarf.png",
@@ -2054,7 +2413,7 @@ const SUMMONS: Array[Dictionary] = [
 		"id": "mossis",
 		"name": "苔蘚蟲", "name_key": "SUMMON_MOSSIS_NAME",
 		"evolve_name": "花冠妖精蝶", "evolve_name_key": "SUMMON_MOSSIS_EVOLVE_NAME",
-		"desc": "御五家輔助型。強化隊友與控場支援。", "desc_key": "SUMMON_MOSSIS_DESC",
+		"desc": "御五家輔助型。散布蘑菇強化主人，紫菇對敵爆炸易傷。", "desc_key": "SUMMON_MOSSIS_DESC",
 		"type": "support", "type_key": "SUMMON_TYPE_SUPPORT",
 		"texture": PET_ASSET_ROOT + "Mossis.png",
 		"evolve_texture": PET_ASSET_ROOT + "Florafaie.png",
@@ -2068,7 +2427,7 @@ const SUMMONS: Array[Dictionary] = [
 		"id": "brawno",
 		"name": "剛咚咚", "name_key": "SUMMON_BRAWNO_NAME",
 		"evolve_name": "剛咚咚鬥士", "evolve_name_key": "SUMMON_BRAWNO_EVOLVE_NAME",
-		"desc": "御五家攻擊型。近身爆發與連段輸出。", "desc_key": "SUMMON_BRAWNO_DESC",
+		"desc": "御五家攻擊型。近身輸出，有機率暴擊與範圍濺射。", "desc_key": "SUMMON_BRAWNO_DESC",
 		"type": "attack", "type_key": "SUMMON_TYPE_ATTACK",
 		"texture": PET_ASSET_ROOT + "Bampam.png",
 		"evolve_texture": PET_ASSET_ROOT + "Brawno.png",
@@ -2136,6 +2495,166 @@ func summon_computed_stats(summon_id: String, level: int) -> Dictionary:
 	for key in ["atk", "def", "spd", "hp", "sup"]:
 		out[key] = roundi(float(base.get(key, 0.0)) * mult)
 	return out
+
+
+func get_summon_combat_profile(summon_id: String) -> Dictionary:
+	var raw: Variant = SUMMON_COMBAT_PROFILES.get(summon_id, {})
+	return raw if raw is Dictionary else {}
+
+
+func build_summon_projectile_visual(sheet_row: int, extra: Dictionary = {}) -> Dictionary:
+	var cfg: Dictionary = {
+		"sheet": SPELL_PROJECTILES_SHEET,
+		"sheet_row": maxi(1, sheet_row),
+		"frame_w": SPELL_PROJECTILE_FRAME_W,
+		"frame_h": SPELL_PROJECTILE_FRAME_H,
+		"frame_count": SPELL_PROJECTILE_FRAME_COUNT,
+		"fps": 12.0,
+		"loop": true,
+		"art_tilt_deg": 0.0,
+		"align_sprite_to_hit_probe": false,
+		"manual_hit_probe": false,
+		"z_index": 54,
+	}
+	for k in extra.keys():
+		cfg[k] = extra[k]
+	return cfg
+
+
+func compute_summon_combat_params(summon_id: String, level: int) -> Dictionary:
+	var profile: Dictionary = get_summon_combat_profile(summon_id)
+	if profile.is_empty():
+		return {}
+	var lv: int = clampi(level, SUMMON_MIN_LEVEL, SUMMON_MAX_LEVEL)
+	if summon_is_egg(lv):
+		return {}
+	var stats: Dictionary = summon_computed_stats(summon_id, lv)
+	if stats.is_empty():
+		return {}
+	var style: String = String(profile.get("style", "ranged"))
+	var atk: int = int(stats.get("atk", 0))
+	var spd: int = int(stats.get("spd", 0))
+	var def_val: int = int(stats.get("def", 0))
+	var sup: int = int(stats.get("sup", 0))
+	var damage: int = maxi(1, roundi(float(atk) * SUMMON_COMBAT_DAMAGE_SCALE))
+	var melee_range: float = SUMMON_COMBAT_MELEE_RANGE_BASE + float(def_val) * 0.35
+	var ranged_range: float = SUMMON_COMBAT_RANGED_RANGE_BASE + float(spd) * SUMMON_COMBAT_RANGED_RANGE_PER_SPD
+	var attack_rate: float = clampf(
+		SUMMON_COMBAT_RATE_BASE + float(atk) * SUMMON_COMBAT_RATE_PER_ATK,
+		0.35, SUMMON_COMBAT_RATE_MAX)
+	var move_speed: float = SUMMON_COMBAT_MOVE_SPEED_BASE + float(spd) * SUMMON_COMBAT_MOVE_SPEED_PER_SPD
+	var sdef: Dictionary = get_summon_def(summon_id)
+	if String(sdef.get("type", "")) == "speed":
+		move_speed *= SUMMON_COMBAT_SPEED_TYPE_MOVE_MULT
+	var projectile_row: int = int(profile.get("projectile_row", 1))
+	return {
+		"summon_id": summon_id,
+		"level": lv,
+		"style": style,
+		"egg": false,
+		"damage": damage,
+		"melee_range": melee_range,
+		"ranged_range": ranged_range,
+		"attack_rate": attack_rate,
+		"move_speed": move_speed,
+		"leash_radius": SUMMON_COMBAT_LEASH_RADIUS,
+		"scan_radius": SUMMON_COMBAT_OWNER_SCAN_RADIUS,
+		"hit_vfx": String(profile.get("hit_vfx", "")),
+		"projectile_visual": build_summon_projectile_visual(projectile_row),
+		"projectile_color": profile.get("projectile_color", Color.WHITE),
+		"projectile_speed": SUMMON_COMBAT_PROJECTILE_SPEED,
+		"projectile_visual_scale": SUMMON_COMBAT_PROJECTILE_VISUAL_SCALE,
+		"hit_vfx_scale": SUMMON_COMBAT_HIT_VFX_SCALE,
+		"sup": sup,
+		"abilities": build_summon_abilities(summon_id, sup),
+	}
+
+
+func whip_base_summon_count(two_players: bool) -> int:
+	return 1 if two_players else 3
+
+
+func build_whip_summon_deploy_list(
+		player_slot: String,
+		char_id: String,
+		count_bonus: int,
+		two_players: bool,
+) -> Array[String]:
+	var total: int = whip_base_summon_count(two_players) + maxi(0, count_bonus)
+	if total <= 0 or char_id == "":
+		return []
+	var slots: Array[String] = GameState.get_house_summons(player_slot, char_id)
+	if slots.is_empty():
+		return []
+	var out: Array[String] = []
+	var used: Dictionary = {}
+	var unique_cap: int = mini(3, total)
+	for i in unique_cap:
+		if i >= slots.size():
+			break
+		var sid: String = slots[i]
+		if sid == "" or sid == "none":
+			continue
+		if not GameState.is_summon_unlocked(sid):
+			continue
+		if used.has(sid):
+			continue
+		used[sid] = true
+		out.append(sid)
+	var fallback: String = ""
+	if slots.size() > 0:
+		fallback = slots[0]
+	while out.size() < total:
+		if fallback == "" or fallback == "none":
+			break
+		if not GameState.is_summon_unlocked(fallback):
+			break
+		out.append(fallback)
+	return out
+
+
+func apply_whip_owner_bonuses_to_summon_params(params: Dictionary, owner: Node) -> Dictionary:
+	if params.is_empty() or owner == null:
+		return params
+	if not owner.has_method("has_whip_weapon") or not owner.has_whip_weapon():
+		return params
+	var share: float = WHIP_SUMMON_OWNER_STAT_SHARE
+	if owner.has_method("get_whip_weapon_entry"):
+		var whip_entry: Dictionary = owner.get_whip_weapon_entry()
+		var upgrades: Dictionary = whip_entry.get("upgrades", {})
+		if GameData.is_weapon_upgrades_maxed(upgrades) \
+				and String(whip_entry.get("id", "")) == "whip":
+			share = WHIP_SUMMON_OWNER_STAT_SHARE_MAX
+	var dmg: float = float(params.get("damage", 1))
+	if owner.get("damage_mult") != null:
+		dmg *= 1.0 + (float(owner.damage_mult) - 1.0) * share
+	if owner.get("atk") != null:
+		dmg *= 1.0 + float(owner.atk) * WHIP_SUMMON_ATK_SHARE * share
+	var rate: float = float(params.get("attack_rate", 0.5))
+	if owner.get("rate_mult") != null:
+		rate *= 1.0 + (float(owner.rate_mult) - 1.0) * share
+	var range_mult: float = 1.0
+	if owner.has_method("get_whip_weapon_entry"):
+		var whip_e: Dictionary = owner.get_whip_weapon_entry()
+		var whip_node: Node = whip_e.get("node")
+		if whip_node != null and is_instance_valid(whip_node):
+			var wdef: Dictionary = get_weapon_def("whip")
+			var base_range: float = float(wdef.get("range", 115.0))
+			if base_range > 0.0 and whip_node.get("eff_range") != null:
+				range_mult = float(whip_node.eff_range) / base_range
+			if whip_node.get("eff_damage") != null and float(wdef.get("damage", 1.0)) > 0.0:
+				var whip_dmg_ratio: float = float(whip_node.eff_damage) / float(wdef.get("damage", 1.0))
+				dmg *= lerpf(1.0, whip_dmg_ratio, 0.55)
+			if whip_node.get("eff_rate") != null and float(wdef.get("rate", 0.5)) > 0.0:
+				var whip_rate_ratio: float = float(whip_node.eff_rate) / float(wdef.get("rate", 0.5))
+				rate *= lerpf(1.0, whip_rate_ratio, 0.55)
+	params["damage"] = maxi(1, roundi(dmg))
+	params["attack_rate"] = clampf(rate, 0.25, 2.2)
+	params["melee_range"] = float(params.get("melee_range", 24.0)) * range_mult
+	params["ranged_range"] = float(params.get("ranged_range", 108.0)) * range_mult
+	params["leash_radius"] = float(params.get("leash_radius", SUMMON_COMBAT_LEASH_RADIUS)) * range_mult
+	params["whip_buffed"] = true
+	return params
 
 
 func tr_summon_type(sdef: Dictionary) -> String:
@@ -4158,6 +4677,8 @@ func get_sprite_sheet_anim_frames(sheet_id: String) -> Dictionary:
 			spec = WARRIOR_SPRITE_SHEET
 		"hunter":
 			spec = HUNTER_SPRITE_SHEET
+		"tamer":
+			spec = TAMER_SPRITE_SHEET
 	if spec.is_empty():
 		return {}
 	var cache_key: String = "%s|%d|%d" % [

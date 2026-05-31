@@ -74,6 +74,13 @@ const DEFS: Dictionary = {
 		"frame_count": 4,
 		"fps": 14.0,
 	},
+	"impact_medium": {
+		"sheet_path": "res://assets/Effects/impact_medium.png",
+		"frame_w": 90,
+		"frame_h": 34,
+		"frame_count": 4,
+		"fps": 14.0,
+	},
 }
 
 ## 環繞武器每幀判定命中，特效需冷卻避免洗版
@@ -91,7 +98,8 @@ static func spawn_on_enemy(
 		enemy: Node2D,
 		weapon_id: String,
 		variant: String = "",
-		weapon_kind: String = "") -> void:
+		weapon_kind: String = "",
+		visual_scale: float = 1.0) -> void:
 	if enemy == null or not is_instance_valid(enemy):
 		return
 	if weapon_kind == "orbit":
@@ -106,7 +114,7 @@ static func spawn_on_enemy(
 	var parent: Node = tree.current_scene
 	if parent == null:
 		return
-	spawn_at(parent, enemy.global_position, cfg)
+	spawn_at(parent, enemy.global_position, cfg, visual_scale)
 
 
 static func resolve_sheet(weapon_id: String, variant: String = "") -> Dictionary:
@@ -137,8 +145,12 @@ static func resolve_sheet(weapon_id: String, variant: String = "") -> Dictionary
 			frame_h = int(mf.get("frame_h", frame_h))
 			frame_count = int(mf.get("frame_count", frame_count))
 
-	var sheet_path: String = EFFECTS_ROOT + "%s_Hit(fx)%s.png" % [prefix, suffix]
-	if not ResourceLoader.exists(sheet_path, "Texture2D"):
+	var sheet_path: String = ""
+	if def.has("sheet_path"):
+		sheet_path = String(def.get("sheet_path", ""))
+	else:
+		sheet_path = EFFECTS_ROOT + "%s_Hit(fx)%s.png" % [prefix, suffix]
+	if sheet_path == "" or not ResourceLoader.exists(sheet_path, "Texture2D"):
 		return {}
 	return {
 		"sheet": sheet_path,
@@ -149,7 +161,11 @@ static func resolve_sheet(weapon_id: String, variant: String = "") -> Dictionary
 	}
 
 
-static func spawn_at(parent: Node, world_pos: Vector2, cfg: Dictionary) -> Node2D:
+static func spawn_at(
+		parent: Node,
+		world_pos: Vector2,
+		cfg: Dictionary,
+		visual_scale: float = 1.0) -> Node2D:
 	if parent == null or cfg.is_empty():
 		return null
 	var sheet_path: String = String(cfg.get("sheet", ""))
@@ -166,6 +182,8 @@ static func spawn_at(parent: Node, world_pos: Vector2, cfg: Dictionary) -> Node2
 	var root := Node2D.new()
 	root.global_position = world_pos
 	root.z_index = int(cfg.get("z_index", DEFAULT_Z_INDEX))
+	if visual_scale != 1.0:
+		root.scale = Vector2.ONE * visual_scale
 	var spr := AnimatedSprite2D.new()
 	spr.centered = true
 	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST

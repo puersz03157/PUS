@@ -122,6 +122,14 @@ var _enemy_stun_time: float = 0.0
 var _knockback_velocity: Vector2 = Vector2.ZERO
 var _player_bleed_time: float = 0.0
 var _player_bleed_dps: float = 0.0
+var _shroom_red_time: float = 0.0
+var _shroom_red_dmg_mult: float = 0.0
+var _shroom_red_crit_add: float = 0.0
+var _shroom_blue_time: float = 0.0
+var _shroom_blue_speed_mult: float = 0.0
+var _shroom_blue_rate_mult: float = 0.0
+var _shroom_green_time: float = 0.0
+var _shroom_green_regen: float = 0.0
 
 const WEAPON_SLOT_MAX := 5
 
@@ -489,6 +497,7 @@ func _physics_process(delta: float) -> void:
 
 	if regen_per_sec > 0.0:
 		_heal(regen_per_sec * delta)
+	_tick_shroom_buffs(delta)
 
 	passive_meter_fill_cd = max(0.0, passive_meter_fill_cd - delta)
 	_update_breakthrough_trackers(delta)
@@ -600,7 +609,15 @@ func get_effective_damage_mult() -> float:
 	var d: float = damage_mult * get_level_damage_mult()
 	if flame_charges > 0:
 		d *= 1.0 + float(flame_charges) * 0.05
+	if _shroom_red_time > 0.0:
+		d *= 1.0 + _shroom_red_dmg_mult
 	return d
+
+
+func get_effective_crit_chance_bonus() -> float:
+	if _shroom_red_time > 0.0:
+		return _shroom_red_crit_add
+	return 0.0
 
 
 func get_effective_atk_power() -> float:
@@ -619,11 +636,15 @@ func get_effective_rate_mult() -> float:
 	if passive_id == "blood_frenzy" and blood_frenzy_stack_timers.size() > 0:
 		var pdef: Dictionary = GameData.get_passive_def("blood_frenzy")
 		r *= 1.0 + float(pdef.get("params", {}).get("rate_per_stack", 0.08)) * float(blood_frenzy_stack_timers.size())
+	if _shroom_blue_time > 0.0:
+		r *= 1.0 + _shroom_blue_rate_mult
 	return r
 
 
 func get_effective_move_speed() -> float:
 	var spd: float = move_speed * speed_mult * get_level_speed_mult()
+	if _shroom_blue_time > 0.0:
+		spd *= 1.0 + _shroom_blue_speed_mult
 	if _enemy_slow_time > 0.0:
 		spd *= _enemy_slow_factor
 	if blood_shroud_active:
@@ -1787,6 +1808,53 @@ func collect_firearm_ammo_pack() -> void:
 	AudioManager.play_sfx("player_attack", 0.04)
 
 
+func collect_summon_mushroom(kind: String, combat_params: Dictionary) -> void:
+	var sup: int = int(combat_params.get("sup", 0))
+	var dur: float = GameData.summon_mushroom_buff_duration(sup)
+	var heal_amt: float = 0.0
+	match kind:
+		"red":
+			_shroom_red_time = dur
+			_shroom_red_dmg_mult = GameData.summon_mushroom_red_damage_mult(sup)
+			_shroom_red_crit_add = GameData.summon_mushroom_red_crit_add(sup)
+		"blue":
+			_shroom_blue_time = dur
+			_shroom_blue_speed_mult = GameData.summon_mushroom_blue_speed_mult(sup)
+			_shroom_blue_rate_mult = GameData.summon_mushroom_blue_rate_mult(sup)
+		"green":
+			_shroom_green_time = dur
+			_shroom_green_regen = GameData.summon_mushroom_green_regen(sup)
+			heal_amt = get_effective_max_hp() * GameData.summon_mushroom_green_heal_ratio(sup)
+			if heal_amt > 0.0:
+				_heal(heal_amt)
+				DamagePopup.spawn_at(self, heal_amt, false, false)
+		_:
+			return
+	var msg: String = GameData.summon_mushroom_pickup_message(kind, sup, heal_amt)
+	if msg != "" and self is Node2D:
+		var col: Color = Color(1.0, 0.72, 0.55) if kind == "red" \
+				else Color(0.62, 0.88, 1.0) if kind == "blue" \
+				else Color(0.72, 1.0, 0.62)
+		DamagePopup.spawn_text_at(self as Node2D, msg, col, 13)
+	AudioManager.play_sfx("pickup_xp", 0.08)
+
+
+func _tick_shroom_buffs(delta: float) -> void:
+	_shroom_red_time = maxf(0.0, _shroom_red_time - delta)
+	if _shroom_red_time <= 0.0:
+		_shroom_red_dmg_mult = 0.0
+		_shroom_red_crit_add = 0.0
+	_shroom_blue_time = maxf(0.0, _shroom_blue_time - delta)
+	if _shroom_blue_time <= 0.0:
+		_shroom_blue_speed_mult = 0.0
+		_shroom_blue_rate_mult = 0.0
+	_shroom_green_time = maxf(0.0, _shroom_green_time - delta)
+	if _shroom_green_time > 0.0 and _shroom_green_regen > 0.0:
+		_heal(_shroom_green_regen * delta)
+	if _shroom_green_time <= 0.0:
+		_shroom_green_regen = 0.0
+
+
 func set_boxing_combo_display(combo: int) -> void:
 	var c: int = maxi(0, combo)
 	if c == boxing_combo_display:
@@ -2516,6 +2584,8 @@ func add_weapon(weapon_id: String, allow_unaccounted_upgrade: bool = true) -> Di
 		entry["node"] = node
 		weapons_root.add_child(node)
 		node.setup(self, entry)
+	if weapon_id == "whip" and not village_mode:
+		_notify_whip_summon_count_changed()
 	return {"kind": "weapon_new", "weapon_id": weapon_id}
 
 
@@ -2603,6 +2673,12 @@ func _apply_random_weapon_upgrade(entry: Dictionary) -> Dictionary:
 	entry["level"] += 1
 	if entry["node"]:
 		entry["node"].refresh()
+	var weapon_id: String = String(entry.get("id", ""))
+	if weapon_id == "whip" and not village_mode:
+		if pick == "w_count":
+			_notify_whip_summon_count_changed()
+		else:
+			_notify_whip_summon_stats_changed()
 	if GameData.is_weapon_upgrades_maxed(entry["upgrades"]) \
 			and not GameData.is_weapon_upgrades_maxed(ups_before):
 		_try_show_weapon_max_bonus_unlock(String(entry["id"]))
@@ -2612,6 +2688,37 @@ func _apply_random_weapon_upgrade(entry: Dictionary) -> Dictionary:
 			max_lv = int(u["max"])
 			break
 	return {"ok": true, "upgrade_id": pick, "current": int(entry["upgrades"][pick]), "max": max_lv}
+
+
+func has_whip_weapon() -> bool:
+	for w in weapons:
+		if String(w.get("id", "")) == "whip":
+			return true
+	return false
+
+
+func get_whip_weapon_entry() -> Dictionary:
+	for w in weapons:
+		if String(w.get("id", "")) == "whip":
+			return w
+	return {}
+
+
+func get_whip_summon_count_bonus() -> int:
+	var entry: Dictionary = get_whip_weapon_entry()
+	if entry.is_empty():
+		return 0
+	return int(entry.get("upgrades", {}).get("w_count", 0))
+
+
+func _notify_whip_summon_count_changed() -> void:
+	if game_ref != null and game_ref.has_method("respawn_battle_summon_followers"):
+		game_ref.respawn_battle_summon_followers()
+
+
+func _notify_whip_summon_stats_changed() -> void:
+	if game_ref != null and game_ref.has_method("_refresh_battle_summon_followers"):
+		game_ref._refresh_battle_summon_followers()
 
 
 func _try_show_weapon_max_bonus_unlock(weapon_id: String) -> void:
@@ -2662,6 +2769,8 @@ func _spawn_weapon_node(weapon_id: String) -> Node:
 			return preload("res://scripts/weapons/weapon_firearm.gd").new()
 		"boxing":
 			return preload("res://scripts/weapons/weapon_boxing.gd").new()
+		"whip":
+			return preload("res://scripts/weapons/weapon_whip.gd").new()
 	return null
 
 
@@ -2682,6 +2791,8 @@ func apply_common_upgrade(id: String) -> Dictionary:
 			"rate_mult":
 				rate_mult += v
 				_refresh_weapon_stats()
+				if has_whip_weapon() and not village_mode:
+					_notify_whip_summon_stats_changed()
 			"pickup_mult":
 				pickup_mult += v
 				_update_pickup_radius()
@@ -2694,6 +2805,8 @@ func apply_common_upgrade(id: String) -> Dictionary:
 			"damage_mult":
 				damage_mult += v
 				_refresh_weapon_stats()
+				if has_whip_weapon() and not village_mode:
+					_notify_whip_summon_stats_changed()
 			"crit_chance":
 				crit_chance = min(0.95, crit_chance + v)
 			"crit_damage_mult":

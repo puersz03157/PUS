@@ -18,6 +18,7 @@ const CAMERA_ZOOM := Vector2(2.0, 2.0)
 const Coop := preload("res://scripts/coop_pair_follow.gd")
 const CoopPointerOverlay := preload("res://scripts/coop_pointer_overlay.gd")
 const VillageSummonFollowerT := preload("res://scripts/village_summon_follower.gd")
+const BattleSummonFollowerT := preload("res://scripts/battle_summon_follower.gd")
 const BLACKSMITH_RESCUE_RADIUS := 72.0
 const BLACKSMITH_EVENT_MIN_ENEMIES := 5
 const BLACKSMITH_EVENT_MAX_ENEMIES := 10
@@ -285,13 +286,29 @@ func _spawn_battle_summon_followers() -> void:
 		var char_id: String = String(p.character_id)
 		if char_id == "":
 			continue
-		var summon_ids: Array[String] = GameState.village_summon_ids_for_follow(prefix, char_id)
+		var summon_ids: Array[String] = _summon_deploy_list_for_player(p)
 		var count: int = summon_ids.size()
 		for i in count:
-			var follower = VillageSummonFollowerT.new()
+			var follower = BattleSummonFollowerT.new()
 			add_child(follower)
-			follower.setup(p, summon_ids[i], prefix, i, count)
+			follower.setup_battle(p, summon_ids[i], prefix, i, count)
 			_summon_followers.append(follower)
+
+
+func _summon_deploy_list_for_player(p: Node) -> Array[String]:
+	var prefix: String = String(p.input_prefix)
+	var char_id: String = String(p.character_id)
+	if p.has_method("has_whip_weapon") and p.has_whip_weapon():
+		var bonus: int = 0
+		if p.has_method("get_whip_summon_count_bonus"):
+			bonus = p.get_whip_summon_count_bonus()
+		return GameData.build_whip_summon_deploy_list(
+			prefix, char_id, bonus, GameState.two_players)
+	return GameState.village_summon_ids_for_follow(prefix, char_id)
+
+
+func respawn_battle_summon_followers() -> void:
+	_spawn_battle_summon_followers()
 
 
 func _clear_battle_summon_followers() -> void:
@@ -299,6 +316,10 @@ func _clear_battle_summon_followers() -> void:
 		if is_instance_valid(f):
 			f.queue_free()
 	_summon_followers.clear()
+	GameData.reset_summon_mushroom_spawn_seq()
+	for n in get_tree().get_nodes_in_group("summon_mushroom_orbs"):
+		if is_instance_valid(n):
+			n.queue_free()
 
 
 func _refresh_battle_summon_followers() -> void:
